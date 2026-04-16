@@ -1039,16 +1039,18 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     # Only build when: (a) user switches to this tab for first time, or (b) data reloaded while viewing this tab.
     triggered_id = ctx.triggered_id
     is_data_trigger = triggered_id in ("original-df-store", "process-time-range-store")
-    
+
     if is_data_trigger and tab_value != "process-specific-tab":
         # Data reloaded but tab not active — clear stale content so it rebuilds on next view
         return []
-    
+
     if triggered_id == "results-tabs":
         # Tab switch: only build if no content yet (first view after data loaded)
         if tab_value != "process-specific-tab":
             return dash.no_update
-        if current_children:
+        # current_children is truthy if non-empty, but it might just be a "No data" alert
+        # (not the actual grid). Only skip rebuild if the grid was already built (a list of rows).
+        if isinstance(current_children, list) and len(current_children) > 0:
             return dash.no_update
 
     if not original_df_data or not process_time_range:
@@ -1057,7 +1059,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             color="warning",
             style={"margin": "0", "fontWeight": "bold"},
         )
-    
+
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
 
@@ -1067,7 +1069,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             color="warning",
             style={"margin": "0", "fontWeight": "bold"},
         )
-    
+
     # Convert stored data back to dataframe
     df_original = df_from_store(original_df_data)
     if is_cache_miss(df_original):
@@ -1077,7 +1079,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             style={"margin": "0", "fontWeight": "bold"},
         )
     _ensure_timestamp_datetime(df_original)
-    
+
     # Get unique metrics
     unique_metrics = sorted(df_original["metric"].unique().tolist())
     
@@ -1659,13 +1661,13 @@ def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
     df = df_from_store(original_df_data)
     dfm = df[df["metric"] == metric].copy()
 
-    # Normalize to strings for stable matching
-    # Convert to string first (handles categorical columns), then replace "nan" with empty string
-    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
-    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
-    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
+    # Normalize to strings for stable matching.
+    # fillna("") before astype(str): category dtype NaN survives as float NaN in newer pandas.
+    dfm["rk"] = dfm["resource_kind"].astype(object).fillna("").astype(str).str.strip()
+    dfm["rid"] = dfm["resource_id"].astype(object).fillna("").astype(str).str.strip()
+    dfm["ck"] = dfm["consumer_kind"].astype(object).fillna("").astype(str).str.strip()
+    dfm["cid"] = dfm["consumer_id"].astype(object).fillna("").astype(str).str.strip()
+    dfm["la"] = dfm["__late_attributes"].astype(object).fillna("").astype(str).str.strip()
 
     rk = norm(rk)
     rid = norm(rid)
@@ -1776,13 +1778,13 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
     _ensure_timestamp_datetime(df)
     dfm = df[df["metric"] == metric].copy()
 
-    # Same string normalization as options callback
-    # Convert to string first (handles categorical columns), then replace "nan" with empty string
-    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
-    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
-    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
+    # Same string normalization as options callback.
+    # fillna("") before astype(str): category dtype NaN survives as float NaN in newer pandas.
+    dfm["rk"] = dfm["resource_kind"].astype(object).fillna("").astype(str).str.strip()
+    dfm["rid"] = dfm["resource_id"].astype(object).fillna("").astype(str).str.strip()
+    dfm["ck"] = dfm["consumer_kind"].astype(object).fillna("").astype(str).str.strip()
+    dfm["cid"] = dfm["consumer_id"].astype(object).fillna("").astype(str).str.strip()
+    dfm["la"] = dfm["__late_attributes"].astype(object).fillna("").astype(str).str.strip()
 
     rk = norm(rk)
     rid = norm(rid)
