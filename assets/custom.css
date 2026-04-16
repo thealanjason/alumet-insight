@@ -1,0 +1,284 @@
+/* Custom CSS for Dark Theme Dropdowns and Components */
+
+/* ---- Dash 4 CSS Custom Properties - Nord Dark Theme ---- */
+/* Set on both :root (highest cascade) and .dbc (for inheritance) */
+:root {
+    --Dash-Spacing: 4px;
+    --Dash-Stroke-Strong: #4C566A;
+    --Dash-Stroke-Weak: rgba(236, 239, 244, 0.15);
+    --Dash-Fill-Interactive-Strong: #5E81AC;
+    --Dash-Fill-Interactive-Weak: rgba(94, 129, 172, 0.08);
+    --Dash-Fill-Inverse-Strong: #434C5E;
+    --Dash-Fill-Inverse-strong: #434C5E;
+    --Dash-Fill-Primary-Hover: rgba(236, 239, 244, 0.08);
+    --Dash-Fill-Primary-Active: rgba(236, 239, 244, 0.12);
+    --Dash-Fill-Disabled: rgba(236, 239, 244, 0.15);
+    --Dash-Fill-Weak: rgba(236, 239, 244, 0.06);
+    --Dash-Text-Primary: #ECEFF4;
+    --Dash-Text-Strong: #ECEFF4;
+    --Dash-Text-Weak: #D8DEE9;
+    --Dash-Text-Disabled: rgba(236, 239, 244, 0.3);
+    --Dash-Shading-Strong: rgba(0, 0, 0, 0.6);
+    --Dash-Shading-Weak: rgba(0, 0, 0, 0.35);
+    --Dash-Tooltip-Background-Color: #3B4252;
+    --Dash-Tooltip-Border-Color: #4C566A;
+}
+
+.Select-control:hover {
+    border-color: #88C0D0 !important;
+}
+
+.dbc .dash-input-container input:not([type=radio]):not([type=checkbox]) {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: inherit !important;
+}
+
+/* dcc.Input: .dash-input-container wraps .dash-input-element */
+.dbc .dash-input-container {
+    background: #434C5E !important;
+    border-color: #5E81AC !important;
+    color: #ECEFF4 !important;
+}
+
+.dbc .dash-input-element {
+    color: #ECEFF4 !important;
+}
+
+.dbc .dash-input-element::placeholder {
+    color: #D8DEE9 !important;
+}
+
+/* ---- dcc.Dropdown ---- */
+.dbc .dash-dropdown {
+    background: #434C5E !important;
+    color: #ECEFF4 !important;
+}
+
+.dbc .dash-dropdown-placeholder {
+    color: #D8DEE9 !important;
+}
+
+.dash-dropdown-content {
+    background: #434C5E !important;
+    color: #ECEFF4 !important;
+}
+
+.dash-dropdown-search-container {
+    background: #434C5E !important;
+    color: #ECEFF4 !important;
+}
+
+.dash-dropdown-search-container .dash-dropdown-search,
+.dash-dropdown-search {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #ECEFF4 !important;
+}
+
+.dash-dropdown-option {
+    color: #ECEFF4 !important;
+}
+
+.dash-dropdown-option:hover {
+    background: rgba(94, 129, 172, 0.3) !important;
+}
+
+/* Override dbc.css textarea rule */
+.dbc .dash-textarea {
+    background: #434C5E !important;
+    background-color: #434C5E !important;
+    color: #ECEFF4 !important;
+    border-color: #5E81AC !important;
+}
+
+/* Legacy Dash dropdown option classes (checklist/radioitems) */
+.dbc .dash-options-list-option {
+    background: #434C5E !important;
+    color: #ECEFF4 !important;
+}
+
+.dbc .dash-options-list-option:hover,
+.dbc .dash-options-list-option-wrapper:hover .dash-options-list-option {
+    background: #5E81AC !important;
+    color: #ECEFF4 !important;
+}
+
+/* Card improvements */
+.card {
+    background-color: #3B4252 !important;
+    border-color: #4C566A !important;
+}
+
+.card-header {
+    background-color: #434C5E !important;
+    border-bottom-color: #4C566A !important;
+}
+
+.card-body {
+    color: #ECEFF4 !important;
+}
+
+/* Button hover effects */
+.btn-success:hover {
+    background-color: #8FA87A !important;
+    border-color: #8FA87A !important;
+}
+
+/* Alert improvements */
+.alert {
+    border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ---- Tab overrides (keep Nord colors over dbc.css defaults) ---- */
+.dbc .tab {
+    background-color: #3B4252 !important;
+    color: #D8DEE9 !important;
+    border: 1px solid #4C566A !important;
+    border-top: 3px solid #3B4252 !important;
+}
+
+.dbc .tab--selected {
+    background-color: #5E81AC !important;
+    color: #ECEFF4 !important;
+    border-top: 3px solid #5E81AC !important;
+}
+
+/* ---- Slider styling ---- */
+/* Slider mark labels - all white, no highlighting */
+.rc-slider-mark-text,
+.rc-slider-mark-text-active,
+.rc-slider .rc-slider-mark-text,
+.rc-slider .rc-slider-mark-text-active,
+.rc-slider-mark .rc-slider-mark-text,
+.rc-slider-mark .rc-slider-mark-text-active,
+span.rc-slider-mark-text,
+span.rc-slider-mark-text-active,
+div.rc-slider-mark-text,
+div.rc-slider-mark-text-active {
+    color: #ECEFF4 !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    opacity: 1 !important;
+}
+
+.rc-slider-mark-text[class*="active"],
+.rc-slider-mark-text-active[class*="active"],
+.rc-slider-mark-text.rc-slider-mark-text-active {
+    color: #ECEFF4 !important;
+    font-weight: 500 !important;
+}
+
+.rc-slider-mark-text *,
+.rc-slider-mark-text-active *,
+.rc-slider-mark-text span,
+.rc-slider-mark-text-active span {
+    color: #ECEFF4 !important;
+}
+
+.rc-slider-mark {
+    color: #ECEFF4 !important;
+}
+
+[class*="rc-slider-mark-text"] {
+    color: #ECEFF4 !important;
+}
+
+*[class*="mark-text"] {
+    color: #ECEFF4 !important;
+}
+
+/* Slider track and handle */
+.rc-slider-track {
+    background-color: #5E81AC !important;
+}
+
+.rc-slider-handle {
+    border-color: #88C0D0 !important;
+    background-color: #88C0D0 !important;
+}
+
+.rc-slider-handle:hover,
+.rc-slider-handle:active,
+.rc-slider-handle:focus {
+    border-color: #ECEFF4 !important;
+    box-shadow: 0 0 0 5px rgba(136, 192, 208, 0.2) !important;
+}
+
+.rc-slider-rail {
+    background-color: #4C566A !important;
+}
+
+/* Custom scrollbar styling for dark theme */
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: #2E3440;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #4C566A;
+    border-radius: 6px;
+    border: 2px solid #2E3440;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #5E81AC;
+}
+
+/* Firefox scrollbar */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #4C566A #2E3440;
+}
+
+/* Ensure graph containers take full width */
+#timeseries-plot-container {
+    width: 100% !important;
+}
+
+#timeseries-plot-container .js-plotly-plot {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+#timeseries-plot-container .plotly {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* Compact dropdown styling for grid filter row */
+.compact-dropdown .Select-control {
+    min-height: 28px !important;
+    height: 28px !important;
+}
+
+.compact-dropdown .Select-value {
+    line-height: 26px !important;
+    padding-left: 6px !important;
+}
+
+.compact-dropdown .Select-placeholder {
+    line-height: 26px !important;
+    padding-left: 6px !important;
+}
+
+.compact-dropdown .Select-input {
+    height: 26px !important;
+}
+
+.compact-dropdown .Select-input > input {
+    padding: 4px 0 !important;
+}
+
+.compact-dropdown .Select-arrow-zone {
+    padding: 4px !important;
+}
+
+.compact-dropdown .Select-clear-zone {
+    padding: 4px !important;
+}

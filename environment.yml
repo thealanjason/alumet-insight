@@ -1,0 +1,14 @@
+name: alumet-viz
+channels:
+  - conda-forge
+dependencies:
+  - matplotlib
+  - numpy
+  - pandas
+  - polars  # Multi-threaded CSV reader (2-5x faster than pandas for large files)
+  - pyarrow  # Fast Parquet I/O for server-side caching of large DataFrames
+  - python=3.12
+  - dash
+  - dash-ag-grid
+  - dash-bootstrap-components
+  - toml
