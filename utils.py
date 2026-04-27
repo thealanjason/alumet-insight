@@ -932,20 +932,18 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
                 line=dict(width=0),
                 layer="below",
             )
-        # Add a single invisible trace for the legend entry
-        first_mid = unique_metrics[0]
-        yr0 = y_ranges.get(first_mid, {"min": 0.0, "max": 1.0})
-        y_leg = float(yr0["min"]) + 0.01 * (float(yr0["max"]) - float(yr0["min"]) + 1e-9)
+        # Add a single trace for the legend entry without plotting a data point.
+        # Using visible="legendonly" makes Plotly dim the label, which has poor
+        # contrast in both light and dark themes.
         fig.add_trace(
             go.Scatter(
-                x=[x_min],
-                y=[y_leg],
+                x=[None],
+                y=[None],
                 mode="markers",
                 marker=dict(size=10, color="rgba(136, 192, 208, 0.4)", symbol="square"),
                 name="Process Active",
                 showlegend=True,
                 legendgroup="process_active",
-                visible="legendonly",
             ),
             row=1, col=1,
         )
