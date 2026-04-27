@@ -42,8 +42,8 @@ BASE_DIR = Path(__file__).parent.parent
 # Use in-memory cache (instant) + Parquet on disk (persistent)
 # dcc.Store only holds a reference ID, not the actual data
 # ============================================================
-CACHE_DIR = Path(tempfile.gettempdir()) / "dash_df_cache"
-CACHE_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path(tempfile.mkdtemp(prefix="dash_df_cache_"))
+CACHE_DIR.chmod(0o700)
 
 # In-memory cache: eliminates repeated Parquet disk reads (11+ per session)
 _MEMORY_CACHE: dict[str, pd.DataFrame] = {}
@@ -157,271 +157,180 @@ def _ensure_timestamp_datetime(df: pd.DataFrame) -> pd.DataFrame:
 app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 app.config.suppress_callback_exceptions=True
 
+def status_alert_class(color: str) -> str:
+    """Return CSS classes for the muted sidebar status panel."""
+    return f"status-alert status-alert-{color}"
+
 # App Layout
-app.layout = dbc.Container(
+app.layout = html.Div(
     id="main-container",
-    fluid=True,
     children=[
-        # Header Section
         dbc.Row(
             [
+                # Left sidebar: configuration and run controls
                 dbc.Col(
                     [
                         html.Div(
                             [
                                 html.Img(
                                     src=app.get_asset_url("logo.png"),
-                                    style={"height": "60px", "width": "auto", "marginRight": "15px"}
+                                    style={
+                                        "height": "58px",
+                                        "width": "auto",
+                                        "marginBottom": "18px",
+                                    },
                                 ),
                                 html.H1(
                                     "Alumet Energy Visualization",
                                     style={
                                         "margin": "0",
                                         "color": "#ECEFF4",
-                                        "fontSize": "2.5rem",
-                                        "fontWeight": "600",
-                                    }
+                                        "fontSize": "1.65rem",
+                                        "fontWeight": "700",
+                                        "lineHeight": "1.15",
+                                    },
+                                ),
+                                html.P(
+                                    "Visualization dashboard to monitor process-specific compute performance on HPC environment measured by Alumet.",
+                                    style={
+                                        "margin": "12px 0 0",
+                                        "color": "#D8DEE9",
+                                        "fontSize": "0.92rem",
+                                        "lineHeight": "1.45",
+                                    },
                                 ),
                             ],
-                            style={
-                                "display": "flex",
-                                "alignItems": "center",
-                                "padding": "30px 0",
-                            }
+                            style={"marginBottom": "28px"},
                         ),
-                    ],
-                    width=12,
-                )
-            ],
-            className="mb-4",
-        ),
-        
-        # Process Info Card
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.Div(
-                                            id="process-info",
-                                            children=[
-                                                html.Div(
-                                                    [
-                                                        html.Span(
-                                                            id="pid-display",
-                                                            style={
-                                                                "fontSize": "1.1rem",
-                                                                "color": "#ECEFF4",
-                                                                "fontWeight": "600",
-                                                                "letterSpacing": "0.5px",
-                                                            }
-                                                        ),
-                                                    ],
-                                                    style={
-                                                        "display": "flex",
-                                                        "alignItems": "center",
-                                                        "flex": "1",
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    style={
-                                                        "width": "1px",
-                                                        "height": "30px",
-                                                        "backgroundColor": "#4C566A",
-                                                        "margin": "0 20px",
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    [
-                                                        html.Span(
-                                                            id="device-display",
-                                                            style={
-                                                                "fontSize": "1.1rem",
-                                                                "color": "#ECEFF4",
-                                                                "fontWeight": "600",
-                                                                "letterSpacing": "0.5px",
-                                                            }
-                                                        ),
-                                                    ],
-                                                    style={
-                                                        "display": "flex",
-                                                        "alignItems": "center",
-                                                        "flex": "1",
-                                                    }
-                                                ),
-                                            ],
-                                            style={
-                                                "display": "flex",
-                                                "alignItems": "center",
-                                                "justifyContent": "space-between",
-                                                "padding": "15px 0",
-                                            },
-                                        ),
-                                    ],
-                                    style={"padding": "20px 30px"},
-                                ),
-                            ],
-                            color="dark",
-                            inverse=True,
-                            style={
-                                "marginBottom": "30px",
-                                "background": "linear-gradient(135deg, #434C5E 0%, #3B4252 100%)",
-                                "border": "1px solid #5E81AC",
-                                "borderRadius": "8px",
-                                "boxShadow": "0 2px 8px rgba(0, 0, 0, 0.2)",
-                            },
-                        ),
-                    ],
-                    width=12,
-                )
-            ],
-        ),
-        
-        # Directory path selection section where the Alumet measurement files are located
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
                         dbc.Card(
                             [
                                 dbc.CardHeader(
-                                    "Select Measurement Directory",
+                                    "Configuration Path",
                                     style={
                                         "backgroundColor": "#434C5E",
                                         "color": "#ECEFF4",
-                                        "fontSize": "1.2rem",
+                                        "fontSize": "1.05rem",
                                         "fontWeight": "600",
-                                        "padding": "15px",
+                                        "padding": "14px 16px",
                                         "borderBottom": "2px solid #5E81AC",
-                                    }
+                                    },
                                 ),
                                 dbc.CardBody(
                                     [
-                                        html.Div(
+                                        html.Label(
                                             [
-                                                html.Label(
-                                                    [
-                                                        "Directory Path: ",
-                                                        html.Span("(Required)", style={"color": "#BF616A", "fontSize": "0.85rem", "fontWeight": "400"}),
-                                                    ],
+                                                "Directory Path ",
+                                                html.Span(
+                                                    "(Required)",
                                                     style={
-                                                        "color": "#ECEFF4",
-                                                        "marginBottom": "10px",
-                                                        "fontSize": "1rem",
-                                                        "fontWeight": "500",
-                                                    }
-                                                ),
-                                                dcc.Input(
-                                                    id="directory-path-input",
-                                                    type="text",
-                                                    placeholder="Input type directory containing .csv, .log, and .toml files",
-                                                    debounce=True,
-                                                    style={
-                                                        "width": "100%",
-                                                        "padding": "12px 14px",
-                                                        "borderRadius": "8px",
-                                                        "border": "2px solid #5E81AC",
-                                                        "backgroundColor": "#434C5E",
-                                                        "color": "#ECEFF4",
-                                                        "fontSize": "1rem",
-                                                        "lineHeight": "1.5",
-                                                        "height": "auto",
-                                                        "overflow": "visible",
+                                                        "color": "#BF616A",
+                                                        "fontSize": "0.8rem",
+                                                        "fontWeight": "400",
                                                     },
                                                 ),
-                                                html.Div(
-                                                    "Press Enter/Tab after typing the path",
-                                                    style={
-                                                        "marginTop": "8px",
-                                                        "fontSize": "0.85rem",
-                                                        "color": "#88C0D0",
-                                                        "fontStyle": "italic",
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    id="directory-status",
-                                                    style={
-                                                        "marginTop": "12px",
-                                                        "fontSize": "0.9rem",
-                                                        "color": "#88C0D0",
-                                                    }
-                                                ),
                                             ],
+                                            style={
+                                                "color": "#ECEFF4",
+                                                "marginBottom": "10px",
+                                                "fontSize": "0.95rem",
+                                                "fontWeight": "500",
+                                            },
+                                        ),
+                                        dcc.Input(
+                                            id="directory-path-input",
+                                            type="text",
+                                            placeholder="Path containing .csv, .log/.txt, and .toml files",
+                                            debounce=True,
+                                            style={
+                                                "width": "100%",
+                                                "minHeight": "48px",
+                                                "padding": "13px 12px",
+                                                "borderRadius": "8px",
+                                                "border": "2px solid #5E81AC",
+                                                "backgroundColor": "#434C5E",
+                                                "color": "#ECEFF4",
+                                                "fontSize": "0.92rem",
+                                                "lineHeight": "1.5",
+                                            },
+                                        ),
+                                        html.Div(
+                                            "Press Enter/Tab after typing the path",
+                                            style={
+                                                "marginTop": "8px",
+                                                "fontSize": "0.82rem",
+                                                "color": "#88C0D0",
+                                                "fontStyle": "italic",
+                                            },
+                                        ),
+                                        html.Div(
+                                            id="directory-status",
+                                            style={
+                                                "marginTop": "12px",
+                                                "fontSize": "0.86rem",
+                                                "color": "#88C0D0",
+                                            },
                                         ),
                                     ],
-                                    style={"padding": "25px", "backgroundColor": "#3B4252"},
+                                    style={"padding": "18px", "backgroundColor": "#3B4252"},
                                 ),
                             ],
                             color="dark",
                             inverse=True,
-                            style={"marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+                            style={
+                                "marginBottom": "20px",
+                                "backgroundColor": "#3B4252",
+                                "border": "1px solid #4C566A",
+                            },
                         ),
-                    ],
-                    width=12,
-                ),
-            ],
-            className="mb-4",
-        ),
-        
-        # Visualize and Reset Buttons Section
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
                         dbc.Card(
                             [
                                 dbc.CardBody(
                                     [
+                                        dbc.Button(
+                                            "Visualize",
+                                            id="visualize-button",
+                                            n_clicks=0,
+                                            color="primary",
+                                            size="lg",
+                                            style={
+                                                "fontSize": "1rem",
+                                                "fontWeight": "600",
+                                                "padding": "13px 18px",
+                                                "width": "100%",
+                                                "backgroundColor": "#5E81AC",
+                                                "borderColor": "#5E81AC",
+                                                "color": "#ECEFF4",
+                                                "marginBottom": "10px",
+                                            },
+                                        ),
+                                        dbc.Button(
+                                            "Reset",
+                                            id="reset-button",
+                                            n_clicks=0,
+                                            color="secondary",
+                                            size="lg",
+                                            style={
+                                                "fontSize": "1rem",
+                                                "fontWeight": "600",
+                                                "padding": "13px 18px",
+                                                "width": "100%",
+                                                "backgroundColor": "#BF616A",
+                                                "borderColor": "#BF616A",
+                                                "color": "#ECEFF4",
+                                            },
+                                        ),
+                                        html.Hr(style={"borderColor": "#4C566A", "margin": "18px 0"}),
                                         html.Div(
-                                            [
-                                                dbc.Row(
-                                                    [
-                                                        dbc.Col(
-                                                            dbc.Button(
-                                                                "Visualize",
-                                                                id="visualize-button",
-                                                                n_clicks=0,
-                                                                color="primary",
-                                                                size="lg",
-                                                                style={
-                                                                    "fontSize": "1.1rem",
-                                                                    "fontWeight": "600",
-                                                                    "padding": "15px 40px",
-                                                                    "width": "100%",
-                                                                    "backgroundColor": "#5E81AC",
-                                                                    "borderColor": "#5E81AC",
-                                                                    "color": "#ECEFF4",
-                                                                },
-                                                            ),
-                                                            width=8,
-                                                        ),
-                                                        dbc.Col(
-                                                            dbc.Button(
-                                                                "Reset",
-                                                                id="reset-button",
-                                                                n_clicks=0,
-                                                                color="secondary",
-                                                                size="lg",
-                                                                style={
-                                                                    "fontSize": "1.1rem",
-                                                                    "fontWeight": "600",
-                                                                    "padding": "15px 20px",
-                                                                    "width": "100%",
-                                                                    "backgroundColor": "#BF616A",
-                                                                    "borderColor": "#BF616A",
-                                                                    "color": "#ECEFF4",
-                                                                },
-                                                            ),
-                                                            width=4,
-                                                        ),
-                                                    ],
-                                                    className="g-2",
-                                                ),
-                                            ],
-                                            style={"marginBottom": "20px"},
+                                            "Status",
+                                            style={
+                                                "color": "#88C0D0",
+                                                "fontSize": "0.78rem",
+                                                "fontWeight": "700",
+                                                "letterSpacing": "0.06rem",
+                                                "marginBottom": "8px",
+                                                "textTransform": "uppercase",
+                                                "textAlign": "left",
+                                            },
                                         ),
                                         dcc.Loading(
                                             id="loading-status",
@@ -430,23 +339,83 @@ app.layout = dbc.Container(
                                             children=html.Div(id="status-message"),
                                         ),
                                     ],
-                                    style={"padding": "25px", "textAlign": "center", "backgroundColor": "#3B4252"},
+                                    style={"padding": "18px", "backgroundColor": "#3B4252"},
                                 ),
                             ],
                             color="dark",
                             inverse=True,
-                            style={"marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+                            style={
+                                "marginBottom": "20px",
+                                "backgroundColor": "#3B4252",
+                                "border": "1px solid #4C566A",
+                            },
+                        ),
+                        dbc.Card(
+                            [
+                                dbc.CardBody(
+                                    [
+                                        html.Div(
+                                            "Process Summary",
+                                            style={
+                                                "color": "#88C0D0",
+                                                "fontSize": "0.85rem",
+                                                "fontWeight": "700",
+                                                "letterSpacing": "0.06rem",
+                                                "marginBottom": "12px",
+                                                "textTransform": "uppercase",
+                                            },
+                                        ),
+                                        html.Div(
+                                            id="process-info",
+                                            children=[
+                                                html.Span(
+                                                    id="pid-display",
+                                                    style={
+                                                        "display": "block",
+                                                        "fontSize": "1rem",
+                                                        "color": "#ECEFF4",
+                                                        "fontWeight": "600",
+                                                        "letterSpacing": "0.3px",
+                                                        "marginBottom": "8px",
+                                                    },
+                                                ),
+                                                html.Span(
+                                                    id="device-display",
+                                                    style={
+                                                        "display": "block",
+                                                        "fontSize": "1rem",
+                                                        "color": "#ECEFF4",
+                                                        "fontWeight": "600",
+                                                        "letterSpacing": "0.3px",
+                                                    },
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                    style={"padding": "18px"},
+                                ),
+                            ],
+                            color="dark",
+                            inverse=True,
+                            style={
+                                "background": "linear-gradient(135deg, #434C5E 0%, #3B4252 100%)",
+                                "border": "1px solid #5E81AC",
+                                "borderRadius": "8px",
+                                "boxShadow": "0 2px 8px rgba(0, 0, 0, 0.2)",
+                            },
                         ),
                     ],
-                    width=12,
-                )
-            ],
-            className="mb-4",
-        ),
-        
-        # Results Tabs Section
-        dbc.Row(
-            [
+                    xs=12,
+                    md=4,
+                    lg=3,
+                    style={
+                        "backgroundColor": "#2E3440",
+                        "borderRight": "1px solid #4C566A",
+                        "minHeight": "100vh",
+                        "padding": "28px 24px",
+                    },
+                ),
+                # Main area: all visualizations and analysis tabs
                 dbc.Col(
                     [
                         dcc.Tabs(
@@ -528,12 +497,18 @@ app.layout = dbc.Container(
                             style={"minHeight": "200px"},
                         ),
                     ],
-                    width=12,
-                )
+                    xs=12,
+                    md=8,
+                    lg=9,
+                    style={
+                        "backgroundColor": "#2E3440",
+                        "minHeight": "100vh",
+                        "padding": "28px 28px 40px",
+                    },
+                ),
             ],
-            className="mb-4",
+            className="g-0",
         ),
-        
         # Hidden stores for data
         dcc.Store(id="processed-df-store", data=None),  # Store processed dataframe
         dcc.Store(id="original-df-store", data=None),  # Store original dataframe
@@ -544,8 +519,8 @@ app.layout = dbc.Container(
     style={
         "backgroundColor": "#2E3440",
         "minHeight": "100vh",
-        "padding": "40px 30px",
         "maxWidth": "1600px",
+        "margin": "0 auto",
     },
 )
 
@@ -632,7 +607,7 @@ def reset_app(n_clicks):
                 " to load and visualize data.",
             ],
             color="warning",
-            style={"margin": "0"},
+            className=status_alert_class("warning"),
         ),  # Reset status message
         html.Span("", style={"display": "none"}),  # Clear directory status
     )
@@ -647,10 +622,12 @@ def update_process_info(n_clicks, directory_path):
     if n_clicks == 0 or not directory_path or not directory_path.strip():
         return "process id: N/A", "device: N/A"
     
-    # Find and read log file
+    # Find and read csv and log file
+    log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
+    log_content = read_file_content(log_file)
+    pid = extract_pid_from_content(log_content)
     csv_file = find_files_in_directory(directory_path, ['.csv'])
     csv_content = read_file_content(csv_file)
-    pid = extract_pid_from_content(csv_content)
     if is_gpu_from_content(csv_content) and not is_cpu_from_content(csv_content):
         device = "GPU"
     elif not is_gpu_from_content(csv_content) and is_cpu_from_content(csv_content):
@@ -680,7 +657,7 @@ def load_and_visualize(n_clicks, directory_path):
                     " to load and visualize data.",
                 ],
                 color="warning",
-                style={"margin": "0"},
+                className=status_alert_class("warning"),
             ),
             None,
             None,
@@ -695,7 +672,7 @@ def load_and_visualize(n_clicks, directory_path):
                 "Directory path is required. Please enter a directory path."
             ],
             color="danger",
-            style={"margin": "0"},
+            className=status_alert_class("danger"),
         )
         return status_msg, None, None, None
     
@@ -708,7 +685,7 @@ def load_and_visualize(n_clicks, directory_path):
                     f"Directory does not exist: {directory_path}"
                 ],
                 color="danger",
-                style={"margin": "0"},
+                className=status_alert_class("danger"),
             )
             return status_msg, None, None, None
         
@@ -719,7 +696,7 @@ def load_and_visualize(n_clicks, directory_path):
                     f"Path is not a directory: {directory_path}"
                 ],
                 color="danger",
-                style={"margin": "0"},
+                className=status_alert_class("danger"),
             )
             return status_msg, None, None, None
         
@@ -735,7 +712,7 @@ def load_and_visualize(n_clicks, directory_path):
                     "CSV file is required. Please ensure the directory contains a .csv file."
                 ],
                 color="danger",
-                style={"margin": "0"},
+                className=status_alert_class("danger"),
             )
             return status_msg, None, None, None
         
@@ -747,7 +724,7 @@ def load_and_visualize(n_clicks, directory_path):
                     "Log file is required. Please ensure the directory contains a .log or .txt file."
                 ],
                 color="danger",
-                style={"margin": "0"},
+                className=status_alert_class("danger"),
             )
             return status_msg, None, None, None
         
@@ -786,7 +763,7 @@ def load_and_visualize(n_clicks, directory_path):
                 ),
             ],
             color="success",
-            style={"margin": "0"},
+            className=status_alert_class("success"),
         )
         
         process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
@@ -802,7 +779,7 @@ def load_and_visualize(n_clicks, directory_path):
                 str(e)
             ],
             color="danger",
-            style={"margin": "0"},
+            className=status_alert_class("danger"),
         )
         return status_msg, None, None, None
 
@@ -836,7 +813,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
         return dbc.Alert(
             "No data available. Please load data using the Visualize button.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
     
     # Convert stored data back to dataframe
@@ -1057,7 +1034,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         return dbc.Alert(
             "No data available. Please load data using the Visualize button.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
@@ -1067,7 +1044,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         return dbc.Alert(
             "Process time range not available.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
 
     # Convert stored data back to dataframe
@@ -1076,7 +1053,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         return dbc.Alert(
             "Session data expired (server was restarted). Please click Visualize again to reload.",
             color="danger",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("danger"),
         )
     _ensure_timestamp_datetime(df_original)
 
@@ -1336,7 +1313,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
         return dbc.Alert(
             "No data available. Please load data using the Visualize button.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
 
     # Only metrics that have samples inside the process window
@@ -1345,7 +1322,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
         return dbc.Alert(
             "Need at least 2 metrics inside process window.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
 
     return dbc.Card(
@@ -2023,10 +2000,10 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
 )
 def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_toggle, processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert("No data available.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("No data available.", color="warning", className=status_alert_class("warning")), None
     
     if not selected_category:
-        return dbc.Alert("Please select a metric category.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
@@ -2090,7 +2067,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
     elif selected_category == "kernel_cpu_time":
         # Require CPU core selection for kernel_cpu_time (too many cores to show all)
         if not selected_cpu_core:
-            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", className=status_alert_class("warning")), None
         
         # Filter for kernel_cpu_time_ms
         df_filtered = df_processed[df_processed["base_metric"] == "kernel_cpu_time_ms"]
@@ -2140,7 +2117,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
         df_filtered = pd.DataFrame()
     
     if df_filtered.empty:
-        return dbc.Alert("No data available for the selected category.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None
     
     # Get process time range for gray highlight
     proc_start = None
