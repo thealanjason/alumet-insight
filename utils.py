@@ -802,8 +802,9 @@ def uniq_str(series: pd.Series) -> list:
     
     Optimized using vectorized operations instead of loop.
     """
-    # Convert to string FIRST (handles categorical columns), then replace "nan" with empty string
-    str_series = series.astype(str).replace("nan", "").str.strip()
+    # astype(object) first to escape category dtype (fillna requires the fill value to be an
+    # existing category, but "" is not). After object cast, float NaN can be filled safely.
+    str_series = series.astype(object).fillna("").astype(str).str.strip()
     # Filter out empty strings using boolean indexing (vectorized)
     mask = str_series != ""
     # Get unique values and sort
