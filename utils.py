@@ -285,6 +285,7 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
         if not df_gpu.empty
         else pd.DataFrame(columns=["timestamp", "pid", "value"])
     )
+    # Sum CPU attributed energy per (timestamp, pid).
     df_cpu_summed = (
         df_cpu.groupby(["timestamp", "pid"], as_index=False)["value"].sum()
         if not df_cpu.empty
@@ -332,7 +333,7 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
         if total_pid.empty:
             continue
         total_pid["value"] = total_pid["cpu_value"] + total_pid["gpu_value"]
-        total_pid["metric_id"] = f"attributed_energy_total_J_R_total__C_process_{pid}_A_"
+        total_pid["metric_id"] = f"attributed_energy_total_J_R_node__C_process_{pid}_A_"
         total_pid["base_metric"] = "attributed_energy_total_J"
         synthetic_parts.append(total_pid[["metric_id", "base_metric", "timestamp", "value"]])
 
