@@ -42,8 +42,8 @@ BASE_DIR = Path(__file__).parent.parent
 # Use in-memory cache (instant) + Parquet on disk (persistent)
 # dcc.Store only holds a reference ID, not the actual data
 # ============================================================
-CACHE_DIR = Path(tempfile.mkdtemp(prefix="dash_df_cache_"))
-CACHE_DIR.chmod(0o700)
+CACHE_DIR = Path(tempfile.gettempdir()) / "dash_df_cache"
+CACHE_DIR.mkdir(exist_ok=True)
 
 # In-memory cache: eliminates repeated Parquet disk reads (11+ per session)
 _MEMORY_CACHE: dict[str, pd.DataFrame] = {}
