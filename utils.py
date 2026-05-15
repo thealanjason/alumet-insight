@@ -189,20 +189,21 @@ def _align_cumulative_energy_to_timeline(
     """
     Align a cumulative metric to a shared timeline.
 
-    Before the first observed sample the value is treated as 0. Between observed
-    samples, values are linearly interpolated on timestamp. After the last
-    observed sample, values remain missing so downstream synthesis can stop.
+    Missing values between the earlier start/end of this stream and later start/end of the other stream are returned as 0.
+    Mask timestamps outside the combined CPU/GPU observation window as NaN.
+    Between observed samples, values are linearly interpolated on timestamp.
     """
     if df_metric.empty:
         return pd.Series(0.0, index=timeline, name=value_name)
 
-    aligned = (
+    source = (
         df_metric.groupby("timestamp", as_index=True)["value"]
         .sum()
         .sort_index()
-        .reindex(timeline)
         .astype(float)
     )
+    interpolation_index = pd.DatetimeIndex(source.index.union(timeline).sort_values())
+    aligned = source.reindex(interpolation_index)
 
     first_valid = aligned.first_valid_index()
     if first_valid is None:
@@ -211,10 +212,28 @@ def _align_cumulative_energy_to_timeline(
     aligned.loc[aligned.index < first_valid] = 0.0
     aligned = aligned.interpolate(method="time", limit_area="inside")
     aligned = aligned.fillna(0.0)
-    last_valid = df_metric["timestamp"].max()
-    aligned.loc[aligned.index > last_valid] = np.nan
+    aligned = aligned.reindex(timeline)
     aligned.name = value_name
     return aligned
+
+
+def _build_total_energy_timeline(
+    cpu_pid: pd.DataFrame,
+    gpu_pid: pd.DataFrame,
+) -> pd.DatetimeIndex:
+    """
+    Build timestamps for attributed total energy.
+
+    Mirrors Alumet's energy-attribution interpolation plug-in (https://github.com/alumet-dev/alumet/tree/main/plugins/energy-attribution): 
+    one timeseries is the reference and remains unchanged, while other timeseries are interpolated onto its timestamps.
+    CPU timestamps are the reference when CPU data exists; GPU timestamps are used only for GPU-only data.
+    """
+    cpu_index = pd.DatetimeIndex(pd.Index(cpu_pid["timestamp"]).unique()).sort_values()
+    gpu_index = pd.DatetimeIndex(pd.Index(gpu_pid["timestamp"]).unique()).sort_values()
+
+    if cpu_index.empty:
+        return gpu_index
+    return cpu_index
 
 def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFrame:
     """
@@ -226,9 +245,10 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
     1. attributed_energy_gpu_total_J — sum of attributed GPU energy across
        all GPUs for each process (PID).  Useful when a process spans multiple GPUs.
     2. attributed_energy_total_J — attributed_energy_gpu_total + attributed_energy_cpu
-       for each process on the union of CPU/GPU timestamps. Missing leading values
-       are treated as 0, overlapping regions are interpolated by timestamp, and
-       synthesis stops once either stream has no more observed samples.
+       for each process with either CPU or GPU data. CPU timestamps are the reference
+       when both streams exist; GPU values are linearly interpolated onto that
+       reference. If only GPU data exists, GPU timestamps are the reference.
+       Missing non-reference values outside their observed range contribute 0.
     
     Args:
         df_processed: Preprocessed DataFrame with metric_id, base_metric, timestamp, value columns.
@@ -265,6 +285,7 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
         if not df_gpu.empty
         else pd.DataFrame(columns=["timestamp", "pid", "value"])
     )
+    # Sum CPU attributed energy per (timestamp, pid).
     df_cpu_summed = (
         df_cpu.groupby(["timestamp", "pid"], as_index=False)["value"].sum()
         if not df_cpu.empty
@@ -280,17 +301,13 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
         gpu_pid["base_metric"] = "attributed_energy_gpu_total_J"
         synthetic_parts.append(gpu_pid[["metric_id", "base_metric", "timestamp", "value"]])
 
-    # attributed_energy_total_J on the union of CPU/GPU timestamps per PID.
-    shared_pids = sorted(set(df_cpu_summed["pid"]) & set(df_gpu_summed["pid"]))
-    for pid in shared_pids:
+    # attributed_energy_total_J for any PID that has CPU or GPU attributed energy.
+    total_pids = sorted(set(df_cpu_summed["pid"]) | set(df_gpu_summed["pid"]))
+    for pid in total_pids:
         cpu_pid = df_cpu_summed.loc[df_cpu_summed["pid"] == pid, ["timestamp", "value"]].copy()
         gpu_pid = df_gpu_summed.loc[df_gpu_summed["pid"] == pid, ["timestamp", "value"]].copy()
-        if cpu_pid.empty or gpu_pid.empty:
-            continue
 
-        timeline = pd.DatetimeIndex(
-            pd.Index(cpu_pid["timestamp"]).union(pd.Index(gpu_pid["timestamp"])).sort_values()
-        )
+        timeline = _build_total_energy_timeline(cpu_pid, gpu_pid)
         if timeline.empty:
             continue
 
@@ -302,11 +319,21 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
             "cpu_value": cpu_aligned.to_numpy(),
             "gpu_value": gpu_aligned.to_numpy(),
         })
+        observed_starts = []
+        observed_ends = []
+        if not cpu_pid.empty:
+            observed_starts.append(cpu_pid["timestamp"].min())
+            observed_ends.append(cpu_pid["timestamp"].max())
+        if not gpu_pid.empty:
+            observed_starts.append(gpu_pid["timestamp"].min())
+            observed_ends.append(gpu_pid["timestamp"].max())
+        combined_window = total_pid["timestamp"].between(min(observed_starts), max(observed_ends))
+        total_pid.loc[~combined_window, ["cpu_value", "gpu_value"]] = np.nan
         total_pid.dropna(subset=["cpu_value", "gpu_value"], inplace=True)
         if total_pid.empty:
             continue
         total_pid["value"] = total_pid["cpu_value"] + total_pid["gpu_value"]
-        total_pid["metric_id"] = f"attributed_energy_total_J_R_total__C_process_{pid}_A_"
+        total_pid["metric_id"] = f"attributed_energy_total_J_R_node__C_process_{pid}_A_"
         total_pid["base_metric"] = "attributed_energy_total_J"
         synthetic_parts.append(total_pid[["metric_id", "base_metric", "timestamp", "value"]])
 
