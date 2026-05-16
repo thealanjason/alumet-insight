@@ -297,7 +297,7 @@ app.layout = html.Div(
                                     className="sidebar-title",
                                 ),
                                 html.P(
-                                    "Visualization dashboard to monitor process-specific compute performance on HPC environment measured by Alumet.",
+                                    "Visualization dashboard to monitor process-specific compute resource usage measured by Alumet.",
                                     className="sidebar-description",
                                 ),
                             ],
@@ -323,22 +323,14 @@ app.layout = html.Div(
                                             className="sidebar-input",
                                         ),
                                         html.Div(
-                                            "Press Enter/Tab after typing the path",
+                                            "Click Visualize button or press Enter/Tab",
                                             className="sidebar-hint",
                                         ),
                                         html.Div(
                                             id="directory-status",
                                             style={"marginTop": "12px", "fontSize": "0.86rem"},
                                         ),
-                                    ],
-                                ),
-                            ],
-                            className="sidebar-card",
-                        ),
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
+                                        html.Hr(className="sidebar-hr"),
                                         dbc.Button(
                                             "Visualize",
                                             id="visualize-button",
@@ -412,7 +404,6 @@ app.layout = html.Div(
                     style={
                         "backgroundColor": "var(--app-sidebar-bg)",
                         "borderRight": "1px solid var(--app-border)",
-                        "minHeight": "100vh",
                         "padding": "28px 24px",
                     },
                 ),
@@ -458,7 +449,6 @@ app.layout = html.Div(
                     className="main-col",
                     style={
                         "backgroundColor": "var(--app-main-bg)",
-                        "minHeight": "100vh",
                         "padding": "28px 28px 40px",
                     },
                 ),
@@ -474,7 +464,6 @@ app.layout = html.Div(
     ],
     style={
         "backgroundColor": "var(--app-main-bg)",
-        "minHeight": "100vh",
         "width": "100%",
         "maxWidth": "none",
         "margin": "0",
@@ -588,9 +577,9 @@ def reset_app(n_clicks):
         "device: N/A",  # Reset device display
         dbc.Alert(
             [
-                "Enter a directory path above and click ",
+                "Enter a directory path above, then click ",
                 html.Strong("Visualize"),
-                " to load and visualize data.",
+                " or press Enter/Tab to load and visualize data.",
             ],
             color="warning",
             className=status_alert_class("warning"),
@@ -602,24 +591,30 @@ def reset_app(n_clicks):
     Output("pid-display", "children"),
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
+    Input("directory-path-input", "n_submit"),
+    Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
 )
-def update_process_info(n_clicks, directory_path):
-    if n_clicks == 0 or not directory_path or not directory_path.strip():
+def update_process_info(n_clicks, n_submit, n_blur, directory_path):
+    if not any([n_clicks, n_submit, n_blur]) or not directory_path or not directory_path.strip():
         return "process id: N/A", "device: N/A"
     
-    # Find and read csv and log file
-    log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
-    log_content = read_file_content(log_file)
-    pid = extract_pid_from_content(log_content)
-    csv_file = find_files_in_directory(directory_path, ['.csv'])
-    csv_content = read_file_content(csv_file)
-    if is_gpu_from_content(csv_content) and not is_cpu_from_content(csv_content):
-        device = "GPU"
-    elif not is_gpu_from_content(csv_content) and is_cpu_from_content(csv_content):
-        device = "CPU"
-    else:
-        device = "CPU + GPU"
+    try:
+        # Find and read csv and log file
+        log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
+        log_content = read_file_content(log_file)
+        pid = extract_pid_from_content(log_content)
+        csv_file = find_files_in_directory(directory_path, ['.csv'])
+        csv_content = read_file_content(csv_file)
+        if is_gpu_from_content(csv_content) and not is_cpu_from_content(csv_content):
+            device = "GPU"
+        elif not is_gpu_from_content(csv_content) and is_cpu_from_content(csv_content):
+            device = "CPU"
+        else:
+            device = "CPU + GPU"
+    except Exception:
+        return "process id: N/A", "device: N/A"
+
     return (
         f"Process ID: {pid or 'N/A'}",
         f"Device: {device}",
@@ -631,16 +626,18 @@ def update_process_info(n_clicks, directory_path):
     Output("original-df-store", "data"),
     Output("process-time-range-store", "data"),
     Input("visualize-button", "n_clicks"),
+    Input("directory-path-input", "n_submit"),
+    Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
 )
-def load_and_visualize(n_clicks, directory_path):
-    if n_clicks == 0:
+def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
+    if not any([n_clicks, n_submit, n_blur]):
         return (
             dbc.Alert(
                 [
-                    "Enter a directory path above and click ",
+                    "Enter a directory path above, then click ",
                     html.Strong("Visualize"),
-                    " to load and visualize data.",
+                    " or press Enter/Tab to load and visualize data.",
                 ],
                 color="warning",
                 className=status_alert_class("warning"),
@@ -962,24 +959,24 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                 style={"display": "flex", "flexDirection": "column", "justifyContent": "center"},
                             ),
                         ],
-                        className="mb-4",
+                        className="time-series-controls mb-4",
                     ),
                     html.Div(
                         id="timeseries-plot-container",
                         style={
-                            "height": "80vh",
                             "overflowY": "auto",
                             "overflowX": "hidden",
                             "padding": "15px",
-                            "maxHeight": "80vh",
                             "width": "100%",
                         },
                     ),
                 ],
                 style={"padding": "25px", "backgroundColor": "var(--app-card-bg)"},
+                className="viewport-card-body",
             ),
         ],
         style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
+        className="viewport-card timeseries-card",
     )
 
 
@@ -1223,7 +1220,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             )
         grid_rows.append(dbc.Row(row_children, className="mb-2"))
     
-    return html.Div(grid_rows)
+    return html.Div(grid_rows, className="process-grid-scroll")
 
 def _comparative_metric_ids(processed_df_data: Any, process_time_range: Any) -> list:
     """Metric IDs that have samples inside the process active window (for X-Y comparative tab)."""
@@ -1392,7 +1389,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                         ],
                         className="mb-2",
                     ),
-                    dcc.Graph(id="ps-xy-graph", style={"height": "65vh"}),
+                    dcc.Graph(id="ps-xy-graph", style={"height": "100%"}),
                     # Download CSV button
                     html.Div(
                         [
@@ -1410,9 +1407,11 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                     ),
                 ],
                 style={"padding": "25px", "backgroundColor": "var(--app-card-bg)"},
+                className="viewport-card-body comparative-card-body",
             )
         ],
         style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
+        className="viewport-card comparative-card",
     )
 
 # Callback to update the comparative mode info based on selected metrics
@@ -2118,7 +2117,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
             id="timeseries-graph",
             figure=fig,
             style={
-                "height": "100%",
+                "height": f"{fig.layout.height}px",
                 "width": "100%",
                 "display": "block",
             },
@@ -2130,8 +2129,8 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
         ),
         style={
             "width": "100%",
-            "height": "auto",
-            "minHeight": "400px",
+            "height": f"{fig.layout.height}px",
+            "minHeight": f"{fig.layout.height}px",
             "display": "flex",
             "justifyContent": "center",
             "alignItems": "flex-start",
