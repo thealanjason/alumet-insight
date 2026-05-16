@@ -640,3 +640,30 @@ div.rc-slider-mark-text-active {
 .app-shell .main-col {
     transition: background-color 200ms ease;
 }
+
+/* ---- Stable sidebar and main area layout ---- */
+.app-shell .sidebar-col {
+    flex: 0 0 320px !important;
+    max-width: 320px !important;
+    width: 320px !important;
+}
+
+.app-shell .main-col {
+    flex: 1 1 auto !important;
+    max-width: none !important;
+    min-width: 0;
+    width: calc(100% - 320px) !important;
+}
+
+@media (max-width: 900px) {
+    .app-shell .sidebar-col,
+    .app-shell .main-col {
+        flex: 0 0 100% !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+    .app-shell .sidebar-col {
+        min-height: auto !important;
+    }
+}

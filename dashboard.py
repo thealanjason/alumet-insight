@@ -163,6 +163,72 @@ def status_alert_class(color: str) -> str:
     return f"status-alert status-alert-{color}"
 
 
+def empty_time_series_content():
+    """Keep time-series callback targets mounted before data is loaded."""
+    return html.Div(
+        [
+            html.Div(
+                [
+                    dcc.Dropdown(id="metric-category-dropdown", options=[], value=None),
+                    html.Div(id="cpu-core-selector"),
+                    dcc.Dropdown(id="cpu-core-dropdown", options=[], value=None),
+                    html.Div(
+                        dcc.Checklist(
+                            id="shared-yaxis-toggle",
+                            options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
+                            value=[],
+                        ),
+                        id="yaxis-options-container",
+                    ),
+                    html.Div(id="timeseries-plot-container"),
+                ],
+                style={"display": "none"},
+            ),
+            dbc.Alert(
+                "No data available. Please load data using the Visualize button.",
+                color="warning",
+                className=status_alert_class("warning"),
+            ),
+        ],
+        className="empty-time-series-content",
+    )
+
+
+def empty_comparative_content(message: str = "No data available. Please load data using the Visualize button."):
+    """Keep comparative callback targets mounted before data is loaded."""
+    return html.Div(
+        [
+            html.Div(
+                [
+                    dcc.Dropdown(id="ps-xmetric-dropdown", options=[], value=None),
+                    dcc.Dropdown(id="ps-ymetric-dropdown", options=[], value=None),
+                    dbc.Checklist(id="comparative-process-only-toggle", options=[], value=[]),
+                    html.Div(id="comparative-mode-info"),
+                    dbc.Checklist(id="scatter-toggle", options=[], value=[]),
+                    dcc.Graph(id="ps-xy-graph"),
+                ],
+                style={"display": "none"},
+            ),
+            dbc.Alert(
+                message,
+                color="warning",
+                className=status_alert_class("warning"),
+            ),
+        ],
+        className="empty-comparative-content",
+    )
+
+
+def is_empty_tab_placeholder(current_children: Any) -> bool:
+    """Detect hidden placeholder content."""
+    if isinstance(current_children, dict):
+        return current_children.get("props", {}).get("className") in {
+            "empty-time-series-content",
+            "empty-comparative-content",
+        }
+    return False
+
+
 def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
     """Apply the dashboard theme colors to Plotly figures."""
     theme = {
@@ -342,6 +408,7 @@ app.layout = html.Div(
                     xs=12,
                     md=4,
                     lg=3,
+                    className="sidebar-col",
                     style={
                         "backgroundColor": "var(--app-sidebar-bg)",
                         "borderRight": "1px solid var(--app-border)",
@@ -369,6 +436,7 @@ app.layout = html.Div(
                             children=[
                                 html.Div(
                                     id="time-series-content",
+                                    children=empty_time_series_content(),
                                     style={"display": "block", "marginTop": "10px"},
                                 ),
                                 html.Div(
@@ -377,6 +445,7 @@ app.layout = html.Div(
                                 ),
                                 html.Div(
                                     id="comparative-content",
+                                    children=empty_comparative_content(),
                                     style={"display": "none", "marginTop": "10px"},
                                 ),
                             ],
@@ -386,6 +455,7 @@ app.layout = html.Div(
                     xs=12,
                     md=8,
                     lg=9,
+                    className="main-col",
                     style={
                         "backgroundColor": "var(--app-main-bg)",
                         "minHeight": "100vh",
@@ -405,8 +475,9 @@ app.layout = html.Div(
     style={
         "backgroundColor": "var(--app-main-bg)",
         "minHeight": "100vh",
-        "maxWidth": "1600px",
-        "margin": "0 auto",
+        "width": "100%",
+        "maxWidth": "none",
+        "margin": "0",
     },
 )
 
@@ -725,11 +796,7 @@ def toggle_tab_visibility(tab_value):
 )
 def build_time_series_tab(processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
-            color="warning",
-            className=status_alert_class("warning"),
-        )
+        return empty_time_series_content()
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
@@ -1211,30 +1278,22 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     
     if is_data_trigger and tab_value != "comparative-tab":
         # Data reloaded but tab not active — clear stale content so it rebuilds on next view
-        return []
+        return empty_comparative_content()
     
     if triggered_id == "results-tabs":
         # Tab switch: only build if no content yet (first view after data loaded)
         if tab_value != "comparative-tab":
             return dash.no_update
-        if current_children:
+        if current_children and not is_empty_tab_placeholder(current_children):
             return dash.no_update
 
     if not processed_df_data or not process_time_range:
-        return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
-            color="warning",
-            className=status_alert_class("warning"),
-        )
+        return empty_comparative_content()
 
     # Only metrics that have samples inside the process window
     metric_ids = _comparative_metric_ids(processed_df_data, process_time_range)
     if len(metric_ids) < 2:
-        return dbc.Alert(
-            "Need at least 2 metrics inside process window.",
-            color="warning",
-            className=status_alert_class("warning"),
-        )
+        return empty_comparative_content("Need at least 2 metrics inside process window.")
 
     return dbc.Card(
         [
