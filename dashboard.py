@@ -1563,8 +1563,8 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
         # which would cause a race condition where the toggle callback reads stale figure/store data
         return {"display": "flex", "flexDirection": "column"}, dash.no_update
     else:
-        # Hide and reset the toggle for miscellaneous or no selection
-        return {"display": "none"}, []
+        # Hide the options without clearing the toggle value to avoid a stale-figure race.
+        return {"display": "none"}, dash.no_update
 
 
 # MATCH callback to update filter dropdown options and show/hide containers
@@ -2098,7 +2098,12 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     
     # Create figure with filtered time series, but with full time range for x-axis
     # Pass category to set appropriate Y-axis label
-    share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+    yaxis_shareable_categories = {"energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"}
+    share_yaxis = (
+        selected_category in yaxis_shareable_categories
+        and shared_yaxis_toggle
+        and "shared" in shared_yaxis_toggle
+    )
     fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
     apply_figure_theme(fig, use_light_mode)
     
