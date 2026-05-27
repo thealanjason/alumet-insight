@@ -1,16 +1,15 @@
-"""Lifecycle callbacks: data loading, reset, directory status, process info, tab toggle, theme."""
+"""Lifecycle callbacks: data loading, reset, process info, tab toggle, theme."""
 
 import time
 
 import dash
-import dash_bootstrap_components as dbc
 import pandas as pd
-from dash import Input, Output, State, ctx, dcc, html
+from dash import Input, Output, State, html
 from pathlib import Path
 
 from frontend.app import app
 from frontend.cache import cache_dataframe
-from frontend.theme import status_alert_class
+from frontend.theme import status_alert
 from backend.data import (
     AlumetData,
     find_measurement_file_in_directory,
@@ -49,60 +48,6 @@ def update_theme_icon(use_light_mode):
     return "bi bi-moon-stars-fill" if use_light_mode else "bi bi-sun-fill"
 
 
-# Directory status
-@app.callback(
-    Output("directory-status", "children"),
-    Input("directory-path-input", "value"),
-)
-def update_directory_status(directory_path):
-    if not directory_path or not directory_path.strip():
-        return html.Span("", style={"display": "none"})
-
-    try:
-        dir_path = Path(directory_path.strip())
-        if not dir_path.exists():
-            return html.Span(
-                f"\u274cDirectory does not exist: {directory_path}",
-                style={"color": "var(--app-danger)", "fontWeight": "500"},
-            )
-        if not dir_path.is_dir():
-            return html.Span(
-                f"\u274c Path is not a directory: {directory_path}",
-                style={"color": "var(--app-danger)", "fontWeight": "500"},
-            )
-
-        try:
-            csv_file = find_measurement_file_in_directory(directory_path, [".csv"])
-        except ValueError:
-            csv_file = None
-        try:
-            log_file = find_measurement_file_in_directory(directory_path, [".log", ".txt"])
-        except ValueError:
-            log_file = None
-
-        status_parts = []
-        if csv_file:
-            status_parts.append(f"\u2705 CSV: {csv_file.name}")
-        else:
-            status_parts.append("\u274c CSV: Not found")
-
-        if log_file:
-            status_parts.append(f"\u2705 Log: {log_file.name}")
-        else:
-            status_parts.append("\u274c Log: Not found")
-
-        color = "var(--app-success)" if csv_file and log_file else "var(--app-danger)"
-        return html.Div(
-            [html.Span(part, style={"display": "block", "marginBottom": "4px"}) for part in status_parts],
-            style={"color": color, "fontWeight": "500"},
-        )
-    except Exception as e:
-        return html.Span(
-            f"\u274c Error: {str(e)}",
-            style={"color": "var(--app-danger)", "fontWeight": "500"},
-        )
-
-
 # Reset
 @app.callback(
     Output("directory-path-input", "value", allow_duplicate=True),
@@ -110,10 +55,10 @@ def update_directory_status(directory_path):
     Output("original-df-store", "data", allow_duplicate=True),
     Output("process-time-range-store", "data", allow_duplicate=True),
     Output("timeseries-filtered-df-store", "data", allow_duplicate=True),
+    Output("experiment-name-display", "children", allow_duplicate=True),
     Output("pid-display", "children", allow_duplicate=True),
     Output("device-display", "children", allow_duplicate=True),
     Output("status-message", "children", allow_duplicate=True),
-    Output("directory-status", "children", allow_duplicate=True),
     Input("reset-button", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -128,23 +73,24 @@ def reset_app(n_clicks):
         None,
         None,
         None,
-        "process id: N/A",
-        "device: N/A",
-        dbc.Alert(
+        "Name: N/A",
+        "Process ID: N/A",
+        "Device: N/A",
+        status_alert(
+            "warning",
+            "Ready to load",
             [
                 "Enter a directory path above, then click ",
                 html.Strong("Visualize"),
                 " or press Enter/Tab to load and visualize data.",
             ],
-            color="warning",
-            className=status_alert_class("warning"),
         ),
-        html.Span("", style={"display": "none"}),
     )
 
 
 # Process info
 @app.callback(
+    Output("experiment-name-display", "children"),
     Output("pid-display", "children"),
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
@@ -154,16 +100,18 @@ def reset_app(n_clicks):
 )
 def update_process_info(n_clicks, n_submit, n_blur, directory_path):
     if not any([n_clicks, n_submit, n_blur]) or not directory_path or not directory_path.strip():
-        return "process id: N/A", "device: N/A"
+        return "Name: N/A", "Process ID: N/A", "Device: N/A"
 
     try:
+        experiment_name = Path(directory_path.strip()).name or "N/A"
         data = AlumetData(directory_path.strip())
         pid = data.pid
         device = data.device
     except Exception:
-        return "process id: N/A", "device: N/A"
+        return "Name: N/A", "Process ID: N/A", "Device: N/A"
 
     return (
+        f"Name: {experiment_name}",
         f"Process ID: {pid or 'N/A'}",
         f"Device: {device}",
     )
@@ -183,14 +131,14 @@ def update_process_info(n_clicks, n_submit, n_blur, directory_path):
 def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
     if not any([n_clicks, n_submit, n_blur]):
         return (
-            dbc.Alert(
+            status_alert(
+                "warning",
+                "Ready to load",
                 [
                     "Enter a directory path above, then click ",
                     html.Strong("Visualize"),
                     " or press Enter/Tab to load and visualize data.",
                 ],
-                color="warning",
-                className=status_alert_class("warning"),
             ),
             None,
             None,
@@ -198,28 +146,28 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         )
 
     if not directory_path or not directory_path.strip():
-        status_msg = dbc.Alert(
-            [html.Strong("Error: "), "Directory path is required. Please enter a directory path."],
-            color="danger",
-            className=status_alert_class("danger"),
+        status_msg = status_alert(
+            "danger",
+            "Error:",
+            "Directory path is required. Please enter a directory path.",
         )
         return status_msg, None, None, None
 
     try:
         dir_path = Path(directory_path.strip())
         if not dir_path.exists():
-            status_msg = dbc.Alert(
-                [html.Strong("Error: "), f"Directory does not exist: {directory_path}"],
-                color="danger",
-                className=status_alert_class("danger"),
+            status_msg = status_alert(
+                "danger",
+                "Error:",
+                f"Directory does not exist: {directory_path}",
             )
             return status_msg, None, None, None
 
         if not dir_path.is_dir():
-            status_msg = dbc.Alert(
-                [html.Strong("Error: "), f"Path is not a directory: {directory_path}"],
-                color="danger",
-                className=status_alert_class("danger"),
+            status_msg = status_alert(
+                "danger",
+                "Error:",
+                f"Path is not a directory: {directory_path}",
             )
             return status_msg, None, None, None
 
@@ -233,18 +181,18 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             log_file = None
 
         if not csv_file:
-            status_msg = dbc.Alert(
-                [html.Strong("Error: "), "CSV file is required. Please ensure the directory contains a .csv file."],
-                color="danger",
-                className=status_alert_class("danger"),
+            status_msg = status_alert(
+                "danger",
+                "Error:",
+                "CSV file is required. Please ensure the directory contains a .csv file.",
             )
             return status_msg, None, None, None
 
         if not log_file:
-            status_msg = dbc.Alert(
-                [html.Strong("Error: "), "Log file is required. Please ensure the directory contains a .log or .txt file."],
-                color="danger",
-                className=status_alert_class("danger"),
+            status_msg = status_alert(
+                "danger",
+                "Error:",
+                "Log file is required. Please ensure the directory contains a .log or .txt file.",
             )
             return status_msg, None, None, None
 
@@ -261,17 +209,12 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         load_time = t_load - t0
         cache_time = t_cache - t_load
 
-        status_msg = dbc.Alert(
-            [
-                "\u2705 ",
-                html.Strong("Data loaded successfully"),
-                html.Span(
-                    f" (load and preprocess: {load_time:.2f}s, cache: {cache_time:.2f}s) ",
-                    style={"fontSize": "0.85rem"},
-                ),
-            ],
-            color="success",
-            className=status_alert_class("success"),
+        status_msg = status_alert(
+            "success",
+            "Data loaded successfully",
+            f"load and preprocess: {load_time:.2f}s, cache: {cache_time:.2f}s",
+            icon="\u2705 ",
+            detail_style={"fontSize": "0.85rem", "color": "var(--app-text-muted)"},
         )
 
         process_time_range = {
@@ -282,10 +225,11 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         return status_msg, processed_cache_id, original_cache_id, process_time_range
 
     except Exception as e:
-        status_msg = dbc.Alert(
-            ["\U0001f6a8 ", html.Strong("Error loading data: "), str(e)],
-            color="danger",
-            className=status_alert_class("danger"),
+        status_msg = status_alert(
+            "danger",
+            "Error loading data:",
+            str(e),
+            icon="\u274c ",
         )
         return status_msg, None, None, None
 

@@ -13,50 +13,29 @@ from frontend.cache import df_from_store, _ensure_timestamp_datetime
 from frontend.theme import apply_figure_theme
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
 from backend.metrics import (
-    metric_id_is_process_consumer,
     is_cumulative_metric,
     get_metric_unit,
     is_memory_metric,
     get_bytes_tickvals_ticktext,
 )
+from backend.comparative import (
+    comparative_metric_ids,
+    filter_process_metric_ids,
+    pick_xy_values,
+    align_xy_metrics,
+    prepare_xy_download,
+)
 
 
-# Helpers
-def _comparative_metric_ids(processed_df_data: Any, process_time_range: Any) -> list:
-    """Metric IDs that have samples inside the process active window."""
+def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list[str]:
+    """Reconstruct dataframe and call backend to get metric IDs."""
     if not processed_df_data or not process_time_range:
         return []
     df_processed = df_from_store(processed_df_data)
     _ensure_timestamp_datetime(df_processed)
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
-    if proc_start is None or proc_end is None:
-        return []
-    df_process_level = df_processed[
-        (df_processed["timestamp"] >= proc_start) & (df_processed["timestamp"] <= proc_end)
-    ].copy()
-    if df_process_level.empty:
-        return []
-    return sorted(df_process_level["metric_id"].dropna().astype(str).unique().tolist())
-
-
-def _filter_comparative_metric_ids(metric_ids: list, process_only: bool) -> list:
-    """Restrict to process-attributed series."""
-    if not process_only:
-        return list(metric_ids)
-    return [m for m in metric_ids if metric_id_is_process_consumer(m)]
-
-
-def _pick_xy_metric_values(filtered: list, cur_x: Any, cur_y: Any) -> tuple:
-    """Pick valid X/Y dropdown values from filtered list, preserving selection when possible."""
-    if not filtered:
-        return None, None
-    if len(filtered) == 1:
-        return filtered[0], filtered[0]
-    x_val = cur_x if cur_x in filtered else filtered[0]
-    others = [m for m in filtered if m != x_val]
-    y_val = cur_y if cur_y in others else others[0]
-    return x_val, y_val
+    return comparative_metric_ids(df_processed, proc_start, proc_end)
 
 
 # Build comparative tab
@@ -83,7 +62,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     if not processed_df_data or not process_time_range:
         return empty_comparative_content()
 
-    metric_ids = _comparative_metric_ids(processed_df_data, process_time_range)
+    metric_ids = _resolve_metric_ids(processed_df_data, process_time_range)
     if len(metric_ids) < 2:
         return empty_comparative_content("Need at least 2 metrics inside process window.")
 
@@ -256,15 +235,15 @@ def update_comparative_metric_dropdowns(process_only_toggle, tab_value, processe
     if tab_value != "comparative-tab":
         raise dash.exceptions.PreventUpdate
 
-    all_ids = _comparative_metric_ids(processed_df_data, process_time_range)
+    all_ids = _resolve_metric_ids(processed_df_data, process_time_range)
     if len(all_ids) < 2:
         raise dash.exceptions.PreventUpdate
 
     process_only = bool(process_only_toggle and "process_only" in process_only_toggle)
-    filtered = _filter_comparative_metric_ids(all_ids, process_only)
+    filtered = filter_process_metric_ids(all_ids, process_only)
 
     opts = [{"label": m, "value": m} for m in filtered]
-    x_val, y_val = _pick_xy_metric_values(filtered, cur_x, cur_y)
+    x_val, y_val = pick_xy_values(filtered, cur_x, cur_y)
     return opts, x_val, opts, y_val
 
 
@@ -297,29 +276,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         fig.update_layout(title=dict(text="Process time range not available", x=0.5))
         return fig
 
-    dfw = dfp[(dfp["timestamp"] >= proc_start) & (dfp["timestamp"] <= proc_end)].copy()
-
-    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
-    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
-
-    if dfx.empty or dfy.empty:
-        fig.update_layout(title=dict(text="No samples for one (or both) metrics in process window", x=0.5))
-        return fig
-
-    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first")
-    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first")
-    dfx = dfx.sort_values("timestamp", ascending=True, ignore_index=True)
-    dfy = dfy.sort_values("timestamp", ascending=True, ignore_index=True)
-
-    dx = dfx["timestamp"].diff().median()
-    dy = dfy["timestamp"].diff().median()
-    tol = None
-    if pd.notna(dx) or pd.notna(dy):
-        base = max([v for v in [dx, dy] if pd.notna(v)], default=pd.Timedelta(milliseconds=0))
-        tol = base * 2 if base > pd.Timedelta(0) else pd.Timedelta(seconds=1)
-
-    dfxy = pd.merge_asof(dfx, dfy, on="timestamp", direction="nearest", tolerance=tol).dropna(subset=["y"])
-    dfxy = dfxy.sort_values("timestamp", ascending=True, ignore_index=True)
+    dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
 
     if dfxy.empty:
         fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
@@ -511,35 +468,9 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     if proc_start is None or proc_end is None:
         return None
 
-    dfw = dfp[(dfp["timestamp"] >= proc_start) & (dfp["timestamp"] <= proc_end)].copy()
-
-    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
-    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
-
-    if dfx.empty or dfy.empty:
-        return None
-
-    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first")
-    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first")
-    dfx = dfx.sort_values("timestamp", ascending=True, ignore_index=True)
-    dfy = dfy.sort_values("timestamp", ascending=True, ignore_index=True)
-
-    dx = dfx["timestamp"].diff().median()
-    dy = dfy["timestamp"].diff().median()
-    tol = None
-    if pd.notna(dx) or pd.notna(dy):
-        base = max([v for v in [dx, dy] if pd.notna(v)], default=pd.Timedelta(milliseconds=0))
-        tol = base * 2 if base > pd.Timedelta(0) else pd.Timedelta(seconds=1)
-
-    dfxy = pd.merge_asof(dfx, dfy, on="timestamp", direction="nearest", tolerance=tol).dropna(subset=["y"])
-    dfxy = dfxy.sort_values("timestamp", ascending=True, ignore_index=True)
-
+    dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
     if dfxy.empty:
         return None
 
-    dfxy = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
-
-    filename = f"xy_{x_metric_id}_vs_{y_metric_id}.csv"
-    filename = "".join(c if c.isalnum() or c in "._-" else "_" for c in filename)
-
-    return dcc.send_data_frame(dfxy.to_csv, filename, index=False)
+    df_out, filename = prepare_xy_download(dfxy, x_metric_id, y_metric_id)
+    return dcc.send_data_frame(df_out.to_csv, filename, index=False)

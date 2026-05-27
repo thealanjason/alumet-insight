@@ -1,9 +1,40 @@
+import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
+from dash import html
 
 
 def status_alert_class(color: str) -> str:
     """Return CSS classes for the muted sidebar status panel."""
     return f"status-alert status-alert-{color}"
+
+
+def status_alert(
+    color: str,
+    title,
+    detail=None,
+    *,
+    icon: str | None = None,
+    detail_style: dict | None = None,
+):
+    """Build a sidebar status alert with title and detail on separate lines."""
+    title_row = []
+    if icon:
+        title_row.append(icon)
+    if isinstance(title, str):
+        title_row.append(html.Strong(title))
+    else:
+        title_row.extend(title)
+
+    children = [html.Div(title_row, className="status-alert-title")]
+    if detail is not None:
+        children.append(
+            html.Div(
+                detail,
+                className="status-alert-detail",
+                style=detail_style or {},
+            )
+        )
+    return dbc.Alert(children, color=color, className=status_alert_class(color))
 
 
 def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:

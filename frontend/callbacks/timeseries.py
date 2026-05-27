@@ -13,8 +13,15 @@ from frontend.theme import status_alert_class, apply_figure_theme
 from frontend.layout import empty_time_series_content
 from frontend.helpers import available_category_options
 from backend.categories import available_cpu_cores, filter_time_series_category
-from backend.metrics import is_memory_metric, get_metric_unit, get_bytes_tickvals_ticktext
-from visualization.interactive_plotting import create_all_timeseries_plots
+from backend.metrics import is_memory_metric
+from backend.timeseries import (
+    is_yaxis_shareable,
+    category_yaxis_label,
+    align_xrange_tz,
+    compute_yaxis_ranges,
+)
+from backend.time_range import filter_to_time_range
+from backend.visualization.interactive import create_all_timeseries_plots
 
 
 
@@ -179,8 +186,7 @@ def update_cpu_core_selector(selected_category, processed_df_data):
 )
 def update_yaxis_options_visibility(selected_category, current_toggle_value):
     """Show Y-axis options only for categories with same units."""
-    valid_categories = ["energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"]
-    if selected_category in valid_categories:
+    if is_yaxis_shareable(selected_category):
         return {"display": "flex", "flexDirection": "column"}, dash.no_update
     else:
         return {"display": "none"}, dash.no_update
@@ -241,9 +247,8 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
 
     metric_order = df_filtered["metric_id"].unique().tolist()
 
-    yaxis_shareable_categories = {"energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"}
     share_yaxis = (
-        selected_category in yaxis_shareable_categories
+        is_yaxis_shareable(selected_category)
         and shared_yaxis_toggle
         and "shared" in shared_yaxis_toggle
     )
@@ -255,6 +260,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     filtered_df_json = {
         "cache_id": filtered_cache_id,
         "metric_order": metric_order,
+        "y_axis_label": category_yaxis_label(selected_category),
     }
 
     graph_component = html.Div(
@@ -303,6 +309,7 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
 
     cache_id = filtered_df_store.get("cache_id")
     metric_order = filtered_df_store.get("metric_order", [])
+    y_axis_label = filtered_df_store.get("y_axis_label", "Value")
 
     if not cache_id or not metric_order:
         return current_figure
@@ -322,105 +329,32 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
     x_range = xaxis_layout.get("range")
 
     if x_range:
-        x_min = pd.to_datetime(x_range[0])
-        x_max = pd.to_datetime(x_range[1])
-
-        df_tz = df["timestamp"].dt.tz
-        if df_tz is not None:
-            if x_min.tz is None:
-                x_min = x_min.tz_localize(df_tz)
-            if x_max.tz is None:
-                x_max = x_max.tz_localize(df_tz)
-        else:
-            if x_min.tz is not None:
-                x_min = x_min.tz_convert(None) if hasattr(x_min, "tz_convert") else x_min.replace(tzinfo=None)
-            if x_max.tz is not None:
-                x_max = x_max.tz_convert(None) if hasattr(x_max, "tz_convert") else x_max.replace(tzinfo=None)
-
-        visible_data = df[(df["timestamp"] >= x_min) & (df["timestamp"] <= x_max)]
+        x_min, x_max = align_xrange_tz(
+            pd.to_datetime(x_range[0]),
+            pd.to_datetime(x_range[1]),
+            df["timestamp"].dt.tz,
+        )
+        visible_data = filter_to_time_range(df, x_min, x_max)
     else:
         visible_data = df
 
     if visible_data.empty:
         return current_figure
 
-    is_memory_category = metric_order and is_memory_metric(metric_order[0])
+    is_memory_cat = metric_order and is_memory_metric(metric_order[0])
 
-    if is_memory_category:
-        y_axis_label = "Value (B)"
-    elif metric_order and get_metric_unit(metric_order[0]) == "J":
-        y_axis_label = "Value (J)"
-    elif metric_order and get_metric_unit(metric_order[0]) == "ms":
-        y_axis_label = "Value (ms)"
-    else:
-        y_axis_label = "Value"
-
-    if share_yaxis:
-        global_y_min = visible_data["value"].min()
-        global_y_max = visible_data["value"].max()
-        y_range_val = global_y_max - global_y_min if global_y_max != global_y_min else abs(global_y_max) if global_y_max != 0 else 1
-        y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
-
-        calc_min = global_y_min - y_padding
-        calc_max = global_y_max + y_padding
-        if calc_min >= calc_max:
-            calc_min = global_y_min - 0.1 if global_y_min != 0 else -0.1
-            calc_max = global_y_max + 0.1 if global_y_max != 0 else 0.1
-
-        if is_memory_category:
-            calc_min = max(0, calc_min)
-
-        shared_tickvals = None
-        shared_ticktext = None
-        if is_memory_category:
-            shared_tickvals, shared_ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-
-        for subplot_idx in range(len(metric_order)):
-            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-            if yaxis_key in layout:
-                layout[yaxis_key]["range"] = [calc_min, calc_max]
-                layout[yaxis_key]["autorange"] = False
-                layout[yaxis_key]["title"] = {"text": y_axis_label}
-                if is_memory_category and shared_tickvals is not None:
-                    layout[yaxis_key]["tickvals"] = shared_tickvals
-                    layout[yaxis_key]["ticktext"] = shared_ticktext
-                else:
-                    layout[yaxis_key].pop("tickvals", None)
-                    layout[yaxis_key].pop("ticktext", None)
-    else:
-        for subplot_idx in range(len(metric_order)):
-            metric_id = metric_order[subplot_idx]
-            metric_visible = visible_data[visible_data["metric_id"] == metric_id]
-
-            if metric_visible.empty:
-                continue
-
-            y_min_val = metric_visible["value"].min()
-            y_max_val = metric_visible["value"].max()
-            y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
-            y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
-
-            calc_min = y_min_val - y_padding
-            calc_max = y_max_val + y_padding
-            if calc_min >= calc_max:
-                calc_min = y_min_val - 0.1 if y_min_val != 0 else -0.1
-                calc_max = y_max_val + 0.1 if y_max_val != 0 else 0.1
-
-            if is_memory_category:
-                calc_min = max(0, calc_min)
-
-            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-            if yaxis_key in layout:
-                layout[yaxis_key]["range"] = [calc_min, calc_max]
-                layout[yaxis_key]["autorange"] = False
-                layout[yaxis_key]["title"] = {"text": y_axis_label}
-                if is_memory_category:
-                    tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-                    layout[yaxis_key]["tickvals"] = tickvals
-                    layout[yaxis_key]["ticktext"] = ticktext
-                else:
-                    layout[yaxis_key].pop("tickvals", None)
-                    layout[yaxis_key].pop("ticktext", None)
+    yaxis_updates = compute_yaxis_ranges(visible_data, metric_order, share_yaxis, is_memory_cat)
+    for yaxis_key, settings in yaxis_updates.items():
+        if yaxis_key in layout:
+            layout[yaxis_key]["range"] = settings["range"]
+            layout[yaxis_key]["autorange"] = settings["autorange"]
+            layout[yaxis_key]["title"] = {"text": y_axis_label}
+            if "tickvals" in settings:
+                layout[yaxis_key]["tickvals"] = settings["tickvals"]
+                layout[yaxis_key]["ticktext"] = settings["ticktext"]
+            else:
+                layout[yaxis_key].pop("tickvals", None)
+                layout[yaxis_key].pop("ticktext", None)
 
     updated_figure["layout"] = layout
     return updated_figure
@@ -451,9 +385,9 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
 
     is_reset = any("autorange" in key or "autosize" in key for key in relayout_data)
     if is_reset:
-        is_memory_category = metric_order and is_memory_metric(metric_order[0])
+        is_memory_cat = metric_order and is_memory_metric(metric_order[0])
 
-        if not is_memory_category:
+        if not is_memory_cat:
             return current_figure
 
         df = load_cached_dataframe(cache_id)
@@ -463,40 +397,14 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         layout = updated_figure.get("layout", {})
         share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
 
-        if share_yaxis:
-            global_y_min = df["value"].min()
-            global_y_max = df["value"].max()
-            y_range_val = global_y_max - global_y_min if global_y_max != global_y_min else abs(global_y_max) if global_y_max != 0 else 1
-            y_padding = 0.1 * y_range_val
-            calc_min = max(0, global_y_min - y_padding)
-            calc_max = global_y_max + y_padding
-            tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-
-            for subplot_idx in range(len(metric_order)):
-                yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-                if yaxis_key in layout:
-                    layout[yaxis_key]["range"] = [calc_min, calc_max]
-                    layout[yaxis_key]["autorange"] = False
-                    layout[yaxis_key]["tickvals"] = tickvals
-                    layout[yaxis_key]["ticktext"] = ticktext
-        else:
-            for subplot_idx, metric_id in enumerate(metric_order):
-                metric_data = df[df["metric_id"] == metric_id]
-                if metric_data.empty:
-                    continue
-                y_min_val = metric_data["value"].min()
-                y_max_val = metric_data["value"].max()
-                y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
-                y_padding = 0.1 * y_range_val
-                calc_min = max(0, y_min_val - y_padding)
-                calc_max = y_max_val + y_padding
-                tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-                yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-                if yaxis_key in layout:
-                    layout[yaxis_key]["range"] = [calc_min, calc_max]
-                    layout[yaxis_key]["autorange"] = False
-                    layout[yaxis_key]["tickvals"] = tickvals
-                    layout[yaxis_key]["ticktext"] = ticktext
+        yaxis_updates = compute_yaxis_ranges(df, metric_order, share_yaxis, is_memory_cat)
+        for yaxis_key, settings in yaxis_updates.items():
+            if yaxis_key in layout:
+                layout[yaxis_key]["range"] = settings["range"]
+                layout[yaxis_key]["autorange"] = settings["autorange"]
+                if "tickvals" in settings:
+                    layout[yaxis_key]["tickvals"] = settings["tickvals"]
+                    layout[yaxis_key]["ticktext"] = settings["ticktext"]
 
         updated_figure["layout"] = layout
         return updated_figure
@@ -528,97 +436,32 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
     if df.empty:
         return current_figure
 
-    df_tz = df["timestamp"].dt.tz
-
     updated_figure = copy.deepcopy(current_figure)
     layout = updated_figure.get("layout", {})
 
     share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
 
     first_subplot_idx = list(xaxis_changes.keys())[0]
-    x_min, x_max = xaxis_changes[first_subplot_idx]
+    raw_x_min, raw_x_max = xaxis_changes[first_subplot_idx]
+    x_min, x_max = align_xrange_tz(raw_x_min, raw_x_max, df["timestamp"].dt.tz)
 
-    if df_tz is not None:
-        if x_min.tz is None:
-            x_min = x_min.tz_localize(df_tz)
-        if x_max.tz is None:
-            x_max = x_max.tz_localize(df_tz)
-    else:
-        if x_min.tz is not None:
-            x_min = x_min.tz_convert(None) if hasattr(x_min, "tz_convert") else x_min.replace(tzinfo=None)
-        if x_max.tz is not None:
-            x_max = x_max.tz_convert(None) if hasattr(x_max, "tz_convert") else x_max.replace(tzinfo=None)
+    is_memory_cat = metric_order and is_memory_metric(metric_order[0])
+    visible_data = filter_to_time_range(df, x_min, x_max)
 
-    is_memory_category = metric_order and is_memory_metric(metric_order[0])
+    if visible_data.empty:
+        return current_figure
 
-    if share_yaxis:
-        visible_data = df[(df["timestamp"] >= x_min) & (df["timestamp"] <= x_max)]
-        if visible_data.empty:
-            return current_figure
-
-        global_y_min = visible_data["value"].min()
-        global_y_max = visible_data["value"].max()
-        y_range_val = global_y_max - global_y_min if global_y_max != global_y_min else abs(global_y_max) if global_y_max != 0 else 1
-        y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
-
-        calc_min = global_y_min - y_padding
-        calc_max = global_y_max + y_padding
-        if calc_min >= calc_max:
-            calc_min = global_y_min - 0.1 if global_y_min != 0 else -0.1
-            calc_max = global_y_max + 0.1 if global_y_max != 0 else 0.1
-
-        if is_memory_category:
-            calc_min = max(0, calc_min)
-
-        shared_tickvals = None
-        shared_ticktext = None
-        if is_memory_category:
-            shared_tickvals, shared_ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-
-        for subplot_idx in range(len(metric_order)):
-            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-            if yaxis_key in layout:
-                layout[yaxis_key]["range"] = [calc_min, calc_max]
-                layout[yaxis_key]["autorange"] = False
-                if is_memory_category and shared_tickvals is not None:
-                    layout[yaxis_key]["tickvals"] = shared_tickvals
-                    layout[yaxis_key]["ticktext"] = shared_ticktext
-                else:
-                    layout[yaxis_key].pop("tickvals", None)
-                    layout[yaxis_key].pop("ticktext", None)
-    else:
-        for subplot_idx in range(len(metric_order)):
-            metric_id = metric_order[subplot_idx]
-            metric_data = df[df["metric_id"] == metric_id]
-            metric_visible = metric_data[(metric_data["timestamp"] >= x_min) & (metric_data["timestamp"] <= x_max)]
-            if metric_visible.empty:
-                continue
-
-            y_min_val = metric_visible["value"].min()
-            y_max_val = metric_visible["value"].max()
-            y_range_val = y_max_val - y_min_val if y_max_val != y_min_val else abs(y_max_val) if y_max_val != 0 else 1
-            y_padding = 0.1 * y_range_val if y_range_val > 0 else 0.1
-
-            calc_min = y_min_val - y_padding
-            calc_max = y_max_val + y_padding
-            if calc_min >= calc_max:
-                calc_min = y_min_val - 0.1 if y_min_val != 0 else -0.1
-                calc_max = y_max_val + 0.1 if y_max_val != 0 else 0.1
-
-            if is_memory_category:
-                calc_min = max(0, calc_min)
-
-            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-            if yaxis_key in layout:
-                layout[yaxis_key]["range"] = [calc_min, calc_max]
-                layout[yaxis_key]["autorange"] = False
-                if is_memory_category:
-                    tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-                    layout[yaxis_key]["tickvals"] = tickvals
-                    layout[yaxis_key]["ticktext"] = ticktext
-                else:
-                    layout[yaxis_key].pop("tickvals", None)
-                    layout[yaxis_key].pop("ticktext", None)
+    yaxis_updates = compute_yaxis_ranges(visible_data, metric_order, share_yaxis, is_memory_cat)
+    for yaxis_key, settings in yaxis_updates.items():
+        if yaxis_key in layout:
+            layout[yaxis_key]["range"] = settings["range"]
+            layout[yaxis_key]["autorange"] = settings["autorange"]
+            if "tickvals" in settings:
+                layout[yaxis_key]["tickvals"] = settings["tickvals"]
+                layout[yaxis_key]["ticktext"] = settings["ticktext"]
+            else:
+                layout[yaxis_key].pop("tickvals", None)
+                layout[yaxis_key].pop("ticktext", None)
 
     updated_figure["layout"] = layout
     return updated_figure

@@ -12,9 +12,18 @@ from dash import Input, Output, State, ctx, dcc, html, MATCH, ALL
 from frontend.app import app
 from frontend.cache import df_from_store, is_cache_miss, _ensure_timestamp_datetime
 from frontend.theme import status_alert_class, apply_figure_theme
-from frontend.helpers import normalize_dropdown_value, unique_nonempty
+from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
+from frontend.helpers import normalize_dropdown_value
 from backend.metrics import get_metric_unit, is_memory_metric, get_bytes_tickvals_ticktext
-from visualization.interactive_plotting import get_color_palette
+from backend.process_specific import (
+    normalize_filter_columns,
+    cascade_filter_options,
+    filter_single_series,
+    prepare_download_df,
+    safe_metric_filename,
+)
+from backend.data import filter_to_time_range
+from backend.visualization.interactive import get_color_palette
 
 
 
@@ -30,20 +39,16 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     is_data_trigger = triggered_id in ("original-df-store", "process-time-range-store")
 
     if is_data_trigger and tab_value != "process-specific-tab":
-        return []
+        return empty_process_specific_content()
 
     if triggered_id == "results-tabs":
         if tab_value != "process-specific-tab":
             return dash.no_update
-        if current_children:
+        if current_children and not is_empty_tab_placeholder(current_children):
             return dash.no_update
 
     if not original_df_data or not process_time_range:
-        return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
-            color="warning",
-            className=status_alert_class("warning"),
-        )
+        return empty_process_specific_content()
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
@@ -58,7 +63,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     df_original = df_from_store(original_df_data)
     if is_cache_miss(df_original):
         return dbc.Alert(
-            "Session data expired (server was restarted). Please click Visualize again to reload.",
+            "Session data expired (server was restarted). Please load data again.",
             color="danger",
             className=status_alert_class("danger"),
         )
@@ -274,13 +279,7 @@ def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
         return (hide, [], None, hide, [], None, hide, [], None, hide, [], None, hide, [], None)
 
     df = df_from_store(original_df_data)
-    dfm = df[df["metric"] == metric].copy()
-
-    dfm["rk"] = dfm["resource_kind"].astype(object).fillna("").astype(str).str.strip()
-    dfm["rid"] = dfm["resource_id"].astype(object).fillna("").astype(str).str.strip()
-    dfm["ck"] = dfm["consumer_kind"].astype(object).fillna("").astype(str).str.strip()
-    dfm["cid"] = dfm["consumer_id"].astype(object).fillna("").astype(str).str.strip()
-    dfm["la"] = dfm["__late_attributes"].astype(object).fillna("").astype(str).str.strip()
+    dfm = normalize_filter_columns(df[df["metric"] == metric])
 
     rk = normalize_dropdown_value(rk)
     rid = normalize_dropdown_value(rid)
@@ -300,45 +299,20 @@ def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
             except Exception:
                 pass
 
-    rk_opts = unique_nonempty(dfm["rk"])
-    rk_eff = rk if rk in rk_opts else (rk_opts[0] if len(rk_opts) == 1 else None)
-    df1 = dfm if rk_eff is None else dfm[dfm["rk"] == rk_eff]
+    cascade = cascade_filter_options(dfm, rk, rid, ck, cid, la, triggered_id=triggered_id)
 
-    rid_opts = unique_nonempty(df1["rid"])
-    if triggered_id == "resource-kind-dropdown":
-        rid_eff = None
-    else:
-        rid_eff = rid if rid in rid_opts else (rid_opts[0] if len(rid_opts) == 1 else None)
-    df2 = df1 if rid_eff is None else df1[df1["rid"] == rid_eff]
+    def _style_and_opts(key):
+        opts = cascade[key]["options"]
+        eff = cascade[key]["effective"]
+        style = show if len(opts) > 1 else hide
+        options = [{"label": v, "value": v} for v in opts]
+        return style, options, eff
 
-    ck_opts = unique_nonempty(df2["ck"])
-    ck_eff = ck if ck in ck_opts else (ck_opts[0] if len(ck_opts) == 1 else None)
-    df3 = df2 if ck_eff is None else df2[df2["ck"] == ck_eff]
-
-    cid_opts = unique_nonempty(df3["cid"])
-    if triggered_id == "consumer-kind-dropdown":
-        cid_eff = None
-    else:
-        cid_eff = cid if cid in cid_opts else (cid_opts[0] if len(cid_opts) == 1 else None)
-    df4 = df3 if cid_eff is None else df3[df3["cid"] == cid_eff]
-
-    la_opts = unique_nonempty(df4["la"])
-    if triggered_id in ["resource-kind-dropdown", "resource-id-dropdown", "consumer-kind-dropdown", "consumer-id-dropdown"]:
-        la_eff = None
-    else:
-        la_eff = la if la in la_opts else None
-
-    rk_style = show if len(rk_opts) > 1 else hide
-    rid_style = show if len(rid_opts) > 1 else hide
-    ck_style = show if len(ck_opts) > 1 else hide
-    cid_style = show if len(cid_opts) > 1 else hide
-    la_style = show if len(la_opts) > 1 else hide
-
-    rk_options = [{"label": v, "value": v} for v in rk_opts]
-    rid_options = [{"label": v, "value": v} for v in rid_opts]
-    ck_options = [{"label": v, "value": v} for v in ck_opts]
-    cid_options = [{"label": v, "value": v} for v in cid_opts]
-    la_options = [{"label": v, "value": v} for v in la_opts]
+    rk_style, rk_options, rk_eff = _style_and_opts("rk")
+    rid_style, rid_options, rid_eff = _style_and_opts("rid")
+    ck_style, ck_options, ck_eff = _style_and_opts("ck")
+    cid_style, cid_options, cid_eff = _style_and_opts("cid")
+    la_style, la_options, la_eff = _style_and_opts("la")
 
     return (
         rk_style, rk_options, rk_eff,
@@ -374,13 +348,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
 
     df = df_from_store(original_df_data)
     _ensure_timestamp_datetime(df)
-    dfm = df[df["metric"] == metric].copy()
-
-    dfm["rk"] = dfm["resource_kind"].astype(object).fillna("").astype(str).str.strip()
-    dfm["rid"] = dfm["resource_id"].astype(object).fillna("").astype(str).str.strip()
-    dfm["ck"] = dfm["consumer_kind"].astype(object).fillna("").astype(str).str.strip()
-    dfm["cid"] = dfm["consumer_id"].astype(object).fillna("").astype(str).str.strip()
-    dfm["la"] = dfm["__late_attributes"].astype(object).fillna("").astype(str).str.strip()
+    dfm = normalize_filter_columns(df[df["metric"] == metric])
 
     rk = normalize_dropdown_value(rk)
     rid = normalize_dropdown_value(rid)
@@ -388,25 +356,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     cid = normalize_dropdown_value(cid)
     la = normalize_dropdown_value(la)
 
-    rk_opts = unique_nonempty(dfm["rk"])
-    rk_eff = rk if rk in rk_opts else (rk_opts[0] if len(rk_opts) == 1 else None)
-    df1 = dfm if rk_eff is None else dfm[dfm["rk"] == rk_eff]
-
-    rid_opts = unique_nonempty(df1["rid"])
-    rid_eff = rid if rid in rid_opts else (rid_opts[0] if len(rid_opts) == 1 else None)
-    df2 = df1 if rid_eff is None else df1[df1["rid"] == rid_eff]
-
-    ck_opts = unique_nonempty(df2["ck"])
-    ck_eff = ck if ck in ck_opts else (ck_opts[0] if len(ck_opts) == 1 else None)
-    df3 = df2 if ck_eff is None else df2[df2["ck"] == ck_eff]
-
-    cid_opts = unique_nonempty(df3["cid"])
-    cid_eff = cid if cid in cid_opts else (cid_opts[0] if len(cid_opts) == 1 else None)
-    df4 = df3 if cid_eff is None else df3[df3["cid"] == cid_eff]
-
-    la_opts = unique_nonempty(df4["la"])
-    la_eff = la if la in la_opts else (la_opts[0] if len(la_opts) == 1 else None)
-    dff = df4 if la_eff is None else df4[df4["la"] == la_eff]
+    dff, cascade = filter_single_series(dfm, rk, rid, ck, cid, la)
 
     if dff.empty:
         fig.update_layout(title=dict(text="No data available", x=0.5))
@@ -414,17 +364,12 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
 
     combos = dff.groupby(["rk", "rid", "ck", "cid", "la"]).size()
     if len(combos) > 1:
-        missing = []
-        if len(rk_opts) > 1 and rk_eff is None:
-            missing.append("Resource Kind")
-        if len(rid_opts) > 1 and rid_eff is None:
-            missing.append("Resource ID")
-        if len(ck_opts) > 1 and ck_eff is None:
-            missing.append("Consumer Kind")
-        if len(cid_opts) > 1 and cid_eff is None:
-            missing.append("Consumer ID")
-        if len(la_opts) > 1 and la_eff is None:
-            missing.append("Late Attributes")
+        label_map = {"rk": "Resource Kind", "rid": "Resource ID",
+                     "ck": "Consumer Kind", "cid": "Consumer ID", "la": "Late Attributes"}
+        missing = [
+            label_map[k] for k in ("rk", "rid", "ck", "cid", "la")
+            if len(cascade[k]["options"]) > 1 and cascade[k]["effective"] is None
+        ]
 
         fig.update_layout(
             title=dict(
@@ -438,10 +383,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range and process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range and process_time_range.get("end") else None
 
-    dff = dff.sort_values("timestamp")
-
-    if proc_start and proc_end:
-        dff = dff[(dff["timestamp"] >= proc_start) & (dff["timestamp"] <= proc_end)]
+    dff = filter_to_time_range(dff, proc_start, proc_end, require_bounds=False).sort_values("timestamp")
 
     if dff.empty:
         fig.update_layout(title=dict(text="No data during process active period", x=0.5))
@@ -604,47 +546,13 @@ def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, 
     df_original = df_from_store(original_df_data)
     _ensure_timestamp_datetime(df_original)
 
-    dfm = df_original[df_original["metric"] == metric].copy()
+    proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
+    proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None
 
-    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
-    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
-    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
+    df_export = prepare_download_df(df_original, metric, rk, rid, ck, cid, la, proc_start, proc_end)
 
-    def norm_val(v):
-        return str(v).strip() if v else ""
-
-    if rk:
-        dfm = dfm[dfm["rk"] == norm_val(rk)]
-    if rid:
-        dfm = dfm[dfm["rid"] == norm_val(rid)]
-    if ck:
-        dfm = dfm[dfm["ck"] == norm_val(ck)]
-    if cid:
-        dfm = dfm[dfm["cid"] == norm_val(cid)]
-    if la:
-        dfm = dfm[dfm["la"] == norm_val(la)]
-
-    if process_time_range:
-        proc_start = pd.to_datetime(process_time_range.get("start"))
-        proc_end = pd.to_datetime(process_time_range.get("end"))
-        if proc_start and proc_end:
-            dfm = dfm[(dfm["timestamp"] >= proc_start) & (dfm["timestamp"] <= proc_end)]
-
-    if dfm.empty:
+    if df_export.empty:
         return None
 
-    dfm = dfm.sort_values("timestamp")
-
-    export_cols = ["timestamp", "metric", "value"]
-    for orig_col in ["resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]:
-        if orig_col in dfm.columns and dfm[orig_col].notna().any():
-            export_cols.append(orig_col)
-
-    df_export = dfm[export_cols].copy()
-
-    safe_metric = "".join(c if c.isalnum() or c in "._-" else "_" for c in metric)
-    filename = f"{safe_metric}_process_data.csv"
-
+    filename = f"{safe_metric_filename(metric)}_process_data.csv"
     return dcc.send_data_frame(df_export.to_csv, filename, index=False)

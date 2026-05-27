@@ -174,6 +174,32 @@ def is_cpu_from_content(log_content: str) -> bool:
     return False
 
 
+def filter_to_time_range(
+    df: pd.DataFrame,
+    start: Optional[pd.Timestamp],
+    end: Optional[pd.Timestamp],
+    *,
+    timestamp_col: str = "timestamp",
+    require_bounds: bool = True,
+) -> pd.DataFrame:
+    """
+    Return rows whose timestamp falls between start and end.
+
+    When require_bounds is true, missing bounds produce an empty dataframe.
+    When false, missing bounds leave the dataframe unfiltered.
+    """
+    if df.empty:
+        return df.copy()
+    if start is None or end is None:
+        return df.iloc[0:0].copy() if require_bounds else df.copy()
+    if timestamp_col not in df.columns:
+        raise ValueError(f"Cannot filter by time range: missing '{timestamp_col}' column")
+
+    filtered = df.copy()
+    filtered[timestamp_col] = pd.to_datetime(filtered[timestamp_col], errors="coerce")
+    return filtered[(filtered[timestamp_col] >= start) & (filtered[timestamp_col] <= end)].copy()
+
+
 # Time range extraction from dataframe
 def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
     """Get the process active time range from the dataframe.
@@ -421,23 +447,25 @@ class AlumetData:
         """Return rows matching a dashboard time-series category."""
         return filter_time_series_category(self._df_processed, category, selected_cpu_core=cpu_core)
 
+    def filter_to_process_time_range(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Return rows from dataframe that fall within the measured process active time range."""
+        return filter_to_time_range(df, *self.process_time_range)
+
     # ==========
     #   Export
     # ==========
     def summary(self) -> str:
         """Return a human-readable text summary of the dataset."""
         proc_start, proc_end = self.process_time_range
+        categories = available_category_values(self._df_processed)
         lines = [
-            f"Directory : {self.directory}",
-            f"CSV file  : {self._csv_path.name if self._csv_path else 'N/A'}",
-            f"Log file  : {self._log_path.name if self._log_path else 'N/A'}",
-            f"PID       : {self.pid or 'N/A'}",
-            f"Device    : {self.device}",
-            f"Rows (raw): {len(self._df_raw):,}",
-            f"Rows (processed): {len(self._df_processed):,}",
-            f"Metrics   : {len(self.metrics)}",
-            f"Metric IDs: {len(self.metric_ids)}",
-            f"Time range: {proc_start} .. {proc_end}",
+            f"Experiment name              : {Path(self.directory).name}",
+            f"Process ID                   : {self.pid or 'N/A'}",
+            f"Device type                  : {self.device}",
+            f"Number of metric categories  : {len(categories)}",
+            f"Number of metrics            : {len(self.metrics)}",
+            f"Number of metric series IDs  : {len(self.metric_ids)}",
+            f"Time range                   : {proc_start} - {proc_end}",
         ]
         return "\n".join(lines)
 
@@ -452,12 +480,20 @@ class AlumetData:
         """Return a filesystem-safe filename stem."""
         return "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
 
-    def export_csvs(self, output_root: Path, category: Optional[str] = None, cpu_core: Optional[str] = None) -> list[Path]:
+    def export_csvs(
+        self,
+        output_root: Path,
+        category: Optional[str] = None,
+        cpu_core: Optional[str] = None,
+        process_specific: bool = False,
+    ) -> list[Path]:
         """Export category CSV files under ``output_root/<category>/csv/``."""
         output_root = Path(output_root)
         created = []
         for category_value in self._selected_categories(category):
             df = self.filter_by_category(category_value, cpu_core=cpu_core)
+            if process_specific:
+                df = self.filter_to_process_time_range(df)
             if df.empty:
                 continue
             category_dir = output_root / category_value / "csv"

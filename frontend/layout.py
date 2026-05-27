@@ -30,7 +30,7 @@ def empty_time_series_content():
                 style={"display": "none"},
             ),
             dbc.Alert(
-                "No data available. Please load data using the Visualize button.",
+                "No data available. Please load data first.",
                 color="warning",
                 className=status_alert_class("warning"),
             ),
@@ -39,7 +39,19 @@ def empty_time_series_content():
     )
 
 
-def empty_comparative_content(message: str = "No data available. Please load data using the Visualize button."):
+def empty_process_specific_content(message: str = "No data available. Please load data first."):
+    """Keep process-specific callback targets mounted before data is loaded."""
+    return html.Div(
+        dbc.Alert(
+            message,
+            color="warning",
+            className=status_alert_class("warning"),
+        ),
+        className="empty-process-specific-content",
+    )
+
+
+def empty_comparative_content(message: str = "No data available. Please load data first."):
     """Keep comparative callback targets mounted before data is loaded."""
     return html.Div(
         [
@@ -69,6 +81,7 @@ def is_empty_tab_placeholder(current_children: Any) -> bool:
     if isinstance(current_children, dict):
         return current_children.get("props", {}).get("className") in {
             "empty-time-series-content",
+            "empty-process-specific-content",
             "empty-comparative-content",
         }
     return False
@@ -123,7 +136,7 @@ def create_layout(app):
                             ),
                             dbc.Card(
                                 [
-                                    dbc.CardHeader("Configuration Path"),
+                                    dbc.CardHeader("Configuration Setup"),
                                     dbc.CardBody(
                                         [
                                             html.Label(
@@ -140,47 +153,51 @@ def create_layout(app):
                                                 debounce=True,
                                                 className="sidebar-input",
                                             ),
-                                            html.Div(
-                                                "Click Visualize button or press Enter/Tab",
-                                                className="sidebar-hint",
-                                            ),
-                                            html.Div(
-                                                id="directory-status",
-                                                style={"marginTop": "12px", "fontSize": "0.86rem"},
-                                            ),
                                             html.Hr(className="sidebar-hr"),
-                                            dbc.Button(
-                                                "Visualize",
-                                                id="visualize-button",
-                                                n_clicks=0,
-                                                color="primary",
-                                                size="lg",
-                                                style={
-                                                    "fontSize": "1rem",
-                                                    "fontWeight": "600",
-                                                    "padding": "13px 18px",
-                                                    "width": "100%",
-                                                    "backgroundColor": "#5E81AC",
-                                                    "borderColor": "#5E81AC",
-                                                    "color": "#ffffff",
-                                                    "marginBottom": "10px",
-                                                },
-                                            ),
-                                            dbc.Button(
-                                                "Reset",
-                                                id="reset-button",
-                                                n_clicks=0,
-                                                color="secondary",
-                                                size="lg",
-                                                style={
-                                                    "fontSize": "1rem",
-                                                    "fontWeight": "600",
-                                                    "padding": "13px 18px",
-                                                    "width": "100%",
-                                                    "backgroundColor": "#BF616A",
-                                                    "borderColor": "#BF616A",
-                                                    "color": "#ffffff",
-                                                },
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        dbc.Button(
+                                                            "Visualize",
+                                                            id="visualize-button",
+                                                            n_clicks=0,
+                                                            color="primary",
+                                                            size="lg",
+                                                            className="sidebar-action-btn",
+                                                            style={
+                                                                "fontSize": "1rem",
+                                                                "fontWeight": "600",
+                                                                "padding": "clamp(8px, 1.3vh, 11px) 12px",
+                                                                "width": "100%",
+                                                                "backgroundColor": "#5E81AC",
+                                                                "borderColor": "#5E81AC",
+                                                                "color": "#ffffff",
+                                                            },
+                                                        ),
+                                                        xs=6,
+                                                    ),
+                                                    dbc.Col(
+                                                        dbc.Button(
+                                                            "Reset",
+                                                            id="reset-button",
+                                                            n_clicks=0,
+                                                            color="secondary",
+                                                            size="lg",
+                                                            className="sidebar-action-btn",
+                                                            style={
+                                                                "fontSize": "1rem",
+                                                                "fontWeight": "600",
+                                                                "padding": "clamp(8px, 1.3vh, 11px) 12px",
+                                                                "width": "100%",
+                                                                "backgroundColor": "#BF616A",
+                                                                "borderColor": "#BF616A",
+                                                                "color": "#ffffff",
+                                                            },
+                                                        ),
+                                                        xs=6,
+                                                    ),
+                                                ],
+                                                className="g-2 sidebar-action-row",
                                             ),
                                             html.Hr(className="sidebar-hr"),
                                             html.Div("Status", className="sidebar-section-label"),
@@ -199,16 +216,17 @@ def create_layout(app):
                                 [
                                     dbc.CardBody(
                                         [
-                                            html.Div("Process Summary", className="sidebar-process-label"),
+                                            html.Div("Experiment Summary", className="sidebar-process-label"),
                                             html.Div(
                                                 id="process-info",
                                                 children=[
+                                                    html.Span(id="experiment-name-display", className="sidebar-info-value"),
                                                     html.Span(id="pid-display", className="sidebar-info-value"),
                                                     html.Span(id="device-display", className="sidebar-info-value", style={"marginBottom": "0"}),
                                                 ],
                                             ),
                                         ],
-                                        style={"padding": "18px"},
+                                        style={"padding": "14px"},
                                     ),
                                 ],
                                 className="process-summary-card",
@@ -222,7 +240,7 @@ def create_layout(app):
                         style={
                             "backgroundColor": "var(--app-sidebar-bg)",
                             "borderRight": "1px solid var(--app-border)",
-                            "padding": "28px 24px",
+                            "padding": "clamp(14px, 2vh, 24px) 22px",
                         },
                     ),
                     # Main area: all visualizations and analysis tabs
@@ -250,6 +268,7 @@ def create_layout(app):
                                     ),
                                     html.Div(
                                         id="process-specific-content",
+                                        children=empty_process_specific_content(),
                                         style={"display": "none", "marginTop": "10px"},
                                     ),
                                     html.Div(
