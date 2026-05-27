@@ -112,7 +112,7 @@ body[data-bs-theme="light"] {
 
 /* ---- Sidebar ---- */
 .sidebar-intro {
-    margin-bottom: 28px;
+    margin-bottom: clamp(14px, 2vh, 24px);
 }
 
 .sidebar-brand-row {
@@ -123,7 +123,7 @@ body[data-bs-theme="light"] {
 }
 
 .sidebar-logo {
-    height: 58px;
+    height: 55px;
     width: auto;
 }
 
@@ -200,7 +200,7 @@ body[data-bs-theme="light"] {
     color: var(--app-text);
     font-size: 0.95rem;
     font-weight: 500;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     transition: color 200ms ease;
 }
 
@@ -208,14 +208,6 @@ body[data-bs-theme="light"] {
     color: var(--app-danger);
     font-size: 0.8rem;
     font-weight: 400;
-}
-
-.app-shell .sidebar-hint {
-    color: var(--app-accent-soft);
-    font-size: 0.82rem;
-    font-style: italic;
-    margin-top: 8px;
-    transition: color 200ms ease;
 }
 
 .app-shell .sidebar-section-label {
@@ -242,10 +234,10 @@ body[data-bs-theme="light"] {
 .app-shell .sidebar-info-value {
     color: var(--app-text);
     display: block;
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 600;
     letter-spacing: 0.3px;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     transition: color 200ms ease;
 }
 
@@ -257,8 +249,8 @@ body[data-bs-theme="light"] {
     color: var(--app-text) !important;
     font-size: 0.92rem;
     line-height: 1.5;
-    min-height: 48px;
-    padding: 13px 12px;
+    min-height: 44px;
+    padding: 11px 12px;
     transition: background-color 200ms ease, color 200ms ease;
     width: 100%;
 }
@@ -497,6 +489,17 @@ body[data-bs-theme="light"] {
     text-align: justify;
 }
 
+.status-alert-title {
+    line-height: 1.4;
+    margin-bottom: 6px;
+}
+
+.status-alert-detail {
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
 .status-alert-success {
     border: 1px solid var(--app-success) !important;
     border-left: 5px solid var(--app-success) !important;
@@ -517,6 +520,14 @@ body[data-bs-theme="light"] {
     border-color: var(--app-border);
     margin: 18px 0;
     transition: border-color 200ms ease;
+}
+
+.sidebar-action-row {
+    margin-bottom: 0;
+}
+
+.sidebar-action-row .sidebar-action-btn {
+    white-space: nowrap;
 }
 
 /* ---- Slider styling ---- */
@@ -664,7 +675,9 @@ div.rc-slider-mark-text-active {
 /* ---- Stable sidebar and main area layout ---- */
 .app-shell .sidebar-col {
     box-sizing: border-box;
+    display: flex;
     flex: 0 0 400px !important;
+    flex-direction: column;
     height: 100%;
     max-width: 400px !important;
     min-height: 0 !important;

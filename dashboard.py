@@ -163,6 +163,38 @@ def status_alert_class(color: str) -> str:
     return f"status-alert status-alert-{color}"
 
 
+def status_alert(
+    color: str,
+    title,
+    detail=None,
+    *,
+    icon: str | None = None,
+    detail_style: dict | None = None,
+):
+    """
+    Build a sidebar status alert.
+    """
+    title_row = []
+    if icon:
+        title_row.append(icon)
+    if isinstance(title, str):
+        title_row.append(html.Strong(title))
+    else:
+        title_row.extend(title)
+
+    children = [html.Div(title_row, className="status-alert-title")]
+    if detail is not None:
+        detail_content = detail if isinstance(detail, (list, tuple)) else detail
+        children.append(
+            html.Div(
+                detail_content,
+                className="status-alert-detail",
+                style=detail_style or {},
+            )
+        )
+    return dbc.Alert(children, color=color, className=status_alert_class(color))
+
+
 def empty_time_series_content():
     """Keep time-series callback targets mounted before data is loaded."""
     return html.Div(
@@ -185,7 +217,7 @@ def empty_time_series_content():
                 style={"display": "none"},
             ),
             dbc.Alert(
-                "No data available. Please load data using the Visualize button.",
+                "No data available. Please load data first.",
                 color="warning",
                 className=status_alert_class("warning"),
             ),
@@ -194,7 +226,7 @@ def empty_time_series_content():
     )
 
 
-def empty_comparative_content(message: str = "No data available. Please load data using the Visualize button."):
+def empty_comparative_content(message: str = "No data available. Please load data first."):
     """Keep comparative callback targets mounted before data is loaded."""
     return html.Div(
         [
@@ -305,7 +337,7 @@ app.layout = html.Div(
                         ),
                         dbc.Card(
                             [
-                                dbc.CardHeader("Configuration Path"),
+                                dbc.CardHeader("Configuration Setup"),
                                 dbc.CardBody(
                                     [
                                         html.Label(
@@ -322,47 +354,51 @@ app.layout = html.Div(
                                             debounce=True,
                                             className="sidebar-input",
                                         ),
-                                        html.Div(
-                                            "Click Visualize button or press Enter/Tab",
-                                            className="sidebar-hint",
-                                        ),
-                                        html.Div(
-                                            id="directory-status",
-                                            style={"marginTop": "12px", "fontSize": "0.86rem"},
-                                        ),
                                         html.Hr(className="sidebar-hr"),
-                                        dbc.Button(
-                                            "Visualize",
-                                            id="visualize-button",
-                                            n_clicks=0,
-                                            color="primary",
-                                            size="lg",
-                                            style={
-                                                "fontSize": "1rem",
-                                                "fontWeight": "600",
-                                                "padding": "13px 18px",
-                                                "width": "100%",
-                                                "backgroundColor": "#5E81AC",
-                                                "borderColor": "#5E81AC",
-                                                "color": "#ffffff",
-                                                "marginBottom": "10px",
-                                            },
-                                        ),
-                                        dbc.Button(
-                                            "Reset",
-                                            id="reset-button",
-                                            n_clicks=0,
-                                            color="secondary",
-                                            size="lg",
-                                            style={
-                                                "fontSize": "1rem",
-                                                "fontWeight": "600",
-                                                "padding": "13px 18px",
-                                                "width": "100%",
-                                                "backgroundColor": "#BF616A",
-                                                "borderColor": "#BF616A",
-                                                "color": "#ffffff",
-                                            },
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    dbc.Button(
+                                                        "Visualize",
+                                                        id="visualize-button",
+                                                        n_clicks=0,
+                                                        color="primary",
+                                                        size="lg",
+                                                        className="sidebar-action-btn",
+                                                        style={
+                                                            "fontSize": "1rem",
+                                                            "fontWeight": "600",
+                                                            "padding": "clamp(8px, 1.3vh, 11px) 12px",
+                                                            "width": "100%",
+                                                            "backgroundColor": "#5E81AC",
+                                                            "borderColor": "#5E81AC",
+                                                            "color": "#ffffff",
+                                                        },
+                                                    ),
+                                                    xs=7,
+                                                ),
+                                                dbc.Col(
+                                                    dbc.Button(
+                                                        "Reset",
+                                                        id="reset-button",
+                                                        n_clicks=0,
+                                                        color="secondary",
+                                                        size="lg",
+                                                        className="sidebar-action-btn",
+                                                        style={
+                                                            "fontSize": "1rem",
+                                                            "fontWeight": "600",
+                                                            "padding": "clamp(8px, 1.3vh, 11px) 12px",
+                                                            "width": "100%",
+                                                            "backgroundColor": "#BF616A",
+                                                            "borderColor": "#BF616A",
+                                                            "color": "#ffffff",
+                                                        },
+                                                    ),
+                                                    xs=5,
+                                                ),
+                                            ],
+                                            className="g-2 sidebar-action-row",
                                         ),
                                         html.Hr(className="sidebar-hr"),
                                         html.Div("Status", className="sidebar-section-label"),
@@ -381,16 +417,17 @@ app.layout = html.Div(
                             [
                                 dbc.CardBody(
                                     [
-                                        html.Div("Process Summary", className="sidebar-process-label"),
+                                        html.Div("Experiment Summary", className="sidebar-process-label"),
                                         html.Div(
                                             id="process-info",
                                             children=[
+                                                html.Span(id="experiment-name-display", className="sidebar-info-value"),
                                                 html.Span(id="pid-display", className="sidebar-info-value"),
                                                 html.Span(id="device-display", className="sidebar-info-value", style={"marginBottom": "0"}),
                                             ],
                                         ),
                                     ],
-                                    style={"padding": "18px"},
+                                    style={"padding": "14px"},
                                 ),
                             ],
                             className="process-summary-card",
@@ -404,7 +441,7 @@ app.layout = html.Div(
                     style={
                         "backgroundColor": "var(--app-sidebar-bg)",
                         "borderRight": "1px solid var(--app-border)",
-                        "padding": "28px 24px",
+                        "padding": "clamp(14px, 2vh, 24px) 22px",
                     },
                 ),
                 # Main area: all visualizations and analysis tabs
@@ -499,54 +536,6 @@ def toggle_theme_switch(n_clicks, current):
 def update_theme_icon(use_light_mode):
     return "bi bi-moon-stars-fill" if use_light_mode else "bi bi-sun-fill"
 
-# Callback for directory path validation and status
-@app.callback(
-    Output("directory-status", "children"),
-    Input("directory-path-input", "value"),
-)
-def update_directory_status(directory_path):
-    if not directory_path or not directory_path.strip():
-        return html.Span("", style={"display": "none"})
-    
-    try:
-        dir_path = Path(directory_path.strip())
-        if not dir_path.exists():
-            return html.Span(
-                f"❌Directory does not exist: {directory_path}",
-                style={"color": "var(--app-danger)", "fontWeight": "500"}
-            )
-        if not dir_path.is_dir():
-            return html.Span(
-                f"❌ Path is not a directory: {directory_path}",
-                style={"color": "var(--app-danger)", "fontWeight": "500"}
-            )
-        
-        # Check for required files
-        csv_file = find_files_in_directory(directory_path, ['.csv'])
-        log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
-        
-        status_parts = []
-        if csv_file:
-            status_parts.append(f"✅ CSV: {csv_file.name}")
-        else:
-            status_parts.append("❌ CSV: Not found")
-        
-        if log_file:
-            status_parts.append(f"✅ Log: {log_file.name}")
-        else:
-            status_parts.append("❌ Log: Not found")
-
-        color = "var(--app-success)" if csv_file and log_file else "var(--app-danger)"
-        return html.Div(
-            [html.Span(part, style={"display": "block", "marginBottom": "4px"}) for part in status_parts],
-            style={"color": color, "fontWeight": "500"}
-        )
-    except Exception as e:
-        return html.Span(
-            f"❌ Error: {str(e)}",
-            style={"color": "var(--app-danger)", "fontWeight": "500"}
-        )
-
 # Callback for Reset button - clears all data and resets input
 @app.callback(
     Output("directory-path-input", "value", allow_duplicate=True),
@@ -554,10 +543,10 @@ def update_directory_status(directory_path):
     Output("original-df-store", "data", allow_duplicate=True),
     Output("process-time-range-store", "data", allow_duplicate=True),
     Output("timeseries-filtered-df-store", "data", allow_duplicate=True),
+    Output("experiment-name-display", "children", allow_duplicate=True),
     Output("pid-display", "children", allow_duplicate=True),
     Output("device-display", "children", allow_duplicate=True),
     Output("status-message", "children", allow_duplicate=True),
-    Output("directory-status", "children", allow_duplicate=True),
     Input("reset-button", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -573,21 +562,22 @@ def reset_app(n_clicks):
         None,  # Clear original-df-store
         None,  # Clear process-time-range-store
         None,  # Clear timeseries-filtered-df-store
-        "process id: N/A",  # Reset pid display
-        "device: N/A",  # Reset device display
-        dbc.Alert(
+        "Name: N/A",  # Reset experiment name display
+        "Process ID: N/A",  # Reset pid display
+        "Device: N/A",  # Reset device display
+        status_alert(
+            "warning",
+            "Ready to load",
             [
                 "Enter a directory path above, then click ",
                 html.Strong("Visualize"),
                 " or press Enter/Tab to load and visualize data.",
             ],
-            color="warning",
-            className=status_alert_class("warning"),
         ),  # Reset status message
-        html.Span("", style={"display": "none"}),  # Clear directory status
     )
 
 @app.callback(
+    Output("experiment-name-display", "children"),
     Output("pid-display", "children"),
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
@@ -597,9 +587,10 @@ def reset_app(n_clicks):
 )
 def update_process_info(n_clicks, n_submit, n_blur, directory_path):
     if not any([n_clicks, n_submit, n_blur]) or not directory_path or not directory_path.strip():
-        return "process id: N/A", "device: N/A"
+        return "Name: N/A", "Process ID: N/A", "Device: N/A"
     
     try:
+        experiment_name = Path(directory_path.strip()).name or "N/A"
         # Find and read csv and log file
         log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
         log_content = read_file_content(log_file)
@@ -613,9 +604,10 @@ def update_process_info(n_clicks, n_submit, n_blur, directory_path):
         else:
             device = "CPU + GPU"
     except Exception:
-        return "process id: N/A", "device: N/A"
+        return "Name: N/A", "Process ID: N/A", "Device: N/A"
 
     return (
+        f"Name: {experiment_name}",
         f"Process ID: {pid or 'N/A'}",
         f"Device: {device}",
     )
@@ -633,14 +625,14 @@ def update_process_info(n_clicks, n_submit, n_blur, directory_path):
 def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
     if not any([n_clicks, n_submit, n_blur]):
         return (
-            dbc.Alert(
+            status_alert(
+                "warning",
+                "Ready to load",
                 [
                     "Enter a directory path above, then click ",
                     html.Strong("Visualize"),
                     " or press Enter/Tab to load and visualize data.",
                 ],
-                color="warning",
-                className=status_alert_class("warning"),
             ),
             None,
             None,
@@ -649,67 +641,17 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
     
     # Validate directory path
     if not directory_path or not directory_path.strip():
-        status_msg = dbc.Alert(
-            [
-                html.Strong("Error: "),
-                "Directory path is required. Please enter a directory path."
-            ],
-            color="danger",
-            className=status_alert_class("danger"),
+        status_msg = status_alert(
+            "danger",
+            "Error:",
+            "Directory path is required. Please enter a directory path.",
         )
         return status_msg, None, None, None
     
-    try:
-        dir_path = Path(directory_path.strip())
-        if not dir_path.exists():
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    f"Directory does not exist: {directory_path}"
-                ],
-                color="danger",
-                className=status_alert_class("danger"),
-            )
-            return status_msg, None, None, None
-        
-        if not dir_path.is_dir():
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    f"Path is not a directory: {directory_path}"
-                ],
-                color="danger",
-                className=status_alert_class("danger"),
-            )
-            return status_msg, None, None, None
-        
+    try:        
         # Find required files
         csv_file = find_files_in_directory(directory_path, ['.csv'])
         log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
-        
-        # Validate required CSV file
-        if not csv_file:
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    "CSV file is required. Please ensure the directory contains a .csv file."
-                ],
-                color="danger",
-                className=status_alert_class("danger"),
-            )
-            return status_msg, None, None, None
-        
-        # Validate required log file
-        if not log_file:
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    "Log file is required. Please ensure the directory contains a .log or .txt file."
-                ],
-                color="danger",
-                className=status_alert_class("danger"),
-            )
-            return status_msg, None, None, None
         
         # Load all data from CSV file (timed for performance tracking)
         t0 = time.perf_counter()
@@ -736,17 +678,12 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         total_time = t_cache - t0
         n_rows = len(df_all)
         
-        status_msg = dbc.Alert(
-            [
-                "✅ ",
-                html.Strong("Data loaded successfully"),
-                html.Span(
-                    f" (CSV read: {csv_time:.2f}s, preprocess: {preprocess_time:.2f}s, cache: {cache_time:.2f}s) ",
-                    style={"fontSize": "0.85rem"},
-                ),
-            ],
-            color="success",
-            className=status_alert_class("success"),
+        status_msg = status_alert(
+            "success",
+            "Data loaded successfully",
+            f"CSV read: {csv_time:.2f}s, preprocess: {preprocess_time:.2f}s, cache: {cache_time:.2f}s",
+            icon="✅ ",
+            detail_style={"fontSize": "0.85rem", "color": "var(--app-text-muted)"},
         )
         
         process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
@@ -755,14 +692,11 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         return status_msg, processed_cache_id, original_cache_id, process_time_range
         
     except Exception as e:
-        status_msg = dbc.Alert(
-            [
-                "🚨 ",
-                html.Strong("Error loading data: "),
-                str(e)
-            ],
-            color="danger",
-            className=status_alert_class("danger"),
+        status_msg = status_alert(
+            "danger",
+            "Error loading data:",
+            str(e),
+            icon="❌ ",
         )
         return status_msg, None, None, None
 
@@ -1009,7 +943,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
 
     if not original_df_data or not process_time_range:
         return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
+            "No data available. Please load data first.",
             color="warning",
             className=status_alert_class("warning"),
         )

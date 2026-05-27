@@ -133,23 +133,23 @@ def find_files_in_directory(directory_path: str, extensions: List[str]) -> List[
     """
     dir_path = Path(directory_path)
     if not dir_path.exists():
-        raise ValueError(f"Directory does not exist: {directory_path}")
+        raise ValueError(f"Directory {directory_path} does not exist.")
     if not dir_path.is_dir():
-        raise ValueError(f"Path is not a directory: {directory_path}")
+        raise ValueError(f"Path {directory_path} is not a directory.")
     
     found_files = []
     for ext in extensions:
         found_files.extend(dir_path.glob(f"*{ext}"))
     if not found_files:
-        raise ValueError(f"No files found with extensions: {extensions} in directory: {directory_path}")
+        raise ValueError(f"No files found with extensions {', '.join(extensions)} in directory {directory_path}.")
     if len(found_files) > 1:
-        warnings.warn(f"Multiple files found with extensions: {extensions} in directory: {directory_path}. Returning the first one.")
+        warnings.warn(f"Multiple files found with extensions {', '.join(extensions)} in directory {directory_path}. Returning the first one.")
     return sorted(found_files)[0]
 
 def read_file_content(file_path: Path) -> str:
     """Read file content as string."""
     if not file_path.exists():
-        raise ValueError(f"File not found: {file_path}")
+        raise ValueError(f"File {file_path} not found.")
     return file_path.read_text(encoding='utf-8')
 
 # ================================================
