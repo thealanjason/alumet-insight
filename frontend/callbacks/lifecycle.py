@@ -244,7 +244,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
 def toggle_tab_visibility(tab_value):
     """Toggle tab panel visibility. No content is re-created."""
     hidden = {"display": "none", "marginTop": "10px"}
-    visible = {"display": "block", "marginTop": "10px"}
+    visible = {"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0}
     if tab_value == "time-series-tab":
         return visible, hidden, hidden
     elif tab_value == "process-specific-tab":
