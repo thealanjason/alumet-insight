@@ -696,44 +696,57 @@ div.rc-slider-mark-text-active {
     max-width: none !important;
     min-height: 0 !important;
     min-width: 0;
-    overflow: auto;
+    overflow: hidden;
     padding: clamp(14px, 1.7vw, 28px) !important;
     width: calc(100% - 400px) !important;
 }
 
 #results-tabs {
+    background: var(--app-main-bg);
     min-width: 0;
-    position: relative;
-    z-index: 5;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+#tab-content-area {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
 }
 
 #loading-tab-content {
     display: flex;
-    flex: 1 1 auto;
     flex-direction: column;
-    min-height: 0 !important;
-    overflow: auto;
+    min-height: 100%;
+    overflow: visible;
     position: relative;
     z-index: 1;
+}
+
+#loading-tab-content > div {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: visible;
 }
 
 #time-series-content,
 #process-specific-content,
 #comparative-content {
-    flex: 1 1 auto;
-    height: 100%;
+    flex: 0 0 auto;
     min-height: 0;
-    overflow: auto;
+    overflow: visible;
 }
 
 .viewport-card,
 .viewport-card-body {
     display: flex;
-    flex: 1 1 auto;
     flex-direction: column;
-    height: 100%;
     min-height: 0;
-    overflow: auto;
+    overflow: visible;
 }
 
 .viewport-card-body {
@@ -747,16 +760,14 @@ div.rc-slider-mark-text-active {
 
 #timeseries-plot-container,
 .process-grid-scroll {
-    flex: 1 1 auto;
-    height: 100%;
     min-height: 0;
     overflow-x: hidden;
-    overflow-y: auto !important;
+    overflow-y: visible !important;
     width: 100%;
 }
 
 #timeseries-plot-container {
-    height: 100% !important;
+    height: auto !important;
     max-height: none !important;
     padding: clamp(8px, 1vw, 15px) !important;
 }

@@ -457,27 +457,38 @@ app.layout = html.Div(
                             ],
                             style={"marginBottom": "25px"},
                         ),
-                        dcc.Loading(
-                            id="loading-tab-content",
-                            type="circle",
-                            color="#88C0D0",
-                            children=[
-                                html.Div(
-                                    id="time-series-content",
-                                    children=empty_time_series_content(),
-                                    style={"display": "block", "marginTop": "10px"},
-                                ),
-                                html.Div(
-                                    id="process-specific-content",
-                                    style={"display": "none", "marginTop": "10px"},
-                                ),
-                                html.Div(
-                                    id="comparative-content",
-                                    children=empty_comparative_content(),
-                                    style={"display": "none", "marginTop": "10px"},
-                                ),
-                            ],
-                            style={"minHeight": "200px"},
+                        html.Div(
+                            id="tab-content-area",
+                            children=dcc.Loading(
+                                id="loading-tab-content",
+                                type="circle",
+                                color="#88C0D0",
+                                children=[
+                                    html.Div(
+                                        id="time-series-content",
+                                        children=empty_time_series_content(),
+                                        className="tab-panel-scroll",
+                                        style={"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0},
+                                    ),
+                                    html.Div(
+                                        id="process-specific-content",
+                                        className="tab-panel-scroll",
+                                        style={"display": "none", "marginTop": "10px"},
+                                    ),
+                                    html.Div(
+                                        id="comparative-content",
+                                        children=empty_comparative_content(),
+                                        className="tab-panel-scroll",
+                                        style={"display": "none", "marginTop": "10px"},
+                                    ),
+                                ],
+                                style={
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "minHeight": "100%",
+                                    "overflow": "visible",
+                                },
+                            ),
                         ),
                     ],
                     xs=12,
@@ -710,7 +721,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
 def toggle_tab_visibility(tab_value):
     """Toggle tab panel visibility. No content is re-created."""
     hidden = {"display": "none", "marginTop": "10px"}
-    visible = {"display": "block", "marginTop": "10px"}
+    visible = {"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0}
     if tab_value == "time-series-tab":
         return visible, hidden, hidden
     elif tab_value == "process-specific-tab":
