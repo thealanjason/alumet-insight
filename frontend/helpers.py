@@ -16,5 +16,5 @@ def normalize_dropdown_value(x):
 
 
 def available_category_options(df_processed: pd.DataFrame) -> list[dict[str, str]]:
-    """Return category options in the shape consumed by Dash dropdowns."""
+    """Return category options in Dash dropdowns."""
     return [{"label": CATEGORY_LABELS[value], "value": value} for value in available_category_values(df_processed)]

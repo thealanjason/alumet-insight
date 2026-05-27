@@ -10,7 +10,7 @@ import pandas as pd
 from dash import Input, Output, State, ctx, dcc, html, MATCH, ALL
 
 from frontend.app import app
-from frontend.cache import df_from_store, is_cache_miss, _ensure_timestamp_datetime
+from frontend.cache import df_from_store, is_cache_miss, ensure_timestamp_datetime
 from frontend.theme import status_alert_class, apply_figure_theme
 from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
 from frontend.helpers import normalize_dropdown_value
@@ -67,7 +67,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             color="danger",
             className=status_alert_class("danger"),
         )
-    _ensure_timestamp_datetime(df_original)
+    ensure_timestamp_datetime(df_original)
 
     unique_metrics = sorted(df_original["metric"].unique().tolist())
 
@@ -347,7 +347,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
         return fig
 
     df = df_from_store(original_df_data)
-    _ensure_timestamp_datetime(df)
+    ensure_timestamp_datetime(df)
     dfm = normalize_filter_columns(df[df["metric"] == metric])
 
     rk = normalize_dropdown_value(rk)
@@ -544,7 +544,7 @@ def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, 
         return None
 
     df_original = df_from_store(original_df_data)
-    _ensure_timestamp_datetime(df_original)
+    ensure_timestamp_datetime(df_original)
 
     proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None

@@ -1,10 +1,19 @@
-import uuid
-import tempfile
+"""
+Dash server-side dataframe cache.
+
+This module belongs to the frontend layer because it adapts pandas dataframes to
+Dash's dcc.Store payload model. Backend modules should accept dataframes or file
+paths directly and should not know about cache IDs or Dash session state.
+"""
+
 import atexit
 import shutil
-from typing import Any, Optional
-import pandas as pd
+import tempfile
+import uuid
 from pathlib import Path
+from typing import Any, Optional
+
+import pandas as pd
 
 CACHE_DIR = Path(tempfile.mkdtemp(prefix="dash_df_cache_"))
 CACHE_DIR.chmod(0o700)
@@ -20,8 +29,9 @@ def _cleanup_cache():
 atexit.register(_cleanup_cache)
 
 
-def cache_dataframe(df: pd.DataFrame, prefix: str = "df") -> str:
-    """Cache DataFrame to disk and in-memory, return a reference ID.
+def cache_dataframe(df: pd.DataFrame, prefix: str = "df") -> Optional[str]:
+    """
+    Cache DataFrame to disk and in-memory, return a reference ID.
     
     Uses Parquet format on disk and in-memory dict for fast access.
     
@@ -80,7 +90,8 @@ def is_cache_miss(df: pd.DataFrame) -> bool:
 
 
 def df_from_store(store_data: Any) -> pd.DataFrame:
-    """Reconstruct DataFrame from dcc.Store data.
+    """
+    Reconstruct DataFrame from dcc.Store data.
     
     Handles:
     - Cache ID string (new optimized approach for large data)
@@ -102,7 +113,7 @@ def df_from_store(store_data: Any) -> pd.DataFrame:
         return pd.DataFrame(store_data)
 
 
-def _ensure_timestamp_datetime(df: pd.DataFrame) -> pd.DataFrame:
+def ensure_timestamp_datetime(df: pd.DataFrame) -> pd.DataFrame:
     """
     Ensure timestamp column is datetime64 dtype.
     

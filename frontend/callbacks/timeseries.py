@@ -8,7 +8,7 @@ import pandas as pd
 from dash import Input, Output, State, dcc, html
 
 from frontend.app import app
-from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe, _ensure_timestamp_datetime
+from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe, ensure_timestamp_datetime
 from frontend.theme import status_alert_class, apply_figure_theme
 from frontend.layout import empty_time_series_content
 from frontend.helpers import available_category_options
@@ -20,7 +20,7 @@ from backend.timeseries import (
     align_xrange_tz,
     compute_yaxis_ranges,
 )
-from backend.time_range import filter_to_time_range
+from backend.data import filter_to_time_range
 from backend.visualization.interactive import create_all_timeseries_plots
 
 
@@ -35,7 +35,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
         return empty_time_series_content()
 
     df_processed = df_from_store(processed_df_data)
-    _ensure_timestamp_datetime(df_processed)
+    ensure_timestamp_datetime(df_processed)
 
     available_categories = available_category_options(df_processed)
 
@@ -212,7 +212,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
         return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None
 
     df_processed = df_from_store(processed_df_data)
-    _ensure_timestamp_datetime(df_processed)
+    ensure_timestamp_datetime(df_processed)
 
     full_time_min = df_processed["timestamp"].min()
     full_time_max = df_processed["timestamp"].max()
@@ -315,7 +315,7 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
         return current_figure
 
     df = load_cached_dataframe(cache_id)
-    _ensure_timestamp_datetime(df)
+    ensure_timestamp_datetime(df)
 
     if df.empty:
         return current_figure
@@ -391,7 +391,7 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
             return current_figure
 
         df = load_cached_dataframe(cache_id)
-        _ensure_timestamp_datetime(df)
+        ensure_timestamp_datetime(df)
 
         updated_figure = copy.deepcopy(current_figure)
         layout = updated_figure.get("layout", {})
@@ -431,7 +431,7 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         return current_figure
 
     df = load_cached_dataframe(cache_id)
-    _ensure_timestamp_datetime(df)
+    ensure_timestamp_datetime(df)
 
     if df.empty:
         return current_figure

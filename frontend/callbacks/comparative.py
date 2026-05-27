@@ -9,7 +9,7 @@ import pandas as pd
 from dash import Input, Output, State, ctx, dcc, html
 
 from frontend.app import app
-from frontend.cache import df_from_store, _ensure_timestamp_datetime
+from frontend.cache import df_from_store, ensure_timestamp_datetime
 from frontend.theme import apply_figure_theme
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
 from backend.metrics import (
@@ -32,7 +32,7 @@ def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list
     if not processed_df_data or not process_time_range:
         return []
     df_processed = df_from_store(processed_df_data)
-    _ensure_timestamp_datetime(df_processed)
+    ensure_timestamp_datetime(df_processed)
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
     return comparative_metric_ids(df_processed, proc_start, proc_end)
@@ -268,7 +268,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         return fig
 
     dfp = df_from_store(processed_df_data)
-    _ensure_timestamp_datetime(dfp)
+    ensure_timestamp_datetime(dfp)
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
@@ -460,7 +460,7 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
         return None
 
     dfp = df_from_store(processed_df_data)
-    _ensure_timestamp_datetime(dfp)
+    ensure_timestamp_datetime(dfp)
 
     proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None
