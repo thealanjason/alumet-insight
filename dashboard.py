@@ -36,14 +36,15 @@ from utils import (
 
 # Get base directory
 BASE_DIR = Path(__file__).parent.parent
+BOOTSTRAP_ICONS = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
 
 # ============================================================
 # Server-side DataFrame Cache
 # Use in-memory cache (instant) + Parquet on disk (persistent)
 # dcc.Store only holds a reference ID, not the actual data
 # ============================================================
-CACHE_DIR = Path(tempfile.gettempdir()) / "dash_df_cache"
-CACHE_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path(tempfile.mkdtemp(prefix="dash_df_cache_"))
+CACHE_DIR.chmod(0o700)
 
 # In-memory cache: eliminates repeated Parquet disk reads (11+ per session)
 _MEMORY_CACHE: dict[str, pd.DataFrame] = {}
@@ -154,275 +155,253 @@ def _ensure_timestamp_datetime(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # Initialize Dash app
-app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, BOOTSTRAP_ICONS])
 app.config.suppress_callback_exceptions=True
 
+def status_alert_class(color: str) -> str:
+    """Return CSS classes for the muted sidebar status panel."""
+    return f"status-alert status-alert-{color}"
+
+
+def status_alert(
+    color: str,
+    title,
+    detail=None,
+    *,
+    icon: str | None = None,
+    detail_style: dict | None = None,
+):
+    """
+    Build a sidebar status alert.
+    """
+    title_row = []
+    if icon:
+        title_row.append(icon)
+    if isinstance(title, str):
+        title_row.append(html.Strong(title))
+    else:
+        title_row.extend(title)
+
+    children = [html.Div(title_row, className="status-alert-title")]
+    if detail is not None:
+        detail_content = detail if isinstance(detail, (list, tuple)) else detail
+        children.append(
+            html.Div(
+                detail_content,
+                className="status-alert-detail",
+                style=detail_style or {},
+            )
+        )
+    return dbc.Alert(children, color=color, className=status_alert_class(color))
+
+
+def empty_time_series_content():
+    """Keep time-series callback targets mounted before data is loaded."""
+    return html.Div(
+        [
+            html.Div(
+                [
+                    dcc.Dropdown(id="metric-category-dropdown", options=[], value=None),
+                    html.Div(id="cpu-core-selector"),
+                    dcc.Dropdown(id="cpu-core-dropdown", options=[], value=None),
+                    html.Div(
+                        dcc.Checklist(
+                            id="shared-yaxis-toggle",
+                            options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
+                            value=[],
+                        ),
+                        id="yaxis-options-container",
+                    ),
+                    html.Div(id="timeseries-plot-container"),
+                ],
+                style={"display": "none"},
+            ),
+            dbc.Alert(
+                "No data available. Please load data first.",
+                color="warning",
+                className=status_alert_class("warning"),
+            ),
+        ],
+        className="empty-time-series-content",
+    )
+
+
+def empty_comparative_content(message: str = "No data available. Please load data first."):
+    """Keep comparative callback targets mounted before data is loaded."""
+    return html.Div(
+        [
+            html.Div(
+                [
+                    dcc.Dropdown(id="ps-xmetric-dropdown", options=[], value=None),
+                    dcc.Dropdown(id="ps-ymetric-dropdown", options=[], value=None),
+                    dbc.Checklist(id="comparative-process-only-toggle", options=[], value=[]),
+                    html.Div(id="comparative-mode-info"),
+                    dbc.Checklist(id="scatter-toggle", options=[], value=[]),
+                    dcc.Graph(id="ps-xy-graph"),
+                ],
+                style={"display": "none"},
+            ),
+            dbc.Alert(
+                message,
+                color="warning",
+                className=status_alert_class("warning"),
+            ),
+        ],
+        className="empty-comparative-content",
+    )
+
+
+def is_empty_tab_placeholder(current_children: Any) -> bool:
+    """Detect hidden placeholder content."""
+    if isinstance(current_children, dict):
+        return current_children.get("props", {}).get("className") in {
+            "empty-time-series-content",
+            "empty-comparative-content",
+        }
+    return False
+
+
+def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
+    """Apply the dashboard theme colors to Plotly figures."""
+    theme = {
+        "paper": "#ffffff",
+        "plot": "#f7f8fa",
+        "font": "#1f2937",
+        "grid": "rgba(31, 41, 55, 0.12)",
+        "legend": "rgba(255, 255, 255, 0.92)",
+        "legend_font": "#000000",
+    } if use_light_mode else {
+        "paper": "#252c3e",
+        "plot": "#1e2433",
+        "font": "#ECEFF4",
+        "grid": "rgba(216, 222, 233, 0.15)",
+        "legend": "rgba(37, 44, 62, 0.88)",
+        "legend_font": "#ffffff",
+    }
+    fig.update_layout(
+        paper_bgcolor=theme["paper"],
+        plot_bgcolor=theme["plot"],
+        font=dict(color=theme["font"]),
+    )
+    fig.update_xaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"], tickfont=dict(color=theme["font"]))
+    fig.update_yaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"], tickfont=dict(color=theme["font"]))
+    if fig.layout.legend:
+        fig.update_layout(legend=dict(bgcolor=theme["legend"], font=dict(color=theme["legend_font"])))
+    return fig
+
 # App Layout
-app.layout = dbc.Container(
+app.layout = html.Div(
     id="main-container",
-    fluid=True,
+    className="app-shell theme-dark dbc",
     children=[
-        # Header Section
         dbc.Row(
             [
+                # Left sidebar: configuration and run controls
                 dbc.Col(
                     [
                         html.Div(
                             [
-                                html.Img(
-                                    src=app.get_asset_url("logo.png"),
-                                    style={"height": "60px", "width": "auto", "marginRight": "15px"}
+                                html.Div(
+                                    [
+                                        html.Img(
+                                            src=app.get_asset_url("logo.png"),
+                                            className="sidebar-logo",
+                                        ),
+                                        dbc.Button(
+                                            html.I(id="theme-toggle-icon", className="bi bi-sun-fill"),
+                                            id="theme-toggle-btn",
+                                            n_clicks=0,
+                                            color="link",
+                                            className="theme-toggle-btn",
+                                            title="Toggle light / dark mode",
+                                        ),
+                                        dbc.Switch(
+                                            id="theme-switch",
+                                            value=False,
+                                            persistence=True,
+                                            className="theme-switch-hidden",
+                                        ),
+                                    ],
+                                    className="sidebar-brand-row",
                                 ),
                                 html.H1(
                                     "Alumet Energy Visualization",
-                                    style={
-                                        "margin": "0",
-                                        "color": "#ECEFF4",
-                                        "fontSize": "2.5rem",
-                                        "fontWeight": "600",
-                                    }
+                                    className="sidebar-title",
+                                ),
+                                html.P(
+                                    "Visualization dashboard to monitor process-specific compute resource usage measured by Alumet.",
+                                    className="sidebar-description",
                                 ),
                             ],
-                            style={
-                                "display": "flex",
-                                "alignItems": "center",
-                                "padding": "30px 0",
-                            }
+                            className="sidebar-intro",
                         ),
-                    ],
-                    width=12,
-                )
-            ],
-            className="mb-4",
-        ),
-        
-        # Process Info Card
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
                         dbc.Card(
                             [
+                                dbc.CardHeader("Configuration Setup"),
                                 dbc.CardBody(
                                     [
-                                        html.Div(
-                                            id="process-info",
-                                            children=[
-                                                html.Div(
-                                                    [
-                                                        html.Span(
-                                                            id="pid-display",
-                                                            style={
-                                                                "fontSize": "1.1rem",
-                                                                "color": "#ECEFF4",
-                                                                "fontWeight": "600",
-                                                                "letterSpacing": "0.5px",
-                                                            }
-                                                        ),
-                                                    ],
-                                                    style={
-                                                        "display": "flex",
-                                                        "alignItems": "center",
-                                                        "flex": "1",
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    style={
-                                                        "width": "1px",
-                                                        "height": "30px",
-                                                        "backgroundColor": "#4C566A",
-                                                        "margin": "0 20px",
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    [
-                                                        html.Span(
-                                                            id="device-display",
-                                                            style={
-                                                                "fontSize": "1.1rem",
-                                                                "color": "#ECEFF4",
-                                                                "fontWeight": "600",
-                                                                "letterSpacing": "0.5px",
-                                                            }
-                                                        ),
-                                                    ],
-                                                    style={
-                                                        "display": "flex",
-                                                        "alignItems": "center",
-                                                        "flex": "1",
-                                                    }
-                                                ),
-                                            ],
-                                            style={
-                                                "display": "flex",
-                                                "alignItems": "center",
-                                                "justifyContent": "space-between",
-                                                "padding": "15px 0",
-                                            },
-                                        ),
-                                    ],
-                                    style={"padding": "20px 30px"},
-                                ),
-                            ],
-                            color="dark",
-                            inverse=True,
-                            style={
-                                "marginBottom": "30px",
-                                "background": "linear-gradient(135deg, #434C5E 0%, #3B4252 100%)",
-                                "border": "1px solid #5E81AC",
-                                "borderRadius": "8px",
-                                "boxShadow": "0 2px 8px rgba(0, 0, 0, 0.2)",
-                            },
-                        ),
-                    ],
-                    width=12,
-                )
-            ],
-        ),
-        
-        # Directory path selection section where the Alumet measurement files are located
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardHeader(
-                                    "Select Measurement Directory",
-                                    style={
-                                        "backgroundColor": "#434C5E",
-                                        "color": "#ECEFF4",
-                                        "fontSize": "1.2rem",
-                                        "fontWeight": "600",
-                                        "padding": "15px",
-                                        "borderBottom": "2px solid #5E81AC",
-                                    }
-                                ),
-                                dbc.CardBody(
-                                    [
-                                        html.Div(
+                                        html.Label(
                                             [
-                                                html.Label(
-                                                    [
-                                                        "Directory Path: ",
-                                                        html.Span("(Required)", style={"color": "#BF616A", "fontSize": "0.85rem", "fontWeight": "400"}),
-                                                    ],
-                                                    style={
-                                                        "color": "#ECEFF4",
-                                                        "marginBottom": "10px",
-                                                        "fontSize": "1rem",
-                                                        "fontWeight": "500",
-                                                    }
-                                                ),
-                                                dcc.Input(
-                                                    id="directory-path-input",
-                                                    type="text",
-                                                    placeholder="Input type directory containing .csv, .log, and .toml files",
-                                                    debounce=True,
-                                                    style={
-                                                        "width": "100%",
-                                                        "padding": "12px 14px",
-                                                        "borderRadius": "8px",
-                                                        "border": "2px solid #5E81AC",
-                                                        "backgroundColor": "#434C5E",
-                                                        "color": "#ECEFF4",
-                                                        "fontSize": "1rem",
-                                                        "lineHeight": "1.5",
-                                                        "height": "auto",
-                                                        "overflow": "visible",
-                                                    },
-                                                ),
-                                                html.Div(
-                                                    "Press Enter/Tab after typing the path",
-                                                    style={
-                                                        "marginTop": "8px",
-                                                        "fontSize": "0.85rem",
-                                                        "color": "#88C0D0",
-                                                        "fontStyle": "italic",
-                                                    }
-                                                ),
-                                                html.Div(
-                                                    id="directory-status",
-                                                    style={
-                                                        "marginTop": "12px",
-                                                        "fontSize": "0.9rem",
-                                                        "color": "#88C0D0",
-                                                    }
-                                                ),
+                                                "Directory Path ",
+                                                html.Span("(Required)", className="sidebar-label-required"),
                                             ],
+                                            className="sidebar-label",
                                         ),
-                                    ],
-                                    style={"padding": "25px", "backgroundColor": "#3B4252"},
-                                ),
-                            ],
-                            color="dark",
-                            inverse=True,
-                            style={"marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
-                        ),
-                    ],
-                    width=12,
-                ),
-            ],
-            className="mb-4",
-        ),
-        
-        # Visualize and Reset Buttons Section
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        dbc.Card(
-                            [
-                                dbc.CardBody(
-                                    [
-                                        html.Div(
+                                        dcc.Input(
+                                            id="directory-path-input",
+                                            type="text",
+                                            placeholder="Path containing .csv, .log/.txt, and .toml files",
+                                            debounce=True,
+                                            className="sidebar-input",
+                                        ),
+                                        html.Hr(className="sidebar-hr"),
+                                        dbc.Row(
                                             [
-                                                dbc.Row(
-                                                    [
-                                                        dbc.Col(
-                                                            dbc.Button(
-                                                                "Visualize",
-                                                                id="visualize-button",
-                                                                n_clicks=0,
-                                                                color="primary",
-                                                                size="lg",
-                                                                style={
-                                                                    "fontSize": "1.1rem",
-                                                                    "fontWeight": "600",
-                                                                    "padding": "15px 40px",
-                                                                    "width": "100%",
-                                                                    "backgroundColor": "#5E81AC",
-                                                                    "borderColor": "#5E81AC",
-                                                                    "color": "#ECEFF4",
-                                                                },
-                                                            ),
-                                                            width=8,
-                                                        ),
-                                                        dbc.Col(
-                                                            dbc.Button(
-                                                                "Reset",
-                                                                id="reset-button",
-                                                                n_clicks=0,
-                                                                color="secondary",
-                                                                size="lg",
-                                                                style={
-                                                                    "fontSize": "1.1rem",
-                                                                    "fontWeight": "600",
-                                                                    "padding": "15px 20px",
-                                                                    "width": "100%",
-                                                                    "backgroundColor": "#BF616A",
-                                                                    "borderColor": "#BF616A",
-                                                                    "color": "#ECEFF4",
-                                                                },
-                                                            ),
-                                                            width=4,
-                                                        ),
-                                                    ],
-                                                    className="g-2",
+                                                dbc.Col(
+                                                    dbc.Button(
+                                                        "Visualize",
+                                                        id="visualize-button",
+                                                        n_clicks=0,
+                                                        color="primary",
+                                                        size="lg",
+                                                        className="sidebar-action-btn",
+                                                        style={
+                                                            "fontSize": "1rem",
+                                                            "fontWeight": "600",
+                                                            "padding": "clamp(8px, 1.3vh, 11px) 12px",
+                                                            "width": "100%",
+                                                            "backgroundColor": "#5E81AC",
+                                                            "borderColor": "#5E81AC",
+                                                            "color": "#ffffff",
+                                                        },
+                                                    ),
+                                                    xs=7,
+                                                ),
+                                                dbc.Col(
+                                                    dbc.Button(
+                                                        "Reset",
+                                                        id="reset-button",
+                                                        n_clicks=0,
+                                                        color="secondary",
+                                                        size="lg",
+                                                        className="sidebar-action-btn",
+                                                        style={
+                                                            "fontSize": "1rem",
+                                                            "fontWeight": "600",
+                                                            "padding": "clamp(8px, 1.3vh, 11px) 12px",
+                                                            "width": "100%",
+                                                            "backgroundColor": "#BF616A",
+                                                            "borderColor": "#BF616A",
+                                                            "color": "#ffffff",
+                                                        },
+                                                    ),
+                                                    xs=5,
                                                 ),
                                             ],
-                                            style={"marginBottom": "20px"},
+                                            className="g-2 sidebar-action-row",
                                         ),
+                                        html.Hr(className="sidebar-hr"),
+                                        html.Div("Status", className="sidebar-section-label"),
                                         dcc.Loading(
                                             id="loading-status",
                                             type="circle",
@@ -430,110 +409,100 @@ app.layout = dbc.Container(
                                             children=html.Div(id="status-message"),
                                         ),
                                     ],
-                                    style={"padding": "25px", "textAlign": "center", "backgroundColor": "#3B4252"},
                                 ),
                             ],
-                            color="dark",
-                            inverse=True,
-                            style={"marginBottom": "30px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+                            className="sidebar-card",
+                        ),
+                        dbc.Card(
+                            [
+                                dbc.CardBody(
+                                    [
+                                        html.Div("Experiment Summary", className="sidebar-process-label"),
+                                        html.Div(
+                                            id="process-info",
+                                            children=[
+                                                html.Span(id="experiment-name-display", className="sidebar-info-value"),
+                                                html.Span(id="pid-display", className="sidebar-info-value"),
+                                                html.Span(id="device-display", className="sidebar-info-value", style={"marginBottom": "0"}),
+                                            ],
+                                        ),
+                                    ],
+                                    style={"padding": "14px"},
+                                ),
+                            ],
+                            className="process-summary-card",
+                            style={"borderRadius": "8px", "boxShadow": "0 2px 8px var(--app-shadow)"},
                         ),
                     ],
-                    width=12,
-                )
-            ],
-            className="mb-4",
-        ),
-        
-        # Results Tabs Section
-        dbc.Row(
-            [
+                    xs=12,
+                    md=4,
+                    lg=3,
+                    className="sidebar-col",
+                    style={
+                        "backgroundColor": "var(--app-sidebar-bg)",
+                        "borderRight": "1px solid var(--app-border)",
+                        "padding": "clamp(14px, 2vh, 24px) 22px",
+                    },
+                ),
+                # Main area: all visualizations and analysis tabs
                 dbc.Col(
                     [
                         dcc.Tabs(
                             id="results-tabs",
                             value="time-series-tab",
                             children=[
-                                dcc.Tab(
-                                    label="📈 Time Series",
-                                    value="time-series-tab",
-                                    style={
-                                        "backgroundColor": "#3B4252",
-                                        "color": "#ECEFF4",
-                                        "padding": "12px 20px",
-                                        "fontSize": "1rem",
-                                    },
-                                    selected_style={
-                                        "backgroundColor": "#5E81AC",
-                                        "color": "#ECEFF4",
-                                        "padding": "12px 20px",
-                                        "fontSize": "1rem",
-                                        "fontWeight": "600",
-                                    },
-                                ),
-                                dcc.Tab(
-                                    label="🔎 Process-Specific Analysis",
-                                    value="process-specific-tab",
-                                    style={
-                                        "backgroundColor": "#3B4252",
-                                        "color": "#ECEFF4",
-                                        "padding": "12px 20px",
-                                        "fontSize": "1rem",
-                                    },
-                                    selected_style={
-                                        "backgroundColor": "#5E81AC",
-                                        "color": "#ECEFF4",
-                                        "padding": "12px 20px",
-                                        "fontSize": "1rem",
-                                        "fontWeight": "600",
-                                    },
-                                ),
-                                dcc.Tab(
-                                    label="⚖️ Comparative Analysis",
-                                    value="comparative-tab",
-                                    style={
-                                        "backgroundColor": "#3B4252",
-                                        "color": "#ECEFF4",
-                                        "padding": "12px 20px",
-                                        "fontSize": "1rem",
-                                    },
-                                    selected_style={
-                                        "backgroundColor": "#5E81AC",
-                                        "color": "#ECEFF4",
-                                        "padding": "12px 20px",
-                                        "fontSize": "1rem",
-                                        "fontWeight": "600",
-                                    },
-                                ),
+                                dcc.Tab(label="📈 Time Series", value="time-series-tab"),
+                                dcc.Tab(label="🔎 Process-Specific Analysis", value="process-specific-tab"),
+                                dcc.Tab(label="⚖️ Comparative Analysis", value="comparative-tab"),
                             ],
                             style={"marginBottom": "25px"},
                         ),
-                        dcc.Loading(
-                            id="loading-tab-content",
-                            type="circle",
-                            color="#88C0D0",
-                            children=[
-                                html.Div(
-                                    id="time-series-content",
-                                    style={"display": "block", "marginTop": "10px"},
-                                ),
-                                html.Div(
-                                    id="process-specific-content",
-                                    style={"display": "none", "marginTop": "10px"},
-                                ),
-                                html.Div(
-                                    id="comparative-content",
-                                    style={"display": "none", "marginTop": "10px"},
-                                ),
-                            ],
-                            style={"minHeight": "200px"},
+                        html.Div(
+                            id="tab-content-area",
+                            children=dcc.Loading(
+                                id="loading-tab-content",
+                                type="circle",
+                                color="#88C0D0",
+                                children=[
+                                    html.Div(
+                                        id="time-series-content",
+                                        children=empty_time_series_content(),
+                                        className="tab-panel-scroll",
+                                        style={"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0},
+                                    ),
+                                    html.Div(
+                                        id="process-specific-content",
+                                        className="tab-panel-scroll",
+                                        style={"display": "none", "marginTop": "10px"},
+                                    ),
+                                    html.Div(
+                                        id="comparative-content",
+                                        children=empty_comparative_content(),
+                                        className="tab-panel-scroll",
+                                        style={"display": "none", "marginTop": "10px"},
+                                    ),
+                                ],
+                                style={
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "minHeight": "100%",
+                                    "overflow": "visible",
+                                },
+                            ),
                         ),
                     ],
-                    width=12,
-                )
+                    xs=12,
+                    md=8,
+                    lg=9,
+                    className="main-col",
+                    style={
+                        "backgroundColor": "var(--app-main-bg)",
+                        "padding": "28px 28px 40px",
+                    },
+                ),
             ],
-            className="mb-4",
+            className="g-0",
         ),
-        
         # Hidden stores for data
         dcc.Store(id="processed-df-store", data=None),  # Store processed dataframe
         dcc.Store(id="original-df-store", data=None),  # Store original dataframe
@@ -542,60 +511,41 @@ app.layout = dbc.Container(
         dcc.Store(id="grid-shared-xrange-store", data=None),  # Shared x-range for synchronized grid plot zooming
     ],
     style={
-        "backgroundColor": "#2E3440",
-        "minHeight": "100vh",
-        "padding": "40px 30px",
-        "maxWidth": "1600px",
+        "backgroundColor": "var(--app-main-bg)",
+        "width": "100%",
+        "maxWidth": "none",
+        "margin": "0",
     },
 )
 
-# Callback for directory path validation and status
-@app.callback(
-    Output("directory-status", "children"),
-    Input("directory-path-input", "value"),
+app.clientside_callback(
+    """
+    function(useLightMode) {
+        var theme = useLightMode ? "light" : "dark";
+        document.documentElement.setAttribute("data-bs-theme", theme);
+        document.body.setAttribute("data-bs-theme", theme);
+        return "app-shell theme-" + theme + " dbc";
+    }
+    """,
+    Output("main-container", "className"),
+    Input("theme-switch", "value"),
 )
-def update_directory_status(directory_path):
-    if not directory_path or not directory_path.strip():
-        return html.Span("", style={"display": "none"})
-    
-    try:
-        dir_path = Path(directory_path.strip())
-        if not dir_path.exists():
-            return html.Span(
-                f"❌Directory does not exist: {directory_path}",
-                style={"color": "#BF616A", "fontWeight": "500"}
-            )
-        if not dir_path.is_dir():
-            return html.Span(
-                f"❌ Path is not a directory: {directory_path}",
-                style={"color": "#BF616A", "fontWeight": "500"}
-            )
-        
-        # Check for required files
-        csv_file = find_files_in_directory(directory_path, ['.csv'])
-        log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
-        
-        status_parts = []
-        if csv_file:
-            status_parts.append(f"✅ CSV: {csv_file.name}")
-        else:
-            status_parts.append("❌ CSV: Not found")
-        
-        if log_file:
-            status_parts.append(f"✅ Log: {log_file.name}")
-        else:
-            status_parts.append("❌ Log: Not found")
 
-        color = "#A3BE8C" if csv_file and log_file else "#BF616A"
-        return html.Div(
-            [html.Span(part, style={"display": "block", "marginBottom": "4px"}) for part in status_parts],
-            style={"color": color, "fontWeight": "500"}
-        )
-    except Exception as e:
-        return html.Span(
-            f"❌ Error: {str(e)}",
-            style={"color": "#BF616A", "fontWeight": "500"}
-        )
+@app.callback(
+    Output("theme-switch", "value", allow_duplicate=True),
+    Input("theme-toggle-btn", "n_clicks"),
+    State("theme-switch", "value"),
+    prevent_initial_call=True,
+)
+def toggle_theme_switch(n_clicks, current):
+    return not current
+
+@app.callback(
+    Output("theme-toggle-icon", "className"),
+    Input("theme-switch", "value"),
+)
+def update_theme_icon(use_light_mode):
+    return "bi bi-moon-stars-fill" if use_light_mode else "bi bi-sun-fill"
 
 # Callback for Reset button - clears all data and resets input
 @app.callback(
@@ -604,10 +554,10 @@ def update_directory_status(directory_path):
     Output("original-df-store", "data", allow_duplicate=True),
     Output("process-time-range-store", "data", allow_duplicate=True),
     Output("timeseries-filtered-df-store", "data", allow_duplicate=True),
+    Output("experiment-name-display", "children", allow_duplicate=True),
     Output("pid-display", "children", allow_duplicate=True),
     Output("device-display", "children", allow_duplicate=True),
     Output("status-message", "children", allow_duplicate=True),
-    Output("directory-status", "children", allow_duplicate=True),
     Input("reset-button", "n_clicks"),
     prevent_initial_call=True,
 )
@@ -623,41 +573,52 @@ def reset_app(n_clicks):
         None,  # Clear original-df-store
         None,  # Clear process-time-range-store
         None,  # Clear timeseries-filtered-df-store
-        "process id: N/A",  # Reset pid display
-        "device: N/A",  # Reset device display
-        dbc.Alert(
+        "Name: N/A",  # Reset experiment name display
+        "Process ID: N/A",  # Reset pid display
+        "Device: N/A",  # Reset device display
+        status_alert(
+            "warning",
+            "Ready to load",
             [
-                "Enter a directory path above and click ",
+                "Enter a directory path above, then click ",
                 html.Strong("Visualize"),
-                " to load and visualize data.",
+                " or press Enter/Tab to load and visualize data.",
             ],
-            color="warning",
-            style={"margin": "0"},
         ),  # Reset status message
-        html.Span("", style={"display": "none"}),  # Clear directory status
     )
 
 @app.callback(
+    Output("experiment-name-display", "children"),
     Output("pid-display", "children"),
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
+    Input("directory-path-input", "n_submit"),
+    Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
 )
-def update_process_info(n_clicks, directory_path):
-    if n_clicks == 0 or not directory_path or not directory_path.strip():
-        return "process id: N/A", "device: N/A"
+def update_process_info(n_clicks, n_submit, n_blur, directory_path):
+    if not any([n_clicks, n_submit, n_blur]) or not directory_path or not directory_path.strip():
+        return "Name: N/A", "Process ID: N/A", "Device: N/A"
     
-    # Find and read log file
-    csv_file = find_files_in_directory(directory_path, ['.csv'])
-    csv_content = read_file_content(csv_file)
-    pid = extract_pid_from_content(csv_content)
-    if is_gpu_from_content(csv_content) and not is_cpu_from_content(csv_content):
-        device = "GPU"
-    elif not is_gpu_from_content(csv_content) and is_cpu_from_content(csv_content):
-        device = "CPU"
-    else:
-        device = "CPU + GPU"
+    try:
+        experiment_name = Path(directory_path.strip()).name or "N/A"
+        # Find and read csv and log file
+        log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
+        log_content = read_file_content(log_file)
+        pid = extract_pid_from_content(log_content)
+        csv_file = find_files_in_directory(directory_path, ['.csv'])
+        csv_content = read_file_content(csv_file)
+        if is_gpu_from_content(csv_content) and not is_cpu_from_content(csv_content):
+            device = "GPU"
+        elif not is_gpu_from_content(csv_content) and is_cpu_from_content(csv_content):
+            device = "CPU"
+        else:
+            device = "CPU + GPU"
+    except Exception:
+        return "Name: N/A", "Process ID: N/A", "Device: N/A"
+
     return (
+        f"Name: {experiment_name}",
         f"Process ID: {pid or 'N/A'}",
         f"Device: {device}",
     )
@@ -668,19 +629,21 @@ def update_process_info(n_clicks, directory_path):
     Output("original-df-store", "data"),
     Output("process-time-range-store", "data"),
     Input("visualize-button", "n_clicks"),
+    Input("directory-path-input", "n_submit"),
+    Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
 )
-def load_and_visualize(n_clicks, directory_path):
-    if n_clicks == 0:
+def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
+    if not any([n_clicks, n_submit, n_blur]):
         return (
-            dbc.Alert(
+            status_alert(
+                "warning",
+                "Ready to load",
                 [
-                    "Enter a directory path above and click ",
+                    "Enter a directory path above, then click ",
                     html.Strong("Visualize"),
-                    " to load and visualize data.",
+                    " or press Enter/Tab to load and visualize data.",
                 ],
-                color="warning",
-                style={"margin": "0"},
             ),
             None,
             None,
@@ -689,67 +652,17 @@ def load_and_visualize(n_clicks, directory_path):
     
     # Validate directory path
     if not directory_path or not directory_path.strip():
-        status_msg = dbc.Alert(
-            [
-                html.Strong("Error: "),
-                "Directory path is required. Please enter a directory path."
-            ],
-            color="danger",
-            style={"margin": "0"},
+        status_msg = status_alert(
+            "danger",
+            "Error:",
+            "Directory path is required. Please enter a directory path.",
         )
         return status_msg, None, None, None
     
-    try:
-        dir_path = Path(directory_path.strip())
-        if not dir_path.exists():
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    f"Directory does not exist: {directory_path}"
-                ],
-                color="danger",
-                style={"margin": "0"},
-            )
-            return status_msg, None, None, None
-        
-        if not dir_path.is_dir():
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    f"Path is not a directory: {directory_path}"
-                ],
-                color="danger",
-                style={"margin": "0"},
-            )
-            return status_msg, None, None, None
-        
+    try:        
         # Find required files
         csv_file = find_files_in_directory(directory_path, ['.csv'])
         log_file = find_files_in_directory(directory_path, ['.log', '.txt'])
-        
-        # Validate required CSV file
-        if not csv_file:
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    "CSV file is required. Please ensure the directory contains a .csv file."
-                ],
-                color="danger",
-                style={"margin": "0"},
-            )
-            return status_msg, None, None, None
-        
-        # Validate required log file
-        if not log_file:
-            status_msg = dbc.Alert(
-                [
-                    html.Strong("Error: "),
-                    "Log file is required. Please ensure the directory contains a .log or .txt file."
-                ],
-                color="danger",
-                style={"margin": "0"},
-            )
-            return status_msg, None, None, None
         
         # Load all data from CSV file (timed for performance tracking)
         t0 = time.perf_counter()
@@ -776,17 +689,12 @@ def load_and_visualize(n_clicks, directory_path):
         total_time = t_cache - t0
         n_rows = len(df_all)
         
-        status_msg = dbc.Alert(
-            [
-                "✅ ",
-                html.Strong("Data loaded successfully"),
-                html.Span(
-                    f" (CSV read: {csv_time:.2f}s, preprocess: {preprocess_time:.2f}s, cache: {cache_time:.2f}s) ",
-                    style={"fontSize": "0.85rem"},
-                ),
-            ],
-            color="success",
-            style={"margin": "0"},
+        status_msg = status_alert(
+            "success",
+            "Data loaded successfully",
+            f"CSV read: {csv_time:.2f}s, preprocess: {preprocess_time:.2f}s, cache: {cache_time:.2f}s",
+            icon="✅ ",
+            detail_style={"fontSize": "0.85rem", "color": "var(--app-text-muted)"},
         )
         
         process_time_range = {"start": proc_start.isoformat() if proc_start else None, 
@@ -795,14 +703,11 @@ def load_and_visualize(n_clicks, directory_path):
         return status_msg, processed_cache_id, original_cache_id, process_time_range
         
     except Exception as e:
-        status_msg = dbc.Alert(
-            [
-                "🚨 ",
-                html.Strong("Error loading data: "),
-                str(e)
-            ],
-            color="danger",
-            style={"margin": "0"},
+        status_msg = status_alert(
+            "danger",
+            "Error loading data:",
+            str(e),
+            icon="❌ ",
         )
         return status_msg, None, None, None
 
@@ -816,7 +721,7 @@ def load_and_visualize(n_clicks, directory_path):
 def toggle_tab_visibility(tab_value):
     """Toggle tab panel visibility. No content is re-created."""
     hidden = {"display": "none", "marginTop": "10px"}
-    visible = {"display": "block", "marginTop": "10px"}
+    visible = {"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0}
     if tab_value == "time-series-tab":
         return visible, hidden, hidden
     elif tab_value == "process-specific-tab":
@@ -833,11 +738,7 @@ def toggle_tab_visibility(tab_value):
 )
 def build_time_series_tab(processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
-            color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
-        )
+        return empty_time_series_content()
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
@@ -939,7 +840,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                     html.Label(
                                         "Metric Category:",
                                         style={
-                                            "color": "#ECEFF4",
+                                            "color": "var(--app-text)",
                                             "marginRight": "10px",
                                             "fontSize": "1rem",
                                             "fontWeight": "600",
@@ -949,7 +850,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                         id="metric-category-dropdown",
                                         options=available_categories,
                                         placeholder="Select metric category",
-                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
                                         className="dark-dropdown",
                                         clearable=True,
                                     ),
@@ -965,7 +866,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                         id="cpu-core-dropdown",
                                         options=[],
                                         placeholder="Select CPU core",
-                                        style={"display": "none", "backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        style={"display": "none", "backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
                                         className="dark-dropdown",
                                         clearable=False,
                                     ),
@@ -980,7 +881,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                         html.Label(
                                             "Y-Axis Options:",
                                             style={
-                                                "color": "#ECEFF4",
+                                                "color": "var(--app-text)",
                                                 "marginRight": "10px",
                                                 "fontSize": "1rem",
                                                 "fontWeight": "600",
@@ -990,7 +891,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                             id="shared-yaxis-toggle",
                                             options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
                                             value=[],
-                                            style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                            style={"color": "var(--app-text)", "fontSize": "0.9rem"},
                                             inputStyle={"marginRight": "8px"},
                                         ),
                                     ],
@@ -1003,26 +904,24 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                 style={"display": "flex", "flexDirection": "column", "justifyContent": "center"},
                             ),
                         ],
-                        className="mb-4",
+                        className="time-series-controls mb-4",
                     ),
                     html.Div(
                         id="timeseries-plot-container",
                         style={
-                            "height": "80vh",
                             "overflowY": "auto",
                             "overflowX": "hidden",
                             "padding": "15px",
-                            "maxHeight": "80vh",
                             "width": "100%",
                         },
                     ),
                 ],
-                style={"padding": "25px", "backgroundColor": "#3B4252"},
+                style={"padding": "25px", "backgroundColor": "var(--app-card-bg)"},
+                className="viewport-card-body",
             ),
         ],
-        color="dark",
-        inverse=True,
-        style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+        style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
+        className="viewport-card timeseries-card",
     )
 
 
@@ -1048,16 +947,16 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         # Tab switch: only build if no content yet (first view after data loaded)
         if tab_value != "process-specific-tab":
             return dash.no_update
-        # current_children is truthy if non-empty, but it might just be a "No data" alert
-        # (not the actual grid). Only skip rebuild if the grid was already built (a list of rows).
-        if isinstance(current_children, list) and len(current_children) > 0:
+        # Preserve existing content (grid or alert) to keep dropdown selections intact.
+        # current_children may be a dict (single component like html.Div) or a list.
+        if current_children:
             return dash.no_update
 
     if not original_df_data or not process_time_range:
         return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
+            "No data available. Please load data first.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
 
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
@@ -1067,7 +966,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         return dbc.Alert(
             "Process time range not available.",
             color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("warning"),
         )
 
     # Convert stored data back to dataframe
@@ -1076,7 +975,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         return dbc.Alert(
             "Session data expired (server was restarted). Please click Visualize again to reload.",
             color="danger",
-            style={"margin": "0", "fontWeight": "bold"},
+            className=status_alert_class("danger"),
         )
     _ensure_timestamp_datetime(df_original)
 
@@ -1105,7 +1004,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                 html.Label(
                                                     "Metric:",
                                                     style={
-                                                        "color": "#ECEFF4",
+                                                        "color": "var(--app-text)",
                                                         "fontSize": "0.9rem",
                                                         "fontWeight": "500",
                                                         "marginBottom": "4px",
@@ -1115,7 +1014,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                     id=metric_dropdown_id,
                                                     options=[{"label": m, "value": m} for m in unique_metrics],
                                                     placeholder="Select metric",
-                                                    style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                                    style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
                                                     className="dark-dropdown",
                                                     clearable=True,
                                                 ),
@@ -1132,13 +1031,13 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                         dbc.Col(
                                                             html.Div(
                                                                 [
-                                                                    html.Label("R.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    html.Label("R.Kind", style={"color": "var(--app-accent-soft)", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
                                                                     dcc.Dropdown(
                                                                         id={"type": "resource-kind-dropdown", "index": f"{i}-{j}"},
                                                                         options=[],
                                                                         value=None,
                                                                         placeholder="-",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)", "fontSize": "0.75rem"},
                                                                         className="dark-dropdown compact-dropdown",
                                                                         clearable=False,
                                                                     ),
@@ -1152,13 +1051,13 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                         dbc.Col(
                                                             html.Div(
                                                                 [
-                                                                    html.Label("R.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    html.Label("R.ID", style={"color": "var(--app-accent-soft)", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
                                                                     dcc.Dropdown(
                                                                         id={"type": "resource-id-dropdown", "index": f"{i}-{j}"},
                                                                         options=[],
                                                                         value=None,
                                                                         placeholder="-",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)", "fontSize": "0.75rem"},
                                                                         className="dark-dropdown compact-dropdown",
                                                                         clearable=False,
                                                                     ),
@@ -1172,13 +1071,13 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                         dbc.Col(
                                                             html.Div(
                                                                 [
-                                                                    html.Label("C.Kind", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    html.Label("C.Kind", style={"color": "var(--app-accent-soft)", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
                                                                     dcc.Dropdown(
                                                                         id={"type": "consumer-kind-dropdown", "index": f"{i}-{j}"},
                                                                         options=[],
                                                                         value=None,
                                                                         placeholder="-",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)", "fontSize": "0.75rem"},
                                                                         className="dark-dropdown compact-dropdown",
                                                                         clearable=False,
                                                                     ),
@@ -1192,13 +1091,13 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                         dbc.Col(
                                                             html.Div(
                                                                 [
-                                                                    html.Label("C.ID", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    html.Label("C.ID", style={"color": "var(--app-accent-soft)", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
                                                                     dcc.Dropdown(
                                                                         id={"type": "consumer-id-dropdown", "index": f"{i}-{j}"},
                                                                         options=[],
                                                                         value=None,
                                                                         placeholder="-",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)", "fontSize": "0.75rem"},
                                                                         className="dark-dropdown compact-dropdown",
                                                                         clearable=False,
                                                                     ),
@@ -1212,13 +1111,13 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                                         dbc.Col(
                                                             html.Div(
                                                                 [
-                                                                    html.Label("Attr", style={"color": "#88C0D0", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
+                                                                    html.Label("Attr", style={"color": "var(--app-accent-soft)", "fontSize": "0.7rem", "marginBottom": "1px", "whiteSpace": "nowrap"}),
                                                                     dcc.Dropdown(
                                                                         id={"type": "late-attr-dropdown", "index": f"{i}-{j}"},
                                                                         options=[],
                                                                         value=None,
                                                                         placeholder="-",
-                                                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4", "fontSize": "0.75rem"},
+                                                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)", "fontSize": "0.75rem"},
                                                                         className="dark-dropdown compact-dropdown",
                                                                         clearable=False,
                                                                     ),
@@ -1253,12 +1152,10 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
                                             style={"textAlign": "right", "marginTop": "25px", "paddingTop": "15px"},
                                         ),
                                     ],
-                                    style={"padding": "12px", "backgroundColor": "#3B4252"},
+                                    style={"padding": "12px", "backgroundColor": "var(--app-card-bg)"},
                                 ),
                             ],
-                            color="dark",
-                            inverse=True,
-                            style={"height": "100%", "marginBottom": "10px", "backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+                            style={"height": "100%", "marginBottom": "10px", "backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
                         ),
                     ],
                     width=12,
@@ -1268,7 +1165,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             )
         grid_rows.append(dbc.Row(row_children, className="mb-2"))
     
-    return html.Div(grid_rows)
+    return html.Div(grid_rows, className="process-grid-scroll")
 
 def _comparative_metric_ids(processed_df_data: Any, process_time_range: Any) -> list:
     """Metric IDs that have samples inside the process active window (for X-Y comparative tab)."""
@@ -1323,30 +1220,22 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     
     if is_data_trigger and tab_value != "comparative-tab":
         # Data reloaded but tab not active — clear stale content so it rebuilds on next view
-        return []
+        return empty_comparative_content()
     
     if triggered_id == "results-tabs":
         # Tab switch: only build if no content yet (first view after data loaded)
         if tab_value != "comparative-tab":
             return dash.no_update
-        if current_children:
+        if current_children and not is_empty_tab_placeholder(current_children):
             return dash.no_update
 
     if not processed_df_data or not process_time_range:
-        return dbc.Alert(
-            "No data available. Please load data using the Visualize button.",
-            color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
-        )
+        return empty_comparative_content()
 
     # Only metrics that have samples inside the process window
     metric_ids = _comparative_metric_ids(processed_df_data, process_time_range)
     if len(metric_ids) < 2:
-        return dbc.Alert(
-            "Need at least 2 metrics inside process window.",
-            color="warning",
-            style={"margin": "0", "fontWeight": "bold"},
-        )
+        return empty_comparative_content("Need at least 2 metrics inside process window.")
 
     return dbc.Card(
         [
@@ -1358,7 +1247,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                 [
                                     html.Label(
                                         "Metric 1 (X-axis / Left Y-axis):",
-                                        style={"color": "#ECEFF4", "fontWeight": "600"}
+                                        style={"color": "var(--app-text)", "fontWeight": "600"}
                                     ),
                                     dcc.Dropdown(
                                         id="ps-xmetric-dropdown",
@@ -1367,7 +1256,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                         clearable=False,
                                         persistence=True,
                                         className="dark-dropdown",
-                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
                                     ),
                                 ],
                                 width=12, lg=6, className="mb-3",
@@ -1376,7 +1265,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                 [
                                     html.Label(
                                         "Metric 2 (Y-axis / Right Y-axis):",
-                                        style={"color": "#ECEFF4", "fontWeight": "600"}
+                                        style={"color": "var(--app-text)", "fontWeight": "600"}
                                     ),
                                     dcc.Dropdown(
                                         id="ps-ymetric-dropdown",
@@ -1385,7 +1274,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                         clearable=False,
                                         persistence=True,
                                         className="dark-dropdown",
-                                        style={"backgroundColor": "#434C5E", "color": "#ECEFF4"},
+                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
                                     ),
                                 ],
                                 width=12, lg=6, className="mb-3",
@@ -1407,7 +1296,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                         ],
                                         value=[],
                                         inline=True,
-                                        style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                        style={"color": "var(--app-text)", "fontSize": "0.9rem"},
                                         inputStyle={"marginRight": "8px"},
                                     ),
                                 ],
@@ -1435,7 +1324,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                         options=[{"label": " Show Scatter Plot (X-Y relationship)", "value": "scatter"}],
                                         value=[],
                                         inline=True,
-                                        style={"color": "#ECEFF4", "fontSize": "0.9rem"},
+                                        style={"color": "var(--app-text)", "fontSize": "0.9rem"},
                                         inputStyle={"marginRight": "8px"},
                                     ),
                                 ],
@@ -1445,7 +1334,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                         ],
                         className="mb-2",
                     ),
-                    dcc.Graph(id="ps-xy-graph", style={"height": "65vh"}),
+                    dcc.Graph(id="ps-xy-graph", style={"height": "100%"}),
                     # Download CSV button
                     html.Div(
                         [
@@ -1462,12 +1351,12 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                         style={"textAlign": "right", "marginTop": "5px"},
                     ),
                 ],
-                style={"padding": "25px", "backgroundColor": "#3B4252"},
+                style={"padding": "25px", "backgroundColor": "var(--app-card-bg)"},
+                className="viewport-card-body comparative-card-body",
             )
         ],
-        color="dark",
-        inverse=True,
-        style={"backgroundColor": "#3B4252", "border": "1px solid #4C566A"},
+        style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
+        className="viewport-card comparative-card",
     )
 
 # Callback to update the comparative mode info based on selected metrics
@@ -1489,9 +1378,9 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
         return html.Div(
             [
                 html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
-                html.Span("Cumulative X-Y Plot", style={"color": "#A3BE8C", "fontWeight": "600"}),
+                html.Span("Cumulative X-Y Plot", style={"color": "var(--app-success)", "fontWeight": "600"}),
             ],
-            style={"color": "#ECEFF4"},
+            style={"color": "var(--app-text)"},
         )
     else:
         non_cumulative = []
@@ -1502,9 +1391,9 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
         return html.Div(
             [
                 html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
-                html.Span("Dual Y-Axis Time Series", style={"color": "#EBCB8B", "fontWeight": "600"}),
+                html.Span("Dual Y-Axis Time Series", style={"color": "var(--app-warning)", "fontWeight": "600"}),
             ],
-            style={"color": "#ECEFF4"},
+            style={"color": "var(--app-text)"},
         )
 
 @app.callback(
@@ -1548,7 +1437,7 @@ def update_comparative_metric_dropdowns(
 )
 def update_cpu_core_selector(selected_category, processed_df_data):
     # Default: hide the selector
-    default_style = {"display": "none", "backgroundColor": "#434C5E", "color": "#ECEFF4"}
+    default_style = {"display": "none", "backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"}
     default_options = []
     default_children = html.Div()
     
@@ -1588,14 +1477,14 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     selector_children = html.Label(
         "CPU Core:",
         style={
-            "color": "#ECEFF4",
+            "color": "var(--app-text)",
             "marginRight": "10px",
             "fontSize": "1rem",
             "fontWeight": "600",
         }
     )
     
-    visible_style = {"backgroundColor": "#434C5E", "color": "#ECEFF4"}
+    visible_style = {"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"}
     
     return selector_children, options, visible_style
 
@@ -1619,8 +1508,8 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
         # which would cause a race condition where the toggle callback reads stale figure/store data
         return {"display": "flex", "flexDirection": "column"}, dash.no_update
     else:
-        # Hide and reset the toggle for miscellaneous or no selection
-        return {"display": "none"}, []
+        # Hide the options without clearing the toggle value to avoid a stale-figure race.
+        return {"display": "none"}, dash.no_update
 
 
 # MATCH callback to update filter dropdown options and show/hide containers
@@ -1757,18 +1646,15 @@ def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
     Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
     Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
     Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    Input("theme-switch", "value"),
     State("original-df-store", "data"),
     State("process-time-range-store", "data"),
     State({"type": "metric-dropdown", "index": MATCH}, "id"),
 )
-def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, process_time_range, my_id):
+def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, original_df_data, process_time_range, my_id):
     """Update a single grid plot figure using MATCH"""
     fig = go.Figure()
-    fig.update_layout(
-        paper_bgcolor="rgba(46, 52, 64, 0.95)",
-        plot_bgcolor="rgba(59, 66, 82, 0.7)",
-        font=dict(color="#d8dee9"),
-    )
+    apply_figure_theme(fig, use_light_mode)
 
     if not original_df_data or not metric:
         fig.update_layout(title=dict(text="Select a metric", x=0.5))
@@ -1907,6 +1793,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, original_df_data, proce
         yaxis=yaxis_config,
         showlegend=False,
     )
+    apply_figure_theme(fig, use_light_mode)
     return fig
 
 
@@ -2016,17 +1903,18 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
     Output("timeseries-filtered-df-store", "data"),
     Input("metric-category-dropdown", "value"),
     Input("cpu-core-dropdown", "value"),
+    Input("theme-switch", "value"),
     State("shared-yaxis-toggle", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_toggle, processed_df_data, process_time_range):
+def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode, shared_yaxis_toggle, processed_df_data, process_time_range):
     if not processed_df_data:
-        return dbc.Alert("No data available.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("No data available.", color="warning", className=status_alert_class("warning")), None
     
     if not selected_category:
-        return dbc.Alert("Please select a metric category.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None
     
     # Convert stored data back to dataframe
     df_processed = df_from_store(processed_df_data)
@@ -2090,7 +1978,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
     elif selected_category == "kernel_cpu_time":
         # Require CPU core selection for kernel_cpu_time (too many cores to show all)
         if not selected_cpu_core:
-            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+            return dbc.Alert("Please select a CPU core to display kernel CPU time metrics.", color="warning", className=status_alert_class("warning")), None
         
         # Filter for kernel_cpu_time_ms
         df_filtered = df_processed[df_processed["base_metric"] == "kernel_cpu_time_ms"]
@@ -2140,7 +2028,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
         df_filtered = pd.DataFrame()
     
     if df_filtered.empty:
-        return dbc.Alert("No data available for the selected category.", color="warning", style={"margin": "0", "fontWeight": "bold"}), None
+        return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None
     
     # Get process time range for gray highlight
     proc_start = None
@@ -2155,8 +2043,14 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
     
     # Create figure with filtered time series, but with full time range for x-axis
     # Pass category to set appropriate Y-axis label
-    share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+    yaxis_shareable_categories = {"energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"}
+    share_yaxis = (
+        selected_category in yaxis_shareable_categories
+        and shared_yaxis_toggle
+        and "shared" in shared_yaxis_toggle
+    )
     fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
+    apply_figure_theme(fig, use_light_mode)
     
     # Store filtered data for Y-axis rescaling callback using Parquet cache
     # (much faster than JSON records for large datasets)
@@ -2173,7 +2067,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
             id="timeseries-graph",
             figure=fig,
             style={
-                "height": "100%",
+                "height": f"{fig.layout.height}px",
                 "width": "100%",
                 "display": "block",
             },
@@ -2185,8 +2079,8 @@ def update_timeseries_plot(selected_category, selected_cpu_core, shared_yaxis_to
         ),
         style={
             "width": "100%",
-            "height": "auto",
-            "minHeight": "400px",
+            "height": f"{fig.layout.height}px",
+            "minHeight": f"{fig.layout.height}px",
             "display": "flex",
             "justifyContent": "center",
             "alignItems": "flex-start",
@@ -2624,18 +2518,17 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
     Input("scatter-toggle", "value"),
+    Input("theme-switch", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, processed_df_data, process_time_range):
+def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range):
     fig = go.Figure()
     fig.update_layout(
-        paper_bgcolor="rgba(46, 52, 64, 0.95)",
-        plot_bgcolor="rgba(59, 66, 82, 0.7)",
-        font=dict(color="#d8dee9"),
         margin=dict(l=70, r=70, t=60, b=60),
     )
+    apply_figure_theme(fig, use_light_mode)
 
     if not processed_df_data or not process_time_range or not x_metric_id or not y_metric_id:
         fig.update_layout(title=dict(text="Select both metrics", x=0.5))
@@ -2883,6 +2776,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, processed_d
             hovermode="x unified",
         )
     
+    apply_figure_theme(fig, use_light_mode)
     return fig
 
 

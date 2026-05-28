@@ -133,23 +133,23 @@ def find_files_in_directory(directory_path: str, extensions: List[str]) -> List[
     """
     dir_path = Path(directory_path)
     if not dir_path.exists():
-        raise ValueError(f"Directory does not exist: {directory_path}")
+        raise ValueError(f"Directory {directory_path} does not exist.")
     if not dir_path.is_dir():
-        raise ValueError(f"Path is not a directory: {directory_path}")
+        raise ValueError(f"Path {directory_path} is not a directory.")
     
     found_files = []
     for ext in extensions:
         found_files.extend(dir_path.glob(f"*{ext}"))
     if not found_files:
-        raise ValueError(f"No files found with extensions: {extensions} in directory: {directory_path}")
+        raise ValueError(f"No files found with extensions {', '.join(extensions)} in directory {directory_path}.")
     if len(found_files) > 1:
-        warnings.warn(f"Multiple files found with extensions: {extensions} in directory: {directory_path}. Returning the first one.")
+        warnings.warn(f"Multiple files found with extensions {', '.join(extensions)} in directory {directory_path}. Returning the first one.")
     return sorted(found_files)[0]
 
 def read_file_content(file_path: Path) -> str:
     """Read file content as string."""
     if not file_path.exists():
-        raise ValueError(f"File not found: {file_path}")
+        raise ValueError(f"File {file_path} not found.")
     return file_path.read_text(encoding='utf-8')
 
 # ================================================
@@ -959,20 +959,18 @@ def create_all_timeseries_plots(df_processed: pd.DataFrame, proc_start: Optional
                 line=dict(width=0),
                 layer="below",
             )
-        # Add a single invisible trace for the legend entry
-        first_mid = unique_metrics[0]
-        yr0 = y_ranges.get(first_mid, {"min": 0.0, "max": 1.0})
-        y_leg = float(yr0["min"]) + 0.01 * (float(yr0["max"]) - float(yr0["min"]) + 1e-9)
+        # Add a single trace for the legend entry without plotting a data point.
+        # Using visible="legendonly" makes Plotly dim the label, which has poor
+        # contrast in both light and dark themes.
         fig.add_trace(
             go.Scatter(
-                x=[x_min],
-                y=[y_leg],
+                x=[None],
+                y=[None],
                 mode="markers",
                 marker=dict(size=10, color="rgba(136, 192, 208, 0.4)", symbol="square"),
                 name="Process Active",
                 showlegend=True,
                 legendgroup="process_active",
-                visible="legendonly",
             ),
             row=1, col=1,
         )
