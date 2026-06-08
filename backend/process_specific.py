@@ -1,4 +1,5 @@
-"""Backend helpers for the process-specific (grid) tab.
+"""
+Backend helpers for the process-specific (grid) tab.
 
 Handles filter column normalisation, cascading option computation,
 single-series filtering, and CSV export preparation.

@@ -1,10 +1,10 @@
 """Command-line entry point for Alumet measurement analysis.
 
 Examples:
-    python alumet_analyst.py /path/to/measurements --summary
-    python alumet_analyst.py /path/to/measurements --export-csv /path/to/output
-    python alumet_analyst.py /path/to/measurements --export-figures /path/to/output --category energy
-    python alumet_analyst.py /path/to/measurements --export-csv /path/to/output --process-specific
+    python alumet_eda.py /path/to/measurements --summary
+    python alumet_eda.py /path/to/measurements --export-csv /path/to/output
+    python alumet_eda.py /path/to/measurements --export-figures /path/to/output --category energy
+    python alumet_eda.py /path/to/measurements --export-csv /path/to/output --process-specific
 
 Exports are written under /path/to/output/<measurement-folder-name>/.
 """

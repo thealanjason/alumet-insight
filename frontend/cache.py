@@ -107,7 +107,7 @@ def df_from_store(store_data: Any) -> pd.DataFrame:
     
     # Check if it's split format (has 'columns', 'data' keys)
     if isinstance(store_data, dict) and "columns" in store_data and "data" in store_data:
-        return pd.DataFrame.from_dict(store_data, orient="split")
+        return pd.DataFrame(store_data["data"], columns=store_data["columns"])
     else:
         # Legacy 'records' format or direct dict
         return pd.DataFrame(store_data)
