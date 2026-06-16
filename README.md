@@ -48,7 +48,6 @@ with optional `--process-specific` flag to focus on process active region
 #### Get Started
 
 ```bash
-conda activate alumet-viz
 python alumet_dashboard.py
 ```
 
