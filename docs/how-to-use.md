@@ -45,7 +45,7 @@ In this pane, you can view time-series data for all metrics captured during the 
 
 <img src="../images/time-series-zoom.png" width="800">
 
-And all subplots will be synced with the same time window:
+Then all subplots will be synced with the same time window:
 
 <img src="../images/time-series-zoomed.png" width="800">
 
