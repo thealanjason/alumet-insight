@@ -9,7 +9,7 @@ As shown in the screenshot, the procedure of configuration setup is as follows:
 1. Enter the path to an Alumet experiment directory in **Directory Path**.
 > [!IMPORTANT] 
 > 
-> To run the dashboard successfully, the input configuration directory should contain the alumet config toml file and resulting log and csv files. 
+> To run the dashboard successfully, the input configuration directory should contain an `alumet-config-<experiment>.toml` file and the resulting `alumet-agent-<experiment>.log` and `alumet-output-<experiment>.csv` files. Examples can be found [here](https://github.com/thealanjason/energy_measurement/tree/main/measurement_tools/alumet/experiments)
 
 2. Click **Visualize** (or press Enter/Tab in the path field).
 
