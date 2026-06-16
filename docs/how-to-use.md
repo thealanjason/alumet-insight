@@ -35,7 +35,7 @@ In this pane, you can view time-series data for all metrics captured during the 
 
 <img src="../images/time-series-metric-cat.png" width="800">
 
-2. For **Kernel CPU Time**, the cascade dropdown will pop up. Select a **CPU Core** to visualize kernel CPU time for each core.
+2. Depending on the chosen category, additional dropdowns may appear. For example, selecting **Kernel CPU Time** reveals a **CPU Core** dropdown — choose a core to display its kernel CPU time.
 
 <img src="../images/time-series-cascade-filter.png" width="800">
 
