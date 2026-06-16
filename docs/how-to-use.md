@@ -62,7 +62,7 @@ Then all subplots will be synced with the same time window:
 <img src="../images/time-series-legend-and-toolbox.png" width="800">
 
 
-### 2. Process-Specific Analysis tab
+### 2. Process-Specific Analysis Pane
 
 In this pane, we can inspect up to four individual metric series side by side. Plots are arranged in a 2×2 grid, filtered to the process active time range, and each series can be independently configured by metric, resource, and consumer.
 
