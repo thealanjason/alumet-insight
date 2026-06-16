@@ -1,4 +1,4 @@
-# Dashboard documentation
+# `alumet-eda`/`alumet-insight` User Guide
 
 ## Step 1: Load Experiment 
 
