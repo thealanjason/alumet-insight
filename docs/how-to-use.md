@@ -41,7 +41,7 @@ In this pane, you can view time-series data for all metrics captured during the 
 
 #### Additional Useful Features
 
-- **Linked x-axis zoom:** Zoom or pan the time axis on any subplot with the mouse cursor to select the region you want to zoom in:
+- **Linked x-axis zoom:** Zoom or pan any subplot using the mouse to select a time region of interest. 
 
 <img src="../images/time-series-zoom.png" width="800">
 
