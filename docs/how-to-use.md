@@ -64,9 +64,7 @@ Then all subplots will be synced with the same time window:
 
 ### 2. Process-Specific Analysis tab
 
-Inspect up to four individual metric series side by side, 
-
-**What it shows:** A 2×2 grid plots to compare each metric side-by-side, filtered to the process active time range, with fine-grained resource/consumer selection. 
+In this pane, we can inspect up to four individual metric series side by side. Plots are arranged in a 2×2 grid, filtered to the process active time range, and each series can be independently configured by metric, resource, and consumer.
 
 **How to use**
 
