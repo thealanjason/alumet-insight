@@ -108,4 +108,6 @@ In this pane, you can compare two metric series using samples from the process a
 
 <img src="../images/comparative-scatter.png" width="800">
 
+ #### Additional Useful Features
+
 5. Click **Download CSV** to export the aligned X/Y data used in the current plot.
