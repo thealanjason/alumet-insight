@@ -81,7 +81,7 @@ In this pane, we can inspect up to four individual metric series side by side. P
 
 **Detailed Features**
 
-- **Synchronized x-axis zoom:** Zooming the time axis in any panel applies the same time range to all four panels.
+- **Synchronized x-axis zoom:**  Zooming the time axis in any panel syncs all four panels to the same time range.
 - **Per-panel CSV export:** Click **Download CSV** on a panel to export the currently selected series (filtered to the process window).
 
 
