@@ -43,7 +43,7 @@ python alumet_analyst.py /path/to/alumet/experiment/dir --export-figure /path/to
 
 with optional `--process-specific` flag to focus on process active region
 
-### Dashboard Visualization
+### Dashboard 
 
 #### Get Started
 
