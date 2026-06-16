@@ -85,7 +85,7 @@ In this pane, we can inspect up to four individual metric series side by side. P
 - **Per-panel CSV export:** Click **Download CSV** on a panel to export the currently selected series, filtered to the process active time range.
 
 
-### 3. Comparative Analysis tab
+### 3. Comparative Analysis Pane
 In this pane, you can compare two metric series using samples from the process active time window — as a dual-axis time series, an X–Y correlation plot, or a cumulative relationship plot. The latter two eliminate the common time axis, plotting one series directly against the other; the cumulative plot is further restricted to cumulative metrics, where both series are monotonic.
 
 #### Basic Usage
