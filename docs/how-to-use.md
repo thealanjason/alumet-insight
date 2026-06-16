@@ -26,7 +26,7 @@ There are three tab options with scrollable tab content:
 
 ### 1. Time Series tab
 
-**What it shows:** Browse all metric series IDs (a unique combination of base metric, resource, consumer, and late attributes) as stacked subplots for the selected category, with the measured process active period highlighted. 
+In this pane, you can view time-series data for all metrics captured during the experiment. The data is visualized as vertically stacked subplots for the selected category, with the active period of the measured process highlighted. Each time-series is identified by a unique combination of base metric, resource, consumer, and any additional attributes.
 
 
 **How to use**
