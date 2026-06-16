@@ -51,7 +51,7 @@ Then all subplots will be synced with the same time window:
 
 *Double-click* anywhere on a subplot to revert to the original scale. 
 
-- **Share Y-axis range across subplots:** For categories with a common unit (Energy, Power, Utilization, Temperature, Memory, Kernel CPU Time), enable shared Y-axis checkbox to use one shared y-axis scale so subplots are directly comparable. Disable it to give each subplot its own scale.
+- **Share Y-axis range across subplots:** For categories with a common unit (Energy, Power, Utilization, Temperature, Memory, Kernel CPU Time), enable the *Shared Y-axis range* checkbox to make subplots directly comparable on the same scale. Disable it to give each subplot its own scale.
 
 <img src="../images/time-series-shared-y-axis.png" width="800">
 
