@@ -17,7 +17,7 @@ A **Status** message will be shown to give you the hint whether the experiment i
 
 > [!TIP]
 > 
-> Use **Reset** to clear loaded data and start over. The sun/moon button toggles light and dark theme.
+> Use **Reset** to clear loaded data and start over. 
 
 ## Step 2: Main Dashboard
 
