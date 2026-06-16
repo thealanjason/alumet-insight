@@ -19,7 +19,7 @@ A **Status** message will be shown to give you the hint whether the experiment i
 > 
 > Use **Reset** to clear loaded data and start over. 
 
-## Step 2: Main Dashboard
+## Step 2: Explore Data and Gain Insight
 
 There are three tab options with scrollable tab content:
 
