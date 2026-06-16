@@ -72,10 +72,10 @@ In this pane, we can inspect up to four individual metric series side by side. P
 
 <img src="../images/process-specific.png" width="800">
 
-2. Use the cascading filters that appear below the metric selector to narrow the series:
+2. Use the secondary dropdowns below the metric selector to filter the displayed series:
    - **R.Kind** / **R.ID** — resource kind and resource ID
    - **C.Kind** / **C.ID** — consumer kind and consumer ID (e.g. `process` and PID)
-   - **Attr** — late attributes when present
+   - **Attr** — additional attributes, when available
 
 <img src="../images/cascade-filter.png" width="800">
 
