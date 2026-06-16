@@ -39,7 +39,7 @@ In this pane, you can view time-series data for all metrics captured during the 
 
 <img src="../images/time-series-cascade-filter.png" width="800">
 
-**Detailed Features**
+#### Additional Useful Features
 
 - **Linked x-axis zoom:** Zoom or pan the time axis on any subplot with the mouse cursor to select the region you want to zoom in:
 
