@@ -21,7 +21,7 @@ conda activate alumet-viz
 
 ## Usage
 
-### Data analysis without visualization
+### Command Line Interface
 
 1. Quick summary:
 ```bash
