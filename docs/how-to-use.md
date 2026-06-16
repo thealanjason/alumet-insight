@@ -98,7 +98,7 @@ In this pane, you can compare two metric series using samples from the process a
 
 <img src="../images/comparative-process-specific.png" width="800">
 
-3. Read **Visualization Mode** below the dropdowns—it tells you which plot type will be drawn:
+3. Check the **Visualization Mode** indicator below the dropdowns — it is determined automatically based on the selected metrics:
    - **Dual Y-Axis Time Series** — both metrics over time on one chart (left and right y-axes) when at least one metric is not cumulative.
    - **Cumulative X–Y Plot** — cumulative sum of X vs cumulative sum of Y when both metrics are cumulative (e.g. energy counters).
 
