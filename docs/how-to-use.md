@@ -86,7 +86,7 @@ In this pane, we can inspect up to four individual metric series side by side. P
 
 
 ### 3. Comparative Analysis tab
-**What it shows:** Compare two selected metric series IDs as a dual-axis time series or as an X–Y / cumulative relationship plot, using samples from the process active time window.
+In this pane, you can compare two metric series using samples from the process active time window — as a dual-axis time series, an X–Y correlation plot, or a cumulative relationship plot. The latter two eliminate the common time axis, plotting one series directly against the other; the cumulative plot is further restricted to cumulative metrics, where both series are monotonic.
 
 **How to use**
 
