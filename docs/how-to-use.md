@@ -4,7 +4,7 @@
 
 <img src="../images/setup.png" width=800>
 
-As shown in the screenshot, the procedure of configuration setup is as follows:
+As shown in the screenshot, the procedure to setup an experiment for exploration and analysis is as follows:
 
 1. Enter the path to an Alumet experiment directory in **Directory Path**.
 > [!IMPORTANT] 
