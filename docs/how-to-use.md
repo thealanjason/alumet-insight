@@ -13,7 +13,7 @@ As shown in the screenshot, the procedure to setup an experiment for exploration
 
 2. Click **Visualize** (or press Enter/Tab in the path field).
 
-**Status** message will be shown to give you the hint whether the configuration is loaded successfully or not; **Experiment Summary** will summarize case study information including experiment name, process ID, device type.
+A **Status** message will be shown to give you the hint whether the experiment is loaded successfully or not. The **Experiment Summary** provides information about experiment name, process ID, device type.
 
 > [!TIP]
 > 
