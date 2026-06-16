@@ -79,7 +79,7 @@ In this pane, we can inspect up to four individual metric series side by side. P
 
 <img src="../images/cascade-filter.png" width="800">
 
-**Detailed Features**
+#### Additional Useful Features
 
 - **Synchronized x-axis zoom:**  Zooming the time axis in any panel syncs all four panels to the same time range.
 - **Per-panel CSV export:** Click **Download CSV** on a panel to export the currently selected series, filtered to the process active time range.
