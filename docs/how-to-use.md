@@ -24,7 +24,7 @@ A **Status** message will be shown to give you the hint whether the experiment i
 There are three tab options with scrollable tab content:
 
 
-### 1. Time Series tab
+### 1. Time Series Pane
 
 In this pane, you can view time-series data for all metrics captured during the experiment. The data is visualized as vertically stacked subplots for the selected category, with the active period of the measured process highlighted. Each time-series is identified by a unique combination of base metric, resource, consumer, and any additional attributes.
 
