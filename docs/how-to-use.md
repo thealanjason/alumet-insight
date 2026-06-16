@@ -1,6 +1,6 @@
 # Dashboard documentation
 
-## Step 1: Configuration setup.
+## Step 1: Load Experiment 
 
 <img src="../images/setup.png" width=800>
 
