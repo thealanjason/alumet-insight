@@ -2,6 +2,8 @@
 
 Alumet EDA explores and visualizes output from [Alumet-agent](https://alumet-dev.github.io/user-book/start/install.html) measurements. Use the interactive dashboard or command-line tools to summarize experiments, export processed data, and inspect energy, power, utilization, and other metrics over time.
 
+<img src="./images/layout.png" width=800>
+
 ## Prerequisites
 
 1. Pre-install [conda](https://www.anaconda.com/docs/getting-started/miniconda/install/overview) or [micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html)

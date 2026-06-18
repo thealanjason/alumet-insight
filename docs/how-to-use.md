@@ -2,7 +2,7 @@
 
 ## Step 1: Load Experiment 
 
-<img src="../images/setup.png" width=800>
+<img src="../images/setup.png" height=350>
 
 As shown in the screenshot, the procedure to setup an experiment for exploration and analysis is as follows:
 
@@ -22,6 +22,8 @@ A **Status** message will be shown to give you the hint whether the experiment i
 ## Step 2: Main Dashboard
 
 There are three tab options with scrollable tab content:
+
+<img src="../images/layout.png" width=800>
 
 1. [Time Series Pane](#1-time-series-pane) — Browse all raw metrics by category as vertically stacked time-series plots, with the process-active period highlighted.
 
