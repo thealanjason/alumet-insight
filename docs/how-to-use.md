@@ -1,4 +1,4 @@
-# `alumet-eda`/`alumet-insight` User Guide
+# `alumet-eda` User Guide
 
 ## Step 1: Load Experiment 
 
@@ -19,9 +19,15 @@ A **Status** message will be shown to give you the hint whether the experiment i
 > 
 > Use **Reset** to clear loaded data and start over. 
 
-## Step 2: Explore Data and Gain Insight
+## Step 2: Main Dashboard
 
 There are three tab options with scrollable tab content:
+
+1. [Time Series Pane](#1-time-series-pane) — Browse all raw metrics by category as vertically stacked time-series plots, with the process-active period highlighted.
+
+2. [Process-Specific Analysis Pane](#2-process-specific-analysis-pane) — Compare up to four independently selected metrics in a 2×2 grid, scoped to the process active time range.
+
+3. [Comparative Analysis Pane](#3-comparative-analysis-pane) — Compare two metrics from the process active window as a dual-axis time series, scatter plot, or cumulative plot.
 
 
 ### 1. Time Series Pane
@@ -39,9 +45,11 @@ In this pane, you can view time-series data for all metrics captured during the 
 
 <img src="../images/time-series-cascade-filter.png" width="800">
 
+3. After selecting the cascading category ddropdowns, all metrics under that specific category will be displayed in the pane as stacked subplots with a shaded area highlighting the measured process-active time range on every subplot.
+
 #### Additional Useful Features
 
-- **Linked x-axis zoom:** Zoom or pan any subplot using the mouse to select a time region of interest. 
+- **Linked x-axis zoom:** Zoom or pan the time axis on any subplot with the mouse cursor to select the region you want to zoom in:
 
 <img src="../images/time-series-zoom.png" width="800">
 
@@ -54,8 +62,6 @@ Then all subplots will be synced with the same time window:
 - **Share Y-axis range across subplots:** For categories with a common unit (Energy, Power, Utilization, Temperature, Memory, Kernel CPU Time), enable the *Shared Y-axis range* checkbox to make subplots directly comparable on the same scale. Disable it to give each subplot its own scale.
 
 <img src="../images/time-series-shared-y-axis.png" width="800">
-
-- **Process-active region:** A shaded area highlights the measured process active time range on every subplot.
 
 - **Plotly toolbar:** Use the built-in controls to zoom, pan, reset axes, and download the figure as PNG.
 
