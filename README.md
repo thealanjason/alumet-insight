@@ -1,6 +1,6 @@
-# Alumet EDA
+# Alumet Insight
 
-Alumet EDA explores and visualizes output from [Alumet-agent](https://alumet-dev.github.io/user-book/start/install.html) measurements. Use the interactive dashboard or command-line tools to summarize experiments, export processed data, and inspect energy, power, utilization, and other metrics over time.
+Alumet Insight explores and visualizes output from [Alumet-agent](https://alumet-dev.github.io/user-book/start/install.html) measurements. Use the interactive dashboard or command-line tools to summarize experiments, export processed data, and inspect energy, power, utilization, and other metrics over time.
 
 <img src="./images/layout.png" width=800>
 
@@ -25,7 +25,7 @@ conda activate alumet-viz
 
 ## Usage
 
-Alumet EDA supports two modes. The **Dashboard** is the primary interface for interactively exploring experiments in the browser. The **Command Line Interface** run summaries, CSV exports, and plot saves from the terminal.
+Alumet Insight supports two modes. The **Dashboard** is the primary interface for interactively exploring experiments in the browser. The **Command Line Interface** run summaries, CSV exports, and plot saves from the terminal.
 
 ### Dashboard 
 
@@ -45,12 +45,12 @@ See detailed documentation of how to interactive with the dashboard [here](docs/
 
 1. Quick summary:
 ```bash
-python alumet_eda.py /path/to/alumet/experiment/dir --summary
+python alumet_insight.py /path/to/alumet/experiment/dir --summary
 ```
 
 2. Data processing and export as CSV:
 ```bash
-python alumet_eda.py /path/to/alumet/experiment/dir --export-csv /path/to/saved/results
+python alumet_insight.py /path/to/alumet/experiment/dir --export-csv /path/to/saved/results
 ```
 
 with optional `--process-specific` flag to focus on process active region.
@@ -58,7 +58,7 @@ with optional `--process-specific` flag to focus on process active region.
 
 3. Visualize the processed data and save as figures:
 ```bash
-python alumet_eda.py /path/to/alumet/experiment/dir --export-figure /path/to/saved/results
+python alumet_insight.py /path/to/alumet/experiment/dir --export-figure /path/to/saved/results
 ```
 
 with optional `--process-specific` flag to focus on process active region.

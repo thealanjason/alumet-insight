@@ -1,4 +1,4 @@
-# `alumet-eda` User Guide
+# `alumet-insight` User Guide
 
 ## Step 1: Load Experiment 
 
