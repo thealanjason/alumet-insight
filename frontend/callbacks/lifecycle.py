@@ -86,8 +86,12 @@ def reset_app(n_clicks):
     )
 
 
-# Process info
+# Load, visualize, and update process info
 @app.callback(
+    Output("status-message", "children"),
+    Output("processed-df-store", "data"),
+    Output("original-df-store", "data"),
+    Output("process-time-range-store", "data"),
     Output("experiment-name-display", "children"),
     Output("pid-display", "children"),
     Output("device-display", "children"),
@@ -96,37 +100,9 @@ def reset_app(n_clicks):
     Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
 )
-def update_process_info(n_clicks, n_submit, n_blur, directory_path):
-    if not any([n_clicks, n_submit, n_blur]) or not directory_path or not directory_path.strip():
-        return "Name: N/A", "Process ID: N/A", "Device: N/A"
-
-    try:
-        experiment_name = Path(directory_path.strip()).name or "N/A"
-        data = AlumetData(directory_path.strip())
-        pid = data.pid
-        device = data.device
-    except Exception:
-        return "Name: N/A", "Process ID: N/A", "Device: N/A"
-
-    return (
-        f"Name: {experiment_name}",
-        f"Process ID: {pid or 'N/A'}",
-        f"Device: {device}",
-    )
-
-
-# Load and visualize
-@app.callback(
-    Output("status-message", "children"),
-    Output("processed-df-store", "data"),
-    Output("original-df-store", "data"),
-    Output("process-time-range-store", "data"),
-    Input("visualize-button", "n_clicks"),
-    Input("directory-path-input", "n_submit"),
-    Input("directory-path-input", "n_blur"),
-    State("directory-path-input", "value"),
-)
 def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
+    _no_info = ("Name: N/A", "Process ID: N/A", "Device: N/A")
+
     if not any([n_clicks, n_submit, n_blur]):
         return (
             status_alert(
@@ -141,6 +117,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             None,
             None,
             None,
+            *_no_info,
         )
 
     if not directory_path or not directory_path.strip():
@@ -149,7 +126,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             "Error:",
             "Directory path is required. Please enter a directory path.",
         )
-        return status_msg, None, None, None
+        return status_msg, None, None, None, *_no_info
 
     try:
         dir_path = Path(directory_path.strip())
@@ -159,7 +136,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
                 "Error:",
                 f"Directory does not exist: {directory_path}",
             )
-            return status_msg, None, None, None
+            return status_msg, None, None, None, *_no_info
 
         if not dir_path.is_dir():
             status_msg = status_alert(
@@ -167,7 +144,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
                 "Error:",
                 f"Path is not a directory: {directory_path}",
             )
-            return status_msg, None, None, None
+            return status_msg, None, None, None, *_no_info
 
         try:
             csv_file = find_measurement_file_in_directory(directory_path, [".csv"])
@@ -179,7 +156,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
                 "Error:",
                 "CSV file is required. Please ensure the directory contains a .csv file.",
             )
-            return status_msg, None, None, None
+            return status_msg, None, None, None, *_no_info
 
         t0 = time.perf_counter()
         data = AlumetData(directory_path.strip())
@@ -207,7 +184,19 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             "end": proc_end.isoformat() if proc_end else None,
         }
 
-        return status_msg, processed_cache_id, original_cache_id, process_time_range
+        experiment_name = dir_path.name or "N/A"
+        pid = data.pid
+        device = data.device
+
+        return (
+            status_msg,
+            processed_cache_id,
+            original_cache_id,
+            process_time_range,
+            f"Name: {experiment_name}",
+            f"Process ID: {pid or 'N/A'}",
+            f"Device: {device}",
+        )
 
     except Exception as e:
         status_msg = status_alert(
@@ -216,7 +205,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             str(e),
             icon="\u274c ",
         )
-        return status_msg, None, None, None
+        return status_msg, None, None, None, *_no_info
 
 
 # Tab visibility toggle
