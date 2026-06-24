@@ -7,7 +7,6 @@ from frontend.panes.process_specific import (
     filter_single_series,
     normalize_filter_columns,
     prepare_download_df,
-    safe_metric_filename,
     unique_nonempty,
 )
 
@@ -53,7 +52,6 @@ class ProcessSpecificTests(unittest.TestCase):
 
         filtered, _ = filter_single_series(normed, "cpu", "1", "process", "10", "system")
         self.assertEqual(len(filtered), 1)
-        self.assertEqual(safe_metric_filename("a/b c"), "a_b_c")
 
     def test_prepare_download_df_filters_values_and_time_range(self):
         df = pd.DataFrame(

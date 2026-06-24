@@ -18,7 +18,7 @@ from frontend.helpers import normalize_dropdown_value
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import get_metric_unit, is_memory_metric
 from backend.transforms import filter_to_time_range
-from backend.utils import safe_filename as safe_metric_filename
+from backend.utils import safe_filename
 from frontend.figures import get_color_palette
 
 
@@ -698,5 +698,5 @@ def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, 
     if df_export.empty:
         return None
 
-    filename = f"{safe_metric_filename(metric)}_process_data.csv"
+    filename = f"{safe_filename(metric)}_process_data.csv"
     return dcc.send_data_frame(df_export.to_csv, filename, index=False)
