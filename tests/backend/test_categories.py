@@ -2,7 +2,13 @@ import unittest
 
 import pandas as pd
 
-from backend.categories import available_category_values, available_cpu_cores, filter_time_series_category
+from backend.categories import (
+    available_category_values,
+    available_cpu_cores,
+    category_yaxis_label,
+    filter_time_series_category,
+    is_yaxis_shareable,
+)
 from tests.fixtures import processed_rows
 
 
@@ -92,6 +98,19 @@ class CategoryTests(unittest.TestCase):
         )
 
         self.assertEqual(available_category_values(df), ["temperature"])
+
+    def test_is_yaxis_shareable(self):
+        self.assertTrue(is_yaxis_shareable("energy"))
+        self.assertTrue(is_yaxis_shareable("power"))
+        self.assertTrue(is_yaxis_shareable("temperature"))
+        self.assertFalse(is_yaxis_shareable("miscellaneous"))
+        self.assertFalse(is_yaxis_shareable("perf_counters"))
+
+    def test_category_yaxis_label(self):
+        self.assertEqual(category_yaxis_label("kernel_cpu_time"), "Value (ms)")
+        self.assertEqual(category_yaxis_label("temperature"), "Value (°C)")
+        self.assertEqual(category_yaxis_label("perf_counters"), "Value (count)")
+        self.assertEqual(category_yaxis_label("unknown"), "Value")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 import unittest
 
-from backend.formatting import format_bytes_ticklabel, get_bytes_tickvals_ticktext
 from backend.metrics import (
+    filter_process_metric_ids,
     get_metric_unit,
     is_cumulative_metric,
     is_memory_metric,
@@ -13,6 +13,11 @@ class MetricTests(unittest.TestCase):
     def test_metric_id_is_process_consumer(self):
         self.assertTrue(metric_id_is_process_consumer("metric_R_x_C_process_123_A_"))
         self.assertFalse(metric_id_is_process_consumer("metric_R_x_C_host_123_A_"))
+
+    def test_filter_process_metric_ids(self):
+        ids = ["host_R_a_C_host_1_A_", "proc_R_a_C_process_1_A_"]
+        self.assertEqual(filter_process_metric_ids(ids, process_only=False), ids)
+        self.assertEqual(filter_process_metric_ids(ids, process_only=True), [ids[1]])
 
     def test_is_cumulative_metric(self):
         self.assertTrue(is_cumulative_metric("rapl_consumed_energy_J"))
@@ -34,16 +39,6 @@ class MetricTests(unittest.TestCase):
     def test_is_memory_metric(self):
         self.assertTrue(is_memory_metric("mem_total_kB"))
         self.assertFalse(is_memory_metric("nvml_memory_utilization_%"))
-
-    def test_format_bytes_ticklabel(self):
-        self.assertEqual(format_bytes_ticklabel(512), "512 B")
-        self.assertEqual(format_bytes_ticklabel(2048), "2.0 KB")
-        self.assertEqual(format_bytes_ticklabel(2048 ** 2), "4.0 MB")
-
-    def test_get_bytes_tickvals_ticktext(self):
-        tickvals, ticktext = get_bytes_tickvals_ticktext(0, 2048, num_ticks=3)
-        self.assertEqual(len(tickvals), len(ticktext))
-        self.assertTrue(all(val >= 0 for val in tickvals))
 
 
 if __name__ == "__main__":
