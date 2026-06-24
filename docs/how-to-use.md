@@ -1,0 +1,121 @@
+# `alumet-insight` User Guide
+
+## Step 1: Load Experiment 
+
+<img src="../images/setup.png" height=350>
+
+As shown in the screenshot, the procedure to setup an experiment for exploration and analysis is as follows:
+
+1. Enter the path to an Alumet experiment directory in **Directory Path**.
+> [!IMPORTANT] 
+> 
+> To run the dashboard successfully, the input configuration directory should contain an `alumet-config-<experiment>.toml` file and the resulting `alumet-agent-<experiment>.log` and `alumet-output-<experiment>.csv` files. Examples can be found [here](https://github.com/thealanjason/energy_measurement/tree/main/measurement_tools/alumet/experiments)
+
+2. Click **Visualize** (or press Enter/Tab in the path field).
+
+A **Status** message will be shown to give you the hint whether the experiment is loaded successfully or not. The **Experiment Summary** provides information about experiment name, process ID, device type.
+
+> [!TIP]
+> 
+> Use **Reset** to clear loaded data and start over. 
+
+## Step 2: Main Dashboard
+
+There are three tab options with scrollable tab content:
+
+<img src="../images/layout.png" width=800>
+
+1. [Time Series Pane](#1-time-series-pane) — Browse all raw metrics by category as vertically stacked time-series plots, with the process-active period highlighted.
+
+2. [Process-Specific Analysis Pane](#2-process-specific-analysis-pane) — Compare up to four independently selected metrics in a 2×2 grid, scoped to the process active time range.
+
+3. [Comparative Analysis Pane](#3-comparative-analysis-pane) — Compare two metrics from the process active window as a dual-axis time series, scatter plot, or cumulative plot.
+
+
+### 1. Time Series Pane
+
+In this pane, you can view time-series data for all metrics captured during the experiment. The data is visualized as vertically stacked subplots for the selected category, with the active period of the measured process highlighted. Each time-series is identified by a unique combination of base metric, resource, consumer, and any additional attributes.
+
+
+#### Basic Usage
+
+1. Choose a **Metric Category** from the dropdown. Available categories depend on your measurement (e.g. Energy (J), Power (W), Utilization, Temperature, Memory, Perf Counters, Kernel CPU Time, Kernel/System, Miscellaneous).
+
+<img src="../images/time-series-metric-cat.png" width="800">
+
+2. Depending on the chosen category, additional dropdowns may appear. For example, selecting **Kernel CPU Time** reveals a **CPU Core** dropdown — choose a core to display its kernel CPU time.
+
+<img src="../images/time-series-cascade-filter.png" width="800">
+
+3. After selecting the cascading category ddropdowns, all metrics under that specific category will be displayed in the pane as stacked subplots with a shaded area highlighting the measured process-active time range on every subplot.
+
+#### Additional Useful Features
+
+- **Linked x-axis zoom:** Zoom or pan the time axis on any subplot with the mouse cursor to select the region you want to zoom in:
+
+<img src="../images/time-series-zoom.png" width="800">
+
+Then all subplots will be synced with the same time window:
+
+<img src="../images/time-series-zoomed.png" width="800">
+
+*Double-click* anywhere on a subplot to revert to the original scale. 
+
+- **Share Y-axis range across subplots:** For categories with a common unit (Energy, Power, Utilization, Temperature, Memory, Kernel CPU Time), enable the *Shared Y-axis range* checkbox to make subplots directly comparable on the same scale. Disable it to give each subplot its own scale.
+
+<img src="../images/time-series-shared-y-axis.png" width="800">
+
+- **Plotly toolbar:** Use the built-in controls to zoom, pan, reset axes, and download the figure as PNG.
+
+<img src="../images/time-series-legend-and-toolbox.png" width="800">
+
+
+### 2. Process-Specific Analysis Pane
+
+In this pane, we can inspect up to four individual metric series side by side. Plots are arranged in a 2×2 grid, filtered to the process active time range, and each series can be independently configured by metric, resource, and consumer.
+
+#### Basic Usage
+
+1. In each of the four panels, select a **Metric** from the dropdown.
+
+<img src="../images/process-specific.png" width="800">
+
+2. Use the secondary dropdowns below the metric selector to filter the displayed series:
+   - **R.Kind** / **R.ID** — resource kind and resource ID
+   - **C.Kind** / **C.ID** — consumer kind and consumer ID (e.g. `process` and PID)
+   - **Attr** — additional attributes, when available
+
+<img src="../images/cascade-filter.png" width="800">
+
+#### Additional Useful Features
+
+- **Synchronized x-axis zoom:**  Zooming the time axis in any panel syncs all four panels to the same time range.
+- **Per-panel CSV export:** Click **Download CSV** on a panel to export the currently selected series, filtered to the process active time range.
+
+
+### 3. Comparative Analysis Pane
+In this pane, you can compare two metric series using samples from the process active time window — as a dual-axis time series, an X–Y correlation plot, or a cumulative relationship plot. The latter two eliminate the common time axis, plotting one series directly against the other; the cumulative plot is further restricted to cumulative metrics, where both series are monotonic.
+
+#### Basic Usage
+
+1. Choose **Metric 1** (X-axis / left Y-axis) and **Metric 2** (Y-axis / right Y-axis) from the dropdowns.
+
+<img src="../images/comparative.png" width="800">
+
+2. Optionally enable **Process metrics only** to restrict choices to series attributed to the measured process (`consumer_kind=process`).
+
+<img src="../images/comparative-process-specific.png" width="800">
+
+3. Check the **Visualization Mode** indicator below the dropdowns — it is determined automatically based on the selected metrics:
+   - **Dual Y-Axis Time Series**: plots both metrics against time, with each metric on its own y-axis (left and right), when at least one metric is not cumulative.
+   - **Cumulative X–Y Plot**: plots the cumulative sum of X against the cumulative sum of Y, available when both metrics are cumulative (e.g. energy (J), time (s))
+
+<img src="../images/comparative-viz-mode.png" width="800">
+
+4. Enable **Show Scatter Plot (X–Y relationship)** to switch to a scatter view of Y vs X (useful for correlation, not time-ordered).
+
+<img src="../images/comparative-scatter.png" width="800">
+
+ #### Additional Useful Features
+
+5. Click **Download CSV** to export the aligned X/Y data used in the current plot.
