@@ -1,5 +1,8 @@
 # Alumet Insight
 
+[![Tests](https://img.shields.io/github/actions/workflow/status/thealanjason/alumet-insight/ci.yml?label=tests)](https://github.com/thealanjason/alumet-insight/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-how--to--use-blue)](docs/how-to-use.md)
+
 Alumet Insight explores and visualizes output from [Alumet-agent](https://alumet-dev.github.io/user-book/start/install.html) measurements. Use the interactive dashboard or command-line tools to summarize experiments, export processed data, and inspect energy, power, utilization, and other metrics over time.
 
 <img src="./images/layout.png" width=800>
