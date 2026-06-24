@@ -12,3 +12,4 @@ dependencies:
   - dash-ag-grid
   - dash-bootstrap-components
   - toml
+  - pytest
