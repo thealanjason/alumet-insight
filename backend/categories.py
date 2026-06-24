@@ -8,6 +8,30 @@ from typing import Optional
 import pandas as pd
 
 
+YAXIS_SHAREABLE_CATEGORIES: frozenset[str] = frozenset(
+    {"energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"}
+)
+
+
+def is_yaxis_shareable(category: str) -> bool:
+    """Return True when all metrics in *category* share the same unit."""
+    return category in YAXIS_SHAREABLE_CATEGORIES
+
+
+def category_yaxis_label(category: Optional[str]) -> str:
+    """Return the Y-axis label string for a time-series category."""
+    labels = {
+        "energy": "Value (J)",
+        "power": "Value (W)",
+        "memory": "Value (B)",
+        "utilization": "Value (%)",
+        "temperature": "Value (°C)",
+        "perf_counters": "Value (count)",
+        "kernel_cpu_time": "Value (ms)",
+    }
+    return labels.get(category, "Value")
+
+
 @dataclass(frozen=True)
 class TimeSeriesCategory:
     value: str

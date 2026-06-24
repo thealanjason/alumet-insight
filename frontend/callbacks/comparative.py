@@ -12,11 +12,11 @@ from frontend.app import app
 from frontend.cache import df_from_store, ensure_timestamp_datetime
 from frontend.theme import apply_figure_theme
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
+from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import (
     is_cumulative_metric,
     get_metric_unit,
     is_memory_metric,
-    get_bytes_tickvals_ticktext,
 )
 from backend.comparative import (
     comparative_metric_ids,

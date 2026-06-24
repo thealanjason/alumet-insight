@@ -1,8 +1,7 @@
 import unittest
 
+from backend.formatting import format_bytes_ticklabel, get_bytes_tickvals_ticktext
 from backend.metrics import (
-    format_bytes_ticklabel,
-    get_bytes_tickvals_ticktext,
     get_metric_unit,
     is_cumulative_metric,
     is_memory_metric,

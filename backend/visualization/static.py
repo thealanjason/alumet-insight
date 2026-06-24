@@ -13,7 +13,9 @@ import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from backend.metrics import format_bytes_ticklabel, get_metric_unit, is_memory_metric
+from backend.categories import category_yaxis_label
+from backend.formatting import format_bytes_ticklabel
+from backend.metrics import get_metric_unit, is_memory_metric
 from backend.utils import safe_filename
 
 
@@ -32,14 +34,9 @@ def _series_title(metric_id: str) -> str:
 
 def _ylabel(metric_id: str, category: str) -> str:
     """Return a readable Y-axis label for a static export."""
-    if category == "power":
-        return "Value (W)"
-    if category == "energy":
-        return "Value (J)"
-    if category == "memory":
-        return "Value (B)"
-    if category == "utilization":
-        return "Value (%)"
+    label = category_yaxis_label(category)
+    if label != "Value":
+        return label
     unit = get_metric_unit(metric_id)
     return f"Value ({unit})" if unit else "Value"
 

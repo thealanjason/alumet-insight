@@ -14,7 +14,8 @@ from frontend.cache import df_from_store, is_cache_miss, ensure_timestamp_dateti
 from frontend.theme import status_alert_class, apply_figure_theme
 from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
 from frontend.helpers import normalize_dropdown_value
-from backend.metrics import get_metric_unit, is_memory_metric, get_bytes_tickvals_ticktext
+from backend.formatting import get_bytes_tickvals_ticktext
+from backend.metrics import get_metric_unit, is_memory_metric
 from backend.process_specific import (
     normalize_filter_columns,
     cascade_filter_options,

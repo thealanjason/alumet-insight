@@ -12,15 +12,9 @@ from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe
 from frontend.theme import status_alert_class, apply_figure_theme
 from frontend.layout import empty_time_series_content
 from frontend.helpers import available_category_options
-from backend.categories import available_cpu_cores, filter_time_series_category
+from backend.categories import available_cpu_cores, category_yaxis_label, filter_time_series_category, is_yaxis_shareable
 from backend.metrics import is_memory_metric
-from backend.timeseries import (
-    is_yaxis_shareable,
-    category_yaxis_label,
-    align_xrange_tz,
-    compute_yaxis_ranges,
-)
-from backend.transforms import filter_to_time_range
+from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range
 from backend.visualization.interactive import create_all_timeseries_plots
 
 

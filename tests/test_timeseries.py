@@ -2,12 +2,8 @@ import unittest
 
 import pandas as pd
 
-from backend.timeseries import (
-    align_xrange_tz,
-    category_yaxis_label,
-    compute_yaxis_ranges,
-    is_yaxis_shareable,
-)
+from backend.categories import category_yaxis_label, is_yaxis_shareable
+from backend.transforms import align_xrange_tz, compute_yaxis_ranges
 
 
 class TimeSeriesTests(unittest.TestCase):
