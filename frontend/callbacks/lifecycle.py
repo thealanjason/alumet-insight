@@ -173,24 +173,11 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             csv_file = find_measurement_file_in_directory(directory_path, [".csv"])
         except ValueError:
             csv_file = None
-        try:
-            log_file = find_measurement_file_in_directory(directory_path, [".log", ".txt"])
-        except ValueError:
-            log_file = None
-
         if not csv_file:
             status_msg = status_alert(
                 "danger",
                 "Error:",
                 "CSV file is required. Please ensure the directory contains a .csv file.",
-            )
-            return status_msg, None, None, None
-
-        if not log_file:
-            status_msg = status_alert(
-                "danger",
-                "Error:",
-                "Log file is required. Please ensure the directory contains a .log or .txt file.",
             )
             return status_msg, None, None, None
 

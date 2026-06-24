@@ -76,6 +76,24 @@ def is_cpu_from_content(log_content: str) -> bool:
     return False
 
 
+_GPU_METRIC_PATTERN = re.compile(r"nvml", re.IGNORECASE)
+_CPU_METRIC_PATTERN = re.compile(r"rapl|cpu|kernel|perf|mem", re.IGNORECASE)
+
+
+def is_gpu_from_metrics(df: "pd.DataFrame") -> bool:
+    """Detect GPU presence from metric names in the processed dataframe."""
+    if df.empty or "base_metric" not in df.columns:
+        return False
+    return df["base_metric"].str.contains(_GPU_METRIC_PATTERN).any()
+
+
+def is_cpu_from_metrics(df: "pd.DataFrame") -> bool:
+    """Detect CPU presence from metric names in the processed dataframe."""
+    if df.empty or "base_metric" not in df.columns:
+        return False
+    return df["base_metric"].str.contains(_CPU_METRIC_PATTERN).any()
+
+
 def safe_filename(value: str) -> str:
     """Return a filesystem-safe filename stem."""
     return "".join(c if c.isalnum() or c in "._-" else "_" for c in value)

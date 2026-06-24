@@ -14,6 +14,8 @@ from backend.utils import (
     extract_pid_from_content,
     is_gpu_from_content,
     is_cpu_from_content,
+    is_gpu_from_metrics,
+    is_cpu_from_metrics,
     safe_filename,
 )
 from backend.transforms import filter_to_time_range, get_process_time_range_from_df, normalize_to_si
@@ -151,14 +153,19 @@ class AlumetData:
 
     @property
     def device(self) -> str:
-        """``"CPU"``, ``"GPU"``, or ``"CPU + GPU"`` based on log content."""
+        """``"CPU"``, ``"GPU"``, ``"CPU + GPU"``, or ``"N/A"`` based on log content or metric names."""
         gpu = is_gpu_from_content(self._log_content)
         cpu = is_cpu_from_content(self._log_content)
-        if gpu and not cpu:
+        if not gpu and not cpu:
+            gpu = is_gpu_from_metrics(self._df_processed)
+            cpu = is_cpu_from_metrics(self._df_processed)
+        if gpu and cpu:
+            return "CPU + GPU"
+        if gpu:
             return "GPU"
-        if cpu and not gpu:
+        if cpu:
             return "CPU"
-        return "CPU + GPU"
+        return "N/A"
 
     @property
     def process_time_range(self) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
