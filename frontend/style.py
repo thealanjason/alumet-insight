@@ -1,7 +1,31 @@
+"""Frontend style constants and component theming helpers."""
+
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import html
 
+
+# ---------------------------------------------------------------------------
+# Color constants (Nord palette)
+# ---------------------------------------------------------------------------
+
+COLOR_PRIMARY = "#5E81AC"   # primary action button (Visualize)
+COLOR_DANGER  = "#BF616A"   # destructive action button (Reset)
+COLOR_LOADING = "#88C0D0"   # loading spinner
+
+
+# ---------------------------------------------------------------------------
+# Component style dicts
+# ---------------------------------------------------------------------------
+
+DROPDOWN_STYLE = {"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"}
+COMPACT_DROPDOWN_STYLE = {**DROPDOWN_STYLE, "fontSize": "0.75rem"}
+CARD_STYLE = {"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"}
+
+
+# ---------------------------------------------------------------------------
+# Alert helpers
+# ---------------------------------------------------------------------------
 
 def status_alert_class(color: str) -> str:
     """Return CSS classes for the muted sidebar status panel."""
@@ -36,6 +60,10 @@ def status_alert(
         )
     return dbc.Alert(children, color=color, className=status_alert_class(color))
 
+
+# ---------------------------------------------------------------------------
+# Figure theming
+# ---------------------------------------------------------------------------
 
 def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
     """Apply the dashboard theme colors to Plotly figures."""

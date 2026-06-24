@@ -5,7 +5,7 @@ from typing import Any
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from frontend.theme import status_alert_class
+from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLOR_LOADING
 
 
 def empty_time_series_content():
@@ -169,8 +169,8 @@ def create_layout(app):
                                                                 "fontWeight": "600",
                                                                 "padding": "clamp(8px, 1.3vh, 11px) 12px",
                                                                 "width": "100%",
-                                                                "backgroundColor": "#5E81AC",
-                                                                "borderColor": "#5E81AC",
+                                                                "backgroundColor": COLOR_PRIMARY,
+                                                                "borderColor": COLOR_PRIMARY,
                                                                 "color": "#ffffff",
                                                             },
                                                         ),
@@ -189,8 +189,8 @@ def create_layout(app):
                                                                 "fontWeight": "600",
                                                                 "padding": "clamp(8px, 1.3vh, 11px) 12px",
                                                                 "width": "100%",
-                                                                "backgroundColor": "#BF616A",
-                                                                "borderColor": "#BF616A",
+                                                                "backgroundColor": COLOR_DANGER,
+                                                                "borderColor": COLOR_DANGER,
                                                                 "color": "#ffffff",
                                                             },
                                                         ),
@@ -204,7 +204,7 @@ def create_layout(app):
                                             dcc.Loading(
                                                 id="loading-status",
                                                 type="circle",
-                                                color="#88C0D0",
+                                                color=COLOR_LOADING,
                                                 children=html.Div(id="status-message"),
                                             ),
                                         ],
@@ -261,7 +261,7 @@ def create_layout(app):
                                 children=dcc.Loading(
                                     id="loading-tab-content",
                                     type="circle",
-                                    color="#88C0D0",
+                                    color=COLOR_LOADING,
                                     children=[
                                         html.Div(
                                             id="time-series-content",

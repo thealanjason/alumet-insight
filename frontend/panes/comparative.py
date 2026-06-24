@@ -10,7 +10,7 @@ from dash import Input, Output, State, ctx, dcc, html
 
 from frontend.app import app
 from frontend.cache import df_from_store, ensure_timestamp_datetime
-from frontend.theme import apply_figure_theme
+from frontend.style import apply_figure_theme, DROPDOWN_STYLE, CARD_STYLE
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import (
@@ -112,7 +112,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                         clearable=False,
                                         persistence=True,
                                         className="dark-dropdown",
-                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
+                                        style=DROPDOWN_STYLE,
                                     ),
                                 ],
                                 width=12,
@@ -132,7 +132,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                         clearable=False,
                                         persistence=True,
                                         className="dark-dropdown",
-                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
+                                        style=DROPDOWN_STYLE,
                                     ),
                                 ],
                                 width=12,
@@ -206,7 +206,7 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                 className="viewport-card-body comparative-card-body",
             )
         ],
-        style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
+        style=CARD_STYLE,
         className="viewport-card comparative-card",
     )
 

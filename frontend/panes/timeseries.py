@@ -9,7 +9,7 @@ from dash import Input, Output, State, dcc, html
 
 from frontend.app import app
 from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe, ensure_timestamp_datetime
-from frontend.theme import status_alert_class, apply_figure_theme
+from frontend.style import status_alert_class, apply_figure_theme, DROPDOWN_STYLE
 from frontend.layout import empty_time_series_content
 from frontend.helpers import available_category_options
 from backend.categories import available_cpu_cores, category_yaxis_label, filter_time_series_category, is_yaxis_shareable
@@ -59,7 +59,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                         id="metric-category-dropdown",
                                         options=available_categories,
                                         placeholder="Select metric category",
-                                        style={"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"},
+                                        style=DROPDOWN_STYLE,
                                         className="dark-dropdown",
                                         clearable=True,
                                     ),
@@ -75,11 +75,7 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                         id="cpu-core-dropdown",
                                         options=[],
                                         placeholder="Select CPU core",
-                                        style={
-                                            "display": "none",
-                                            "backgroundColor": "var(--app-control-bg)",
-                                            "color": "var(--app-text)",
-                                        },
+                                        style={"display": "none", **DROPDOWN_STYLE},
                                         className="dark-dropdown",
                                         clearable=False,
                                     ),
