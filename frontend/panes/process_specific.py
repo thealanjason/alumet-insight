@@ -19,7 +19,7 @@ from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import get_metric_unit, is_memory_metric
 from backend.transforms import filter_to_time_range
 from backend.utils import safe_filename as safe_metric_filename
-from backend.visualization.interactive import get_color_palette
+from frontend.figures import get_color_palette
 
 
 # ---------------------------------------------------------------------------

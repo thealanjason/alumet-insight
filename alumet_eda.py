@@ -17,7 +17,7 @@ from pathlib import Path
 
 from backend.categories import CATEGORY_VALUES
 from backend.data import AlumetData
-from backend.visualization.static import SUPPORTED_FIGURE_FORMATS, export_category_figures
+from backend.figures import SUPPORTED_FIGURE_FORMATS, export_category_figures
 
 
 def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path) -> Path:

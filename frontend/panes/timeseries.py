@@ -15,7 +15,7 @@ from frontend.helpers import available_category_options
 from backend.categories import available_cpu_cores, category_yaxis_label, filter_time_series_category, is_yaxis_shareable
 from backend.metrics import is_memory_metric
 from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range
-from backend.visualization.interactive import create_all_timeseries_plots
+from frontend.figures import create_all_timeseries_plots
 
 
 # ---------------------------------------------------------------------------

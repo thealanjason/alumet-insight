@@ -1,3 +1,5 @@
+"""Interactive Plotly chart builders for the dashboard."""
+
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.colors as pc
