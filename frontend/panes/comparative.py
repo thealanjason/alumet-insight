@@ -17,14 +17,10 @@ from backend.metrics import (
     is_cumulative_metric,
     get_metric_unit,
     is_memory_metric,
-)
-from backend.comparative import (
-    comparative_metric_ids,
     filter_process_metric_ids,
-    pick_xy_values,
-    align_xy_metrics,
-    prepare_xy_download,
 )
+from backend.transforms import comparative_metric_ids, align_xy_metrics
+from backend.utils import safe_filename
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +36,29 @@ def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list
     proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
     return comparative_metric_ids(df_processed, proc_start, proc_end)
+
+
+def pick_xy_values(filtered: list[str], cur_x: Any, cur_y: Any) -> tuple[Any, Any]:
+    """Pick valid X/Y dropdown values, preserving current selection when possible."""
+    if not filtered:
+        return None, None
+    if len(filtered) == 1:
+        return filtered[0], filtered[0]
+    x_val = cur_x if cur_x in filtered else filtered[0]
+    others = [m for m in filtered if m != x_val]
+    y_val = cur_y if cur_y in others else others[0]
+    return x_val, y_val
+
+
+def prepare_xy_download(
+    dfxy: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+) -> tuple[pd.DataFrame, str]:
+    """Rename columns for CSV export and compute a safe filename."""
+    df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
+    filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
+    return df_out, filename
 
 
 # ---------------------------------------------------------------------------

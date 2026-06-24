@@ -2,13 +2,9 @@ import unittest
 
 import pandas as pd
 
-from backend.comparative import (
-    align_xy_metrics,
-    comparative_metric_ids,
-    filter_process_metric_ids,
-    pick_xy_values,
-    prepare_xy_download,
-)
+from backend.transforms import align_xy_metrics, comparative_metric_ids
+from backend.metrics import filter_process_metric_ids
+from frontend.panes.comparative import pick_xy_values, prepare_xy_download
 
 
 class ComparativeTests(unittest.TestCase):

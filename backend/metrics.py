@@ -1,3 +1,10 @@
+def filter_process_metric_ids(metric_ids: list[str], process_only: bool) -> list[str]:
+    """Restrict to process-attributed series when *process_only* is True."""
+    if not process_only:
+        return list(metric_ids)
+    return [m for m in metric_ids if metric_id_is_process_consumer(m)]
+
+
 def metric_id_is_process_consumer(metric_id: str) -> bool:
     """
     True if the metric row was attributed to a process (consumer_kind == 'process').

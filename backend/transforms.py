@@ -143,6 +143,54 @@ def compute_yaxis_ranges(
     return result
 
 
+def comparative_metric_ids(
+    df_processed: pd.DataFrame,
+    proc_start: Optional[pd.Timestamp],
+    proc_end: Optional[pd.Timestamp],
+) -> list[str]:
+    """Metric IDs that have samples inside the process active window."""
+    if df_processed.empty:
+        return []
+    df_window = filter_to_time_range(df_processed, proc_start, proc_end)
+    if df_window.empty:
+        return []
+    return sorted(df_window["metric_id"].dropna().astype(str).unique().tolist())
+
+
+def align_xy_metrics(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Align two metric series on timestamps within the process window.
+
+    Returns a DataFrame with columns ``timestamp``, ``x``, ``y``.
+    Uses nearest-neighbour matching (merge_asof) — avoids synthetic data points.
+    """
+    dfw = filter_to_time_range(df_processed, proc_start, proc_end)
+
+    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
+    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
+
+    if dfx.empty or dfy.empty:
+        return pd.DataFrame(columns=["timestamp", "x", "y"])
+
+    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first").sort_values("timestamp", ignore_index=True)
+    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first").sort_values("timestamp", ignore_index=True)
+
+    dx = dfx["timestamp"].diff().median()
+    dy = dfy["timestamp"].diff().median()
+    tol = None
+    if pd.notna(dx) or pd.notna(dy):
+        base = max([v for v in [dx, dy] if pd.notna(v)], default=pd.Timedelta(milliseconds=0))
+        tol = base * 2 if base > pd.Timedelta(0) else pd.Timedelta(seconds=1)
+
+    dfxy = pd.merge_asof(dfx, dfy, on="timestamp", direction="nearest", tolerance=tol).dropna(subset=["y"])
+    return dfxy.sort_values("timestamp", ignore_index=True)
+
+
 def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
     """Get the process active time range from the dataframe.
 
