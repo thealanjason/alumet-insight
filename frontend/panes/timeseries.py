@@ -1,4 +1,4 @@
-"""Time series tab callbacks: build tab, category filtering, CPU core selector, Y-axis toggle/zoom."""
+"""Time series tab: callbacks for category filtering, CPU core selector, Y-axis toggle/zoom."""
 
 import copy
 
@@ -16,6 +16,11 @@ from backend.categories import available_cpu_cores, category_yaxis_label, filter
 from backend.metrics import is_memory_metric
 from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range
 from backend.visualization.interactive import create_all_timeseries_plots
+
+
+# ---------------------------------------------------------------------------
+# Callbacks
+# ---------------------------------------------------------------------------
 
 
 

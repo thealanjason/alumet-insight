@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from backend.process_specific import (
+from frontend.panes.process_specific import (
     cascade_filter_options,
     filter_single_series,
     normalize_filter_columns,

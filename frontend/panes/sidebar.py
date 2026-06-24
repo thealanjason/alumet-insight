@@ -1,4 +1,4 @@
-"""Lifecycle callbacks: data loading, reset, process info, tab toggle, theme."""
+"""Lifecycle tab: callbacks for data loading, reset, process info, tab toggle, theme."""
 
 import time
 
@@ -12,6 +12,11 @@ from frontend.cache import cache_dataframe
 from frontend.theme import status_alert
 from backend.data import AlumetData
 from backend.utils import find_measurement_file_in_directory
+
+
+# ---------------------------------------------------------------------------
+# Callbacks
+# ---------------------------------------------------------------------------
 
 # Theme callbacks
 app.clientside_callback(

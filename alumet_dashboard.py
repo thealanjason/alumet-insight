@@ -5,7 +5,7 @@ Starts the Dash web application on http://0.0.0.0:8051.
 
 from frontend.app import app
 from frontend.layout import create_layout
-import frontend.callbacks  # registers all @app.callback decorators
+import frontend.panes  # registers all @app.callback decorators
 
 app.layout = create_layout(app)
 

@@ -1,4 +1,4 @@
-"""Comparative analysis callbacks: build X-Y tab, dropdowns, scatter/dual-axis plot, CSV download."""
+"""Comparative analysis tab: helpers and callbacks for the X-Y metric comparison view."""
 
 from typing import Any
 
@@ -27,6 +27,10 @@ from backend.comparative import (
 )
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list[str]:
     """Reconstruct dataframe and call backend to get metric IDs."""
     if not processed_df_data or not process_time_range:
@@ -37,6 +41,10 @@ def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list
     proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
     return comparative_metric_ids(df_processed, proc_start, proc_end)
 
+
+# ---------------------------------------------------------------------------
+# Callbacks
+# ---------------------------------------------------------------------------
 
 # Build comparative tab
 @app.callback(
