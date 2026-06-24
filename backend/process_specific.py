@@ -11,7 +11,8 @@ from typing import Optional
 
 import pandas as pd
 
-from backend.data import filter_to_time_range
+from backend.transforms import filter_to_time_range
+from backend.utils import safe_filename as safe_metric_filename
 
 
 def unique_nonempty(series: pd.Series) -> list[str]:
@@ -162,6 +163,3 @@ def prepare_download_df(
     return dfm[export_cols].copy()
 
 
-def safe_metric_filename(metric: str) -> str:
-    """Return a filesystem-safe filename stem for *metric*."""
-    return "".join(c if c.isalnum() or c in "._-" else "_" for c in metric)

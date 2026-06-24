@@ -2,15 +2,22 @@
 Data loading and preprocessing.
 """
 
-import re
-import warnings
-import numpy as np
 import pandas as pd
 import polars as pl
-from typing import List, Optional
+from typing import Optional
 from pathlib import Path
 
 from backend.categories import available_category_values, filter_time_series_category
+from backend.utils import (
+    find_measurement_file_in_directory,
+    read_file_content,
+    extract_pid_from_content,
+    is_gpu_from_content,
+    is_cpu_from_content,
+    safe_filename,
+)
+from backend.transforms import filter_to_time_range, get_process_time_range_from_df, normalize_to_si
+from backend.synthesis import synthesize_attributed_energy_total
 
 
 # CSV / Parquet I/O
@@ -100,258 +107,6 @@ def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
     return result_pl.to_pandas()
 
 
-# File directory helpers
-def find_measurement_file_in_directory(directory_path: str, extensions: List[str]) -> Path:
-    """
-    Find measurement file with specified extensions in a directory.
-
-    Args:
-        directory_path: Path to the directory
-        extensions: List of file extensions to search for
-
-    Returns:
-        Path object for matching file
-    """
-    dir_path = Path(directory_path)
-    if not dir_path.exists():
-        raise ValueError(f"Directory does not exist: {directory_path}")
-    if not dir_path.is_dir():
-        raise ValueError(f"Path is not a directory: {directory_path}")
-
-    found_files = []
-    for ext in extensions:
-        found_files.extend(dir_path.glob(f"*{ext}"))
-    if not found_files:
-        raise ValueError(f"No files found with extensions: {extensions} in directory: {directory_path}")
-    if len(found_files) > 1:
-        warnings.warn(f"Multiple files found with extensions: {extensions} in directory: {directory_path}. Returning the first one.")
-    return sorted(found_files)[0]
-
-
-def read_file_content(file_path: Path) -> str:
-    """Read file content as string."""
-    if not file_path.exists():
-        raise ValueError(f"File not found: {file_path}")
-    return file_path.read_text(encoding="utf-8")
-
-
-# Log content extraction for runned process information
-def extract_pid_from_content(log_content: str) -> Optional[int]:
-    """Extract process ID from Alumet log file content."""
-    if not log_content:
-        return None
-    for line in log_content.split("\n"):
-        if "pid" in line:
-            match = re.search(r"pid (\d+)", line)
-            if match:
-                return int(match.group(1))
-    return None
-
-
-def _extract_process_pid(metric_id: str) -> Optional[str]:
-    pid_pattern = re.compile(r"_C_process_(\d+)")
-    m = pid_pattern.search(str(metric_id))
-    return m.group(1) if m else None
-
-
-def is_gpu_from_content(log_content: str) -> bool:
-    """Detect whether the run used GPU-related Alumet plugins (NVML) from agent log text."""
-    if not log_content:
-        return False
-    for line in log_content.split("\n"):
-        if re.search(r"nvml", line, re.IGNORECASE):
-            return True
-    return False
-
-
-def is_cpu_from_content(log_content: str) -> bool:
-    """Detect whether the run used CPU-related Alumet plugins from agent log text."""
-    if not log_content:
-        return False
-    for line in log_content.split("\n"):
-        if re.search(r"rapl", line, re.IGNORECASE):
-            return True
-    return False
-
-
-def filter_to_time_range(
-    df: pd.DataFrame,
-    start: Optional[pd.Timestamp],
-    end: Optional[pd.Timestamp],
-    *,
-    timestamp_col: str = "timestamp",
-    require_bounds: bool = True,
-) -> pd.DataFrame:
-    """
-    Return rows whose timestamp falls between start and end.
-
-    When require_bounds is true, missing bounds produce an empty dataframe.
-    When false, missing bounds leave the dataframe unfiltered.
-    """
-    if df.empty:
-        return df.copy()
-    if start is None or end is None:
-        return df.iloc[0:0].copy() if require_bounds else df.copy()
-    if timestamp_col not in df.columns:
-        raise ValueError(f"Cannot filter by time range: missing '{timestamp_col}' column")
-
-    filtered = df.copy()
-    filtered[timestamp_col] = pd.to_datetime(filtered[timestamp_col], errors="coerce")
-    return filtered[(filtered[timestamp_col] >= start) & (filtered[timestamp_col] <= end)].copy()
-
-
-# Time range extraction from dataframe
-def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
-    """Get the process active time range from the dataframe.
-
-    Finds the actual process execution period by looking at process-level metrics
-    (consumer_kind='process') that have non-zero values.
-    """
-    if df.empty or "timestamp" not in df.columns:
-        return None, None
-
-    process_mask = df["consumer_kind"] == "process"
-
-    if not process_mask.any():
-        return df["timestamp"].min(), df["timestamp"].max()
-
-    active_mask = process_mask & (df["value"] > 0)
-
-    if not active_mask.any():
-        process_timestamps = df.loc[process_mask, "timestamp"]
-        return process_timestamps.min(), process_timestamps.max()
-
-    active_timestamps = df.loc[active_mask, "timestamp"]
-    return active_timestamps.min(), active_timestamps.max()
-
-
-# Total energy synthesis from cpu/gpu energy metrics
-def _align_cumulative_energy_to_timeline(
-    df_metric: pd.DataFrame,
-    timeline: pd.DatetimeIndex,
-    value_name: str,
-) -> pd.Series:
-    """
-    Align a cumulative metric to a shared timeline.
-
-    Before the first observed sample the value is treated as 0. 
-    Between observed samples, values are linearly interpolated on timestamp. 
-    After the last observed sample, values remain N/A so downstream synthesis can dropna to truncate the timeline.
-    """
-    if df_metric.empty:
-        return pd.Series(0.0, index=timeline, name=value_name)
-
-    aligned = (
-        df_metric.groupby("timestamp", as_index=True)["value"]
-        .sum()
-        .sort_index()
-        .reindex(timeline)
-        .astype(float)
-    )
-
-    first_valid = aligned.first_valid_index()
-    if first_valid is None:
-        return pd.Series(0.0, index=timeline, name=value_name)
-
-    aligned.loc[aligned.index < first_valid] = 0.0
-    aligned = aligned.interpolate(method="time", limit_area="inside")
-    aligned = aligned.fillna(0.0)
-    last_valid = df_metric["timestamp"].max()
-    aligned.loc[aligned.index > last_valid] = np.nan
-    aligned.name = value_name
-    return aligned
-
-
-def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFrame:
-    """
-    Synthesize attributed_energy_total_J metric from attributed_energy_cpu and attributed_energy_gpu metrics.
-
-    Creates two synthetic metrics:
-    1. attributed_energy_gpu_total_J: sum of attributed GPU energy across all GPUs per process (pid).
-    2. attributed_energy_total_J: CPU + GPU total per process on the union of timestamps.
-
-    Args:
-        df_processed: Preprocessed DataFrame with metric_id, base_metric, timestamp, value columns.
-
-    Returns:
-        DataFrame of synthetic rows or empty DataFrame when source data is missing.
-    """
-    cpu_mask = df_processed["base_metric"].str.contains("attributed_energy_cpu", case=False, na=False)
-    gpu_mask = df_processed["base_metric"].str.contains("attributed_energy_gpu", case=False, na=False)
-
-    df_cpu = df_processed.loc[cpu_mask, ["metric_id", "timestamp", "value"]].copy()
-    df_gpu = df_processed.loc[gpu_mask, ["metric_id", "timestamp", "value"]].copy()
-
-    if df_cpu.empty and df_gpu.empty:
-        return pd.DataFrame(columns=df_processed.columns)
-
-    if not df_cpu.empty:
-        df_cpu["pid"] = df_cpu["metric_id"].map(_extract_process_pid)
-        df_cpu["timestamp"] = pd.to_datetime(df_cpu["timestamp"], errors="coerce")
-        df_cpu.dropna(subset=["pid", "timestamp"], inplace=True)
-
-    if not df_gpu.empty:
-        df_gpu["pid"] = df_gpu["metric_id"].map(_extract_process_pid)
-        df_gpu["timestamp"] = pd.to_datetime(df_gpu["timestamp"], errors="coerce")
-        df_gpu.dropna(subset=["pid", "timestamp"], inplace=True)
-
-    if df_cpu.empty and df_gpu.empty:
-        return pd.DataFrame(columns=df_processed.columns)
-
-    df_gpu_summed = (
-        df_gpu.groupby(["timestamp", "pid"], as_index=False)["value"].sum()
-        if not df_gpu.empty
-        else pd.DataFrame(columns=["timestamp", "pid", "value"])
-    )
-    df_cpu_summed = (
-        df_cpu.groupby(["timestamp", "pid"], as_index=False)["value"].sum()
-        if not df_cpu.empty
-        else pd.DataFrame(columns=["timestamp", "pid", "value"])
-    )
-
-    synthetic_parts: list[pd.DataFrame] = []
-
-    for pid in df_gpu_summed["pid"].unique():
-        gpu_pid = df_gpu_summed.loc[df_gpu_summed["pid"] == pid, ["timestamp", "value"]].copy()
-        gpu_pid["metric_id"] = f"attributed_energy_gpu_total_J_R_gpu_all__C_process_{pid}_A_"
-        gpu_pid["base_metric"] = "attributed_energy_gpu_total_J"
-        synthetic_parts.append(gpu_pid[["metric_id", "base_metric", "timestamp", "value"]])
-
-    shared_pids = sorted(set(df_cpu_summed["pid"]) & set(df_gpu_summed["pid"]))
-    for pid in shared_pids:
-        cpu_pid = df_cpu_summed.loc[df_cpu_summed["pid"] == pid, ["timestamp", "value"]].copy()
-        gpu_pid = df_gpu_summed.loc[df_gpu_summed["pid"] == pid, ["timestamp", "value"]].copy()
-        if cpu_pid.empty or gpu_pid.empty:
-            continue
-
-        timeline = pd.DatetimeIndex(
-            pd.Index(cpu_pid["timestamp"]).union(pd.Index(gpu_pid["timestamp"])).sort_values()
-        )
-        if timeline.empty:
-            continue
-
-        cpu_aligned = _align_cumulative_energy_to_timeline(cpu_pid, timeline, "cpu_value")
-        gpu_aligned = _align_cumulative_energy_to_timeline(gpu_pid, timeline, "gpu_value")
-
-        total_pid = pd.DataFrame({
-            "timestamp": timeline,
-            "cpu_value": cpu_aligned.to_numpy(),
-            "gpu_value": gpu_aligned.to_numpy(),
-        })
-        total_pid.dropna(subset=["cpu_value", "gpu_value"], inplace=True)
-        if total_pid.empty:
-            continue
-        total_pid["value"] = total_pid["cpu_value"] + total_pid["gpu_value"]
-        total_pid["metric_id"] = f"attributed_energy_total_J_R_total__C_process_{pid}_A_"
-        total_pid["base_metric"] = "attributed_energy_total_J"
-        synthetic_parts.append(total_pid[["metric_id", "base_metric", "timestamp", "value"]])
-
-    if not synthetic_parts:
-        return pd.DataFrame(columns=df_processed.columns)
-
-    return pd.concat(synthetic_parts, ignore_index=True)
-
-
 # OOP wrapper for all data operations
 class AlumetData:
     """
@@ -363,7 +118,7 @@ class AlumetData:
 
     def __init__(self, directory: str | Path):
         self.directory = Path(directory)
-        self._df_raw: pd.DataFrame = pd.DataFrame()
+        self._df_source: pd.DataFrame = pd.DataFrame()
         self._df_processed: pd.DataFrame = pd.DataFrame()
         self._log_content: str = ""
         self._csv_path: Optional[Path] = None
@@ -379,8 +134,12 @@ class AlumetData:
             self._log_path = None
             self._log_content = ""
 
-        self._df_raw = load_csv_from_path(self._csv_path)
-        self._df_processed = preprocess_dataframe_for_visualization(self._df_raw)
+        # _df_source: non-SI units rescaled to SI and metric names updated — done once here
+        self._df_source = normalize_to_si(load_csv_from_path(self._csv_path), col="metric")
+        self._df_processed = preprocess_dataframe_for_visualization(self._df_source)
+        synthetic = synthesize_attributed_energy_total(self._df_processed)
+        if not synthetic.empty:
+            self._df_processed = pd.concat([self._df_processed, synthetic], ignore_index=True)
 
     # ==========
     # Properties
@@ -404,7 +163,7 @@ class AlumetData:
     @property
     def process_time_range(self) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
         """First and last timestamps where the measured process was active."""
-        return get_process_time_range_from_df(self._df_raw)
+        return get_process_time_range_from_df(self._df_source)
 
     @property
     def metrics(self) -> list[str]:
@@ -421,9 +180,9 @@ class AlumetData:
         return []
 
     @property
-    def raw_df(self) -> pd.DataFrame:
-        """The raw (original) DataFrame as loaded from CSV."""
-        return self._df_raw.copy()
+    def source_df(self) -> pd.DataFrame:
+        """The source DataFrame with NVML units corrected (mW→W, mJ→J) and metric names updated."""
+        return self._df_source.copy()
 
     @property
     def processed_df(self) -> pd.DataFrame:
@@ -475,11 +234,6 @@ class AlumetData:
             return [category]
         return available_category_values(self._df_processed)
 
-    @staticmethod
-    def _safe_filename(value: str) -> str:
-        """Return a filesystem-safe filename stem."""
-        return "".join(c if c.isalnum() or c in "._-" else "_" for c in value)
-
     def export_csvs(
         self,
         output_root: Path,
@@ -499,8 +253,7 @@ class AlumetData:
             category_dir = output_root / category_value / "csv"
             category_dir.mkdir(parents=True, exist_ok=True)
             suffix = f"_core_{cpu_core}" if category_value == "kernel_cpu_time" and cpu_core else ""
-            path = category_dir / f"{self._safe_filename(category_value + suffix)}.csv"
+            path = category_dir / f"{safe_filename(category_value + suffix)}.csv"
             df.to_csv(path, index=False)
             created.append(path)
         return created
-

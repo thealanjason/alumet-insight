@@ -13,7 +13,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from backend.metrics import metric_id_is_process_consumer
-from backend.data import filter_to_time_range
+from backend.transforms import filter_to_time_range
 
 
 def comparative_metric_ids(

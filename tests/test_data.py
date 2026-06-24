@@ -8,17 +8,18 @@ import pandas as pd
 from backend.data import (
     AlumetData,
     _read_csv_with_polars,
-    extract_pid_from_content,
-    filter_to_time_range,
-    find_measurement_file_in_directory,
-    get_process_time_range_from_df,
-    is_cpu_from_content,
-    is_gpu_from_content,
     load_csv_from_path,
     preprocess_dataframe_for_visualization,
-    read_file_content,
-    synthesize_attributed_energy_total,
 )
+from backend.utils import (
+    extract_pid_from_content,
+    find_measurement_file_in_directory,
+    is_cpu_from_content,
+    is_gpu_from_content,
+    read_file_content,
+)
+from backend.transforms import filter_to_time_range, get_process_time_range_from_df
+from backend.synthesis import synthesize_attributed_energy_total
 from tests.fixtures import (
     TempMeasurementDirectory,
     attributed_energy_source_rows,
@@ -230,7 +231,7 @@ class DataTests(unittest.TestCase):
 
         self.assertIsNone(data.pid)
         self.assertGreater(len(data.metrics), 0)
-        self.assertFalse(data.raw_df.empty)
+        self.assertFalse(data.source_df.empty)
         self.assertFalse(data.processed_df.empty)
 
     def test_load_csv_from_path_missing_and_empty_inputs(self):

@@ -10,10 +10,8 @@ from pathlib import Path
 from frontend.app import app
 from frontend.cache import cache_dataframe
 from frontend.theme import status_alert
-from backend.data import (
-    AlumetData,
-    find_measurement_file_in_directory,
-)
+from backend.data import AlumetData
+from backend.utils import find_measurement_file_in_directory
 
 # Theme callbacks
 app.clientside_callback(
@@ -201,7 +199,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         t_load = time.perf_counter()
 
         processed_cache_id = cache_dataframe(data.processed_df, prefix="processed")
-        original_cache_id = cache_dataframe(data.raw_df, prefix="original")
+        original_cache_id = cache_dataframe(data.source_df, prefix="original")
         t_cache = time.perf_counter()
 
         proc_start, proc_end = data.process_time_range

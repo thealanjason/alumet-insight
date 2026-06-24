@@ -20,7 +20,7 @@ from backend.timeseries import (
     align_xrange_tz,
     compute_yaxis_ranges,
 )
-from backend.data import filter_to_time_range
+from backend.transforms import filter_to_time_range
 from backend.visualization.interactive import create_all_timeseries_plots
 
 

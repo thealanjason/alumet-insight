@@ -130,23 +130,10 @@ def filter_time_series_category(
     if category == "energy":
         energy_mask = df["base_metric"].str.contains("energy|rapl|attributed", case=False, na=False)
         not_power = ~df["base_metric"].str.contains("nvml_instant_power", case=False, na=False)
-        filtered = df[energy_mask & not_power].copy()
-        nvml_energy_mask = filtered["base_metric"].str.contains("nvml_energy_consumption", case=False, na=False)
-        if nvml_energy_mask.any():
-            filtered.loc[nvml_energy_mask, "value"] = filtered.loc[nvml_energy_mask, "value"] / 1000.0
-        from backend.data import synthesize_attributed_energy_total
-
-        synthetic_total = synthesize_attributed_energy_total(filtered)
-        if not synthetic_total.empty:
-            filtered = pd.concat([filtered, synthetic_total], ignore_index=True)
-        return filtered
+        return df[energy_mask & not_power].copy()
 
     if category == "power":
-        filtered = df[df["base_metric"].str.contains("nvml_instant_power", case=False, na=False)].copy()
-        nvml_power_mask = filtered["base_metric"].str.contains("nvml_instant_power", case=False, na=False)
-        if nvml_power_mask.any():
-            filtered.loc[nvml_power_mask, "value"] = filtered.loc[nvml_power_mask, "value"] / 1000.0
-        return filtered
+        return df[df["base_metric"].str.contains("nvml_instant_power", case=False, na=False)].copy()
 
     if category == "utilization":
         return df[

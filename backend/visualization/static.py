@@ -14,14 +14,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from backend.metrics import format_bytes_ticklabel, get_metric_unit, is_memory_metric
+from backend.utils import safe_filename
 
 
 SUPPORTED_FIGURE_FORMATS = ("png", "pdf", "svg")
-
-
-def _safe_filename(value: str) -> str:
-    """Return a filesystem-safe filename stem."""
-    return "".join(c if c.isalnum() or c in "._-" else "_" for c in str(value))
 
 
 def _series_title(metric_id: str) -> str:
@@ -109,7 +105,7 @@ def export_category_figures(
 
     created: list[Path] = []
     for metric_id, df_metric in df_category.groupby("metric_id", sort=True):
-        safe_metric = _safe_filename(str(metric_id))
+        safe_metric = safe_filename(str(metric_id))
         path = output_dir / f"{safe_metric}.{figure_format}"
         created.append(
             save_metric_time_series_figure(
