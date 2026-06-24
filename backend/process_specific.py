@@ -126,27 +126,18 @@ def prepare_download_df(
     proc_end: Optional[pd.Timestamp] = None,
 ) -> pd.DataFrame:
     """Filter and prepare a DataFrame suitable for CSV download."""
-    dfm = df_original[df_original["metric"] == metric].copy()
-
-    dfm["rk"] = dfm["resource_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["rid"] = dfm["resource_id"].astype(str).replace("nan", "").str.strip()
-    dfm["ck"] = dfm["consumer_kind"].astype(str).replace("nan", "").str.strip()
-    dfm["cid"] = dfm["consumer_id"].astype(str).replace("nan", "").str.strip()
-    dfm["la"] = dfm["__late_attributes"].astype(str).replace("nan", "").str.strip()
-
-    def _norm(v):
-        return str(v).strip() if v else ""
+    dfm = normalize_filter_columns(df_original[df_original["metric"] == metric])
 
     if rk:
-        dfm = dfm[dfm["rk"] == _norm(rk)]
+        dfm = dfm[dfm["rk"] == str(rk).strip()]
     if rid:
-        dfm = dfm[dfm["rid"] == _norm(rid)]
+        dfm = dfm[dfm["rid"] == str(rid).strip()]
     if ck:
-        dfm = dfm[dfm["ck"] == _norm(ck)]
+        dfm = dfm[dfm["ck"] == str(ck).strip()]
     if cid:
-        dfm = dfm[dfm["cid"] == _norm(cid)]
+        dfm = dfm[dfm["cid"] == str(cid).strip()]
     if la:
-        dfm = dfm[dfm["la"] == _norm(la)]
+        dfm = dfm[dfm["la"] == str(la).strip()]
 
     dfm = filter_to_time_range(dfm, proc_start, proc_end, require_bounds=False)
 

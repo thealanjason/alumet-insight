@@ -15,16 +15,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from backend.categories import CATEGORY_VALUES, available_category_values
+from backend.categories import CATEGORY_VALUES
 from backend.data import AlumetData
 from backend.visualization.static import SUPPORTED_FIGURE_FORMATS, export_category_figures
-
-
-def _selected_categories(data: AlumetData, category: str | None) -> list[str]:
-    """Return the requested category, or all available categories when omitted."""
-    if category:
-        return [category]
-    return available_category_values(data.processed_df)
 
 
 def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path) -> Path:
@@ -46,7 +39,7 @@ def export_figures(
     proc_start, proc_end = data.process_time_range
     created: list[Path] = []
 
-    for category_value in _selected_categories(data, category):
+    for category_value in data.selected_categories(category):
         df_category = data.filter_by_category(category_value, cpu_core=cpu_core)
         if process_specific:
             df_category = data.filter_to_process_time_range(df_category)

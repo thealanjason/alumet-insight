@@ -228,7 +228,7 @@ class AlumetData:
         ]
         return "\n".join(lines)
 
-    def _selected_categories(self, category: Optional[str]) -> list[str]:
+    def selected_categories(self, category: Optional[str]) -> list[str]:
         """Return selected categories, or all available categories when not specified."""
         if category:
             return [category]
@@ -244,7 +244,7 @@ class AlumetData:
         """Export category CSV files under ``output_root/<category>/csv/``."""
         output_root = Path(output_root)
         created = []
-        for category_value in self._selected_categories(category):
+        for category_value in self.selected_categories(category):
             df = self.filter_by_category(category_value, cpu_core=cpu_core)
             if process_specific:
                 df = self.filter_to_process_time_range(df)

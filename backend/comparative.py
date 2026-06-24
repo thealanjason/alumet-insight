@@ -14,6 +14,7 @@ import pandas as pd
 
 from backend.metrics import metric_id_is_process_consumer
 from backend.transforms import filter_to_time_range
+from backend.utils import safe_filename
 
 
 def comparative_metric_ids(
@@ -93,6 +94,5 @@ def prepare_xy_download(
     Returns ``(df_renamed, filename)``.
     """
     df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
-    filename = f"xy_{x_metric_id}_vs_{y_metric_id}.csv"
-    filename = "".join(c if c.isalnum() or c in "._-" else "_" for c in filename)
+    filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
     return df_out, filename
