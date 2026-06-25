@@ -1,4 +1,4 @@
-name: alumet-viz
+name: alumet-insight
 channels:
   - conda-forge
 dependencies:
@@ -12,3 +12,4 @@ dependencies:
   - dash-ag-grid
   - dash-bootstrap-components
   - toml
+  - pytest

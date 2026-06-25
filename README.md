@@ -1,5 +1,8 @@
 # Alumet Insight
 
+[![Tests](https://img.shields.io/github/actions/workflow/status/thealanjason/alumet-insight/ci.yml?label=tests)](https://github.com/thealanjason/alumet-insight/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-how--to--use-blue)](docs/how-to-use.md)
+
 Alumet Insight explores and visualizes output from [Alumet-agent](https://alumet-dev.github.io/user-book/start/install.html) measurements. Use the interactive dashboard or command-line tools to summarize experiments, export processed data, and inspect energy, power, utilization, and other metrics over time.
 
 <img src="./images/layout.png" width=800>
@@ -20,7 +23,7 @@ git clone https://github.com/thealanjason/alumet-viz.git
 2. Create and activate the conda environment
 ```bash
 conda env create -f environment.yml
-conda activate alumet-viz
+conda activate alumet-insight
 ```
 
 ## Usage
@@ -32,7 +35,7 @@ Alumet Insight supports two modes. The **Dashboard** is the primary interface fo
 #### Get Started
 
 ```bash
-python alumet_dashboard.py
+python alumet_insight.py dashboard
 ```
 
 Open `http://localhost:8051` in your browser.
@@ -45,12 +48,12 @@ See detailed documentation of how to interactive with the dashboard [here](docs/
 
 1. Quick summary:
 ```bash
-python alumet_insight.py /path/to/alumet/experiment/dir --summary
+python alumet_insight.py cli /path/to/alumet/experiment/dir --summary
 ```
 
 2. Data processing and export as CSV:
 ```bash
-python alumet_insight.py /path/to/alumet/experiment/dir --export-csv /path/to/saved/results
+python alumet_insight.py cli /path/to/alumet/experiment/dir --export-csv /path/to/saved/results
 ```
 
 with optional `--process-specific` flag to focus on process active region.
@@ -58,7 +61,7 @@ with optional `--process-specific` flag to focus on process active region.
 
 3. Visualize the processed data and save as figures:
 ```bash
-python alumet_insight.py /path/to/alumet/experiment/dir --export-figure /path/to/saved/results
+python alumet_insight.py cli /path/to/alumet/experiment/dir --export-figures /path/to/saved/results
 ```
 
 with optional `--process-specific` flag to focus on process active region.
