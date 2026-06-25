@@ -1,5 +1,24 @@
 # `alumet-insight` User Guide
 
+## Getting Started
+
+From the repository root, activate the conda environment and launch the dashboard:
+
+```bash
+conda activate alumet-insight
+python alumet_insight.py dashboard
+```
+
+Open `http://localhost:8051` in your browser. Alternatively, run `python dashboard.py` for the same server.
+
+For batch analysis without the browser UI:
+
+```bash
+python alumet_insight.py cli /path/to/experiment --summary
+python alumet_insight.py cli /path/to/experiment --export-csv /path/to/output
+python alumet_insight.py cli /path/to/experiment --export-figures /path/to/output --process-specific
+```
+
 ## Step 1: Load Experiment 
 
 <img src="../images/setup.png" height=350>

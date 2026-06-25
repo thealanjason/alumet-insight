@@ -105,7 +105,7 @@ Table 1 summarizes the key distinctions between the tools discussed above.
 
 *Table 1: Comparison of HPC energy measurement tools.*
 
-#### Alumet Insight.
+#### AlumetInsight.
 
 While Alumet's process-granular, agent-based measurements address the data-collection gap, the rich CSV output it produces containing
 timestamped records of energy, power, CPU utilization, GPU metrics, and other
@@ -114,7 +114,7 @@ to explore interactively or to compare across multiple experimental runs. Genera
 tools such as `pandas` and `matplotlib` can process this output, but impose non-trivial boilerplate for each new experiment. Streaming monitoring stacks (e.g., Grafana + InfluxDB) are oriented toward real-time dashboarding
 rather than post-hoc exploratory data analysis of stored CSV files.
 
-Alumet Insight closes this remaining gap by providing a cohesive,
+AlumetInsight closes this remaining gap by providing a cohesive,
 experiment-centric analysis layer that understands Alumet's CSV schema natively.
 It enables researchers to load one or multiple experiment directories, filter by
 process or metric, select time windows, compare runs side-by-side, and export
@@ -124,88 +124,96 @@ processed data or publication-ready figures — without writing any additional c
 
 ### Implementation and Architecture
 
-AlumetInsight is implemented in Python 3.12 and organized into four layers:
+AlumetInsight is implemented in Python 3.12 as a three-tier package: **entry points**, a renderer-agnostic **backend**, and a Plotly Dash **frontend**. The backend owns all Alumet CSV semantics, filtering, and export logic; the frontend owns layout, callbacks, theming, and Dash-specific DataFrame caching. Both surfaces call the same `AlumetData` class, so interactive and scripted workflows stay consistent.
 
-| Layer | Location | Responsibility |
-|-------|----------|----------------|
-| **Dashboard entry** | `alumet_dashboard.py` | Boots the Dash server on port 8051; wires layout and callbacks. |
-| **Main entry** | `alumet_insight.py` | Non-interactive summaries or interactive Dash app. |
-| **Frontend** | `frontend/` | Plotly Dash layout, reactive callbacks, client-side theme, and DataFrame caching. |
-| **Backend** | `backend/` | Alumet CSV ingestion, metric categorization, tab-specific analytics, and figure builders. |
+#### Entry points
 
-#### Backend modules
+| File | Role |
+|------|------|
+| `alumet_insight.py` | Unified launcher with two subcommands: `dashboard` (interactive app) and `cli` (batch analysis). |
+| `dashboard.py` | Thin compatibility wrapper that starts the Dash server on port 8051. |
+| `cli.py` | Argument parsing and export orchestration for `--summary`, `--export-csv`, and `--export-figures`. |
 
-- **`backend/data.py`** — Discovers measurement files in an experiment directory, reads CSV via Polars (with Parquet sidecar caching), parses Alumet column semantics, and exposes the `AlumetData` container with original and preprocessed DataFrames plus process-active time bounds.
-- **`backend/categories.py`** — Maps raw metrics into analysis categories (energy, power, utilization, temperature, memory, perf counters, kernel CPU time, kernel/system, miscellaneous).
-- **`backend/metrics.py`** — Metric-ID parsing, cumulative vs. instantaneous detection, byte-axis formatting, and process-consumer identification.
-- **`backend/timeseries.py`** — Y-axis shareability, category labels, and time-window helpers for the Time Series tab.
-- **`backend/process_specific.py`** — Cascading filter normalization, grid export preparation, and process-window scoping for the Process-Specific tab.
-- **`backend/comparative.py`** — Metric pairing, timestamp alignment (`merge_asof`), and scatter/cumulative modes for the Comparative tab.
-- **`backend/visualization/interactive.py`** — Plotly figure construction for dashboard tabs.
-- **`backend/visualization/static.py`** — Matplotlib exports for CLI `--export-figures`.
+Typical invocations:
 
-#### Frontend modules
+```bash
+python alumet_insight.py dashboard
+python alumet_insight.py cli /path/to/experiment --summary
+python dashboard.py   # equivalent to the dashboard subcommand above
+```
 
-- **`frontend/app.py`** — Dash application instance (Bootstrap theme, assets).
-- **`frontend/layout.py`** — Sidebar configuration panel and three-tab main area.
-- **`frontend/callbacks/`** — `lifecycle.py` (load/reset/theme/tab switching), `timeseries.py`, `process_specific.py`, `comparative.py`.
-- **`frontend/cache.py`** — Server-side caching of large DataFrames (Parquet-backed) to keep tab switches responsive.
+#### Backend (`backend/`)
+
+The backend is organized around a single domain object and a set of stateless helper modules. It has no dependency on Dash, Plotly, or Matplotlib layout code (except `backend/figures.py`, which is used exclusively by the CLI).
+
+| Module | Responsibility |
+|--------|----------------|
+| `data.py` | CSV ingestion (Polars with Parquet sidecar caching), metric-ID preprocessing, and the `AlumetData` class — the central API for loading, querying, summarizing, and exporting an experiment directory. |
+| `categories.py` | Nine dashboard metric categories (energy, power, utilization, temperature, memory, perf counters, kernel CPU time, kernel/system, miscellaneous), category filtering rules, CPU-core cascade options, and shared Y-axis metadata. |
+| `metrics.py` | Process-consumer detection (`_C_process_<pid>_`), cumulative vs. instantaneous metric classification, and unit lookup. |
+| `transforms.py` | Stateless view operations shared by dashboard panes and CLI: SI unit normalization, time-window filtering, process-active range detection, Y-axis range computation, comparative metric pairing, and `merge_asof` timestamp alignment. |
+| `synthesis.py` | Derived-metric generation not present in raw CSV (for example, a synthesized total attributed-energy series aggregated across hardware components). |
+| `formatting.py` | Renderer-agnostic helpers for human-readable metric titles and byte-axis tick labels. |
+| `figures.py` | Static Matplotlib time-series exports for `--export-figures`. |
+| `utils.py` | Filesystem discovery (`find_measurement_file_in_directory`), log parsing (PID, device type), and safe filename generation. |
+
+**`AlumetData` lifecycle.** On construction, `AlumetData(directory)` locates the experiment CSV and optional agent log, reads the CSV through Polars (writing a `.parquet` sidecar for faster reloads), rescales non-SI units (mJ→J, mW→W), builds composite `metric_id` strings from Alumet's resource/consumer columns, synthesizes derived energy totals where applicable, and derives the process-active time window from process-attributed rows. Public methods expose filtered views (`filter_by_category`, `filter_process_metrics`, `filter_to_process_time_range`) and disk exports (`summary`, `export_csvs`), which the CLI calls directly and the dashboard invokes through pane callbacks.
+
+#### Frontend (`frontend/`)
+
+The frontend is a Plotly Dash application structured as one layout module, one figure builder, shared infrastructure, and four **pane** modules that each register their own `@app.callback` handlers via side-effect import.
+
+| Module | Responsibility |
+|--------|----------------|
+| `app.py` | Dash application instance (Bootstrap theme, custom CSS assets). |
+| `layout.py` | Two-column shell: configuration sidebar, experiment summary card, and three-tab main area with hidden placeholder components to keep callback targets mounted before data load. |
+| `panes/sidebar.py` | Lifecycle callbacks: directory loading via `AlumetData`, reset, experiment metadata display, tab switching, and light/dark theme toggle. |
+| `panes/timeseries.py` | Time Series tab: category dropdown, CPU-core cascade, shared Y-axis toggle, linked zoom, and per-subplot CSV export. |
+| `panes/process_specific.py` | Process-Specific tab: 2×2 grid with cascading metric/resource/consumer filters scoped to the process-active window. |
+| `panes/comparative.py` | Comparative tab: X/Y metric selection, process-only filtering, and dual-axis / scatter / cumulative visualization modes. |
+| `figures.py` | Plotly figure builders (stacked time-series subplots, comparative charts). |
+| `cache.py` | Dash-specific server-side DataFrame cache (in-memory dict + Parquet files) so large experiments do not round-trip full DataFrames through `dcc.Store` JSON payloads. |
+| `helpers.py` | Dropdown option formatting for category selectors. |
+| `style.py` | Nord-palette theme constants, alert styling, and Plotly figure theme application. |
+
+Importing `frontend.panes` at startup registers all callbacks; no central callback registry file is required.
 
 #### Architecture diagram
 
 ```mermaid
 flowchart TB
-  subgraph inputs["Alumet-agent experiment directory"]
-    CSV["alumet-output-*.csv"]
-    LOG["alumet-agent-*.log"]
-    TOML["alumet-config-*.toml"]
-  end
+  IN["Alumet-agent experiment\n(CSV + log)"]
 
-  subgraph entries["Entry points"]
-    DASH["alumet_dashboard.py"]
-    CLI["alumet_eda.py"]
-  end
+  EP["alumet_insight.py"]
 
-  subgraph frontend["Frontend (Plotly Dash)"]
-    APP["frontend/app.py"]
-    LAYOUT["frontend/layout.py"]
-    CB["frontend/callbacks/"]
-    CACHE["frontend/cache.py"]
-  end
+  BE["Backend\nAlumetData + filtering, synthesis, export"]
 
-  subgraph backend["Backend (Python)"]
-    DATA["backend/data.py"]
-    CAT["backend/categories.py"]
-    MET["backend/metrics.py"]
-    TS["backend/timeseries.py"]
-    PS["backend/process_specific.py"]
-    COMP["backend/comparative.py"]
-    VIZI["backend/visualization/interactive.py"]
-    VIZS["backend/visualization/static.py"]
-  end
+  FE["Frontend\nDash layout, panes, Plotly figures"]
 
-  CSV --> DATA
-  LOG --> DATA
-  TOML --> DATA
-  DATA --> CAT
-  CAT --> TS & PS & COMP
-  MET --> TS & PS & COMP
-  TS & PS & COMP --> VIZI
-  DATA --> VIZS
-  DASH --> APP
-  APP --> LAYOUT --> CB
-  CB --> CACHE
-  CB --> DATA
-  VIZI --> CB
-  CLI --> DATA
-  CLI --> VIZS
+  UI["Interactive dashboard"]
+  OUT["Batch output\nsummary · CSV · figures"]
+
+  IN --> BE
+  EP -->|dashboard| FE
+  EP -->|cli| BE
+  FE --> BE
+  FE --> UI
+  BE --> OUT
 ```
 
-**Data flow.** A researcher supplies an experiment directory path. The lifecycle callback invokes `AlumetData` to ingest CSV/log/config files, preprocess metric IDs, and derive the process-active interval. Preprocessed DataFrames are stored in Dash `dcc.Store` components and the server-side cache. Tab callbacks query backend helpers to filter by category, resource, or consumer, build Plotly figures, and expose per-plot CSV export actions. The CLI reuses the same backend path, writing summaries and static figures to disk for batch workflows.
+#### Data flow
+
+1. **Load.** The sidebar pane receives an experiment directory path and constructs `AlumetData`. The backend reads CSV/log files, preprocesses metric IDs, synthesizes derived series, and computes `(proc_start, proc_end)`.
+2. **Cache.** Large DataFrames are written to the frontend Parquet cache; lightweight reference IDs and metadata (process time range, experiment summary) are stored in `dcc.Store` components.
+3. **Filter.** Each pane calls backend helpers — `filter_time_series_category` for the Time Series tab, cascading resource/consumer filters for Process-Specific, `comparative_metric_ids` + `align_xy_metrics` for Comparative — always scoped to the process window when appropriate.
+4. **Render.** Time-series and comparative views are built in `frontend/figures.py` (Plotly); the CLI writes static Matplotlib figures via `backend/figures.py`.
+5. **Export.** Per-plot CSV download buttons in the dashboard and `AlumetData.export_csvs()` / `cli.export_figures()` in batch mode produce the same tidy, filtered tables and figures.
+
+This separation keeps Alumet schema knowledge in one place (`backend/`), makes the dashboard a thin reactive shell (`frontend/panes/`), and allows both interactive and scripted analysis to share identical filtering semantics.
 
 ## Usage
 
-AlumetInsight supports two modes of operation. The **dashboard** is the primary interface for interactive exploration in a browser. The **CLI** (`alumet_eda.py`) is designed for scripted, reproducible workflows in pipelines or Makefiles.
+AlumetInsight supports two modes of operation. The **dashboard** is the primary interface for interactive exploration in a browser. The **CLI** (`python alumet_insight.py cli …`) is designed for scripted, reproducible workflows in pipelines or Makefiles.
 
 ### Tutorial: Your First Experiment Analysis
 
@@ -219,8 +227,10 @@ You have completed [Installation](#installation) and have an Alumet-agent experi
 
 ```bash
 conda activate alumet-insight
-python alumet_dashboard.py
+python alumet_insight.py dashboard
 ```
+
+Alternatively, `python dashboard.py` starts the same Dash server.
 
 Open `http://localhost:8051` in your browser. You will see the AlumetInsight dashboard with an empty configuration sidebar and three tabs in the main panel: **Time Series**, **Process-Specific Analysis**, and **Comparative Analysis**.
 
@@ -247,13 +257,13 @@ Each interactive plot includes an **Export CSV** control to download a tidy summ
 1. Quick summary:
 
 ```bash
-python alumet_eda.py /path/to/alumet/experiment/dir --summary
+python alumet_insight.py cli /path/to/alumet/experiment/dir --summary
 ```
 
 2. Data processing and export as CSV:
 
 ```bash
-python alumet_eda.py /path/to/alumet/experiment/dir --export-csv /path/to/saved/results
+python alumet_insight.py cli /path/to/alumet/experiment/dir --export-csv /path/to/saved/results
 ```
 
 Add `--process-specific` to restrict exports to the process-active region.
@@ -261,7 +271,7 @@ Add `--process-specific` to restrict exports to the process-active region.
 3. Visualize the processed data and save as figures:
 
 ```bash
-python alumet_eda.py /path/to/alumet/experiment/dir --export-figures /path/to/saved/results
+python alumet_insight.py cli /path/to/alumet/experiment/dir --export-figures /path/to/saved/results
 ```
 
 Optional flags: `--process-specific`, `--category <name>`, `--figure-format png|pdf|svg`, `--dpi <int>`.
@@ -279,14 +289,14 @@ Full control descriptions and screenshots: [docs/how-to-use.md](docs/how-to-use.
 ### Command-Line Interface Reference
 
 ```
-python alumet_eda.py DIRECTORY [--summary]
-                              [--export-csv OUTPUT_DIR]
-                              [--export-figures OUTPUT_DIR]
-                              [--category {energy,power,utilization,...}]
-                              [--cpu-core CORE]
-                              [--process-specific]
-                              [--figure-format {png,pdf,svg}]
-                              [--dpi INT]
+python alumet_insight.py cli DIRECTORY [--summary]
+                                    [--export-csv OUTPUT_DIR]
+                                    [--export-figures OUTPUT_DIR]
+                                    [--category {energy,power,utilization,...}]
+                                    [--cpu-core CORE]
+                                    [--process-specific]
+                                    [--figure-format {png,pdf,svg}]
+                                    [--dpi INT]
 ```
 
 Exports are written under `OUTPUT_DIR/<measurement-folder-name>/`.
@@ -299,7 +309,7 @@ After installation, verify the environment by launching the dashboard against ex
 
 ```bash
 conda activate alumet-insight
-python alumet_dashboard.py
+python alumet_insight.py dashboard
 # Navigate to http://localhost:8051 and load an example experiment directory
 ```
 
@@ -307,18 +317,21 @@ A successful launch without import errors, populated experiment summary, and ren
 
 #### Automated unit tests
 
-The `refactor_final` branch includes a `pytest` suite (`tests/`, configured via `pytest.ini`) with **55 unit tests** covering:
+The `refactor_final` branch includes a `pytest` suite (`tests/`, configured via `pytest.ini`) with **63 unit tests** covering:
 
 | Test module | Focus |
 |-------------|-------|
-| `tests/test_data.py` | CSV ingestion, Polars/Parquet I/O, metric-ID preprocessing, process time-range detection |
-| `tests/test_categories.py` | Category assignment and filtering |
-| `tests/test_metrics.py` | Cumulative vs. instantaneous metrics, process-consumer detection |
-| `tests/test_timeseries.py` | Y-axis shareability and category labels |
-| `tests/test_process_specific.py` | Grid filter normalization and export preparation |
-| `tests/test_comparative.py` | Process-window metric pairing and alignment |
-| `tests/test_cache.py` | Server-side DataFrame cache behavior |
-| `tests/test_helpers.py` | Frontend helper utilities |
+| `tests/backend/test_data.py` | CSV ingestion, Polars/Parquet I/O, metric-ID preprocessing, process time-range detection |
+| `tests/backend/test_categories.py` | Category assignment and filtering |
+| `tests/backend/test_metrics.py` | Cumulative vs. instantaneous metrics, process-consumer detection |
+| `tests/backend/test_transforms.py` | Time-window filtering, Y-axis ranges, comparative alignment |
+| `tests/backend/test_synthesis.py` | Derived attributed-energy synthesis |
+| `tests/backend/test_formatting.py` | Metric title and axis label formatting |
+| `tests/backend/test_utils.py` | Filesystem discovery and log parsing |
+| `tests/frontend/test_cache.py` | Server-side DataFrame cache behavior |
+| `tests/frontend/test_process_specific.py` | Grid filter normalization |
+| `tests/frontend/test_comparative.py` | Process-window metric pairing |
+| `tests/frontend/test_helpers.py` | Frontend helper utilities |
 
 Run the full suite from the repository root:
 
@@ -392,7 +405,7 @@ See also [Contributing](#contributing) for how to join the project.
 
 AlumetInsight is designed to be reusable beyond its original development context. The backend data layer (`backend/data.py` and related modules) makes no assumptions about the application domain of the measured workload: it treats Alumet-agent CSV output as a generic time series of labelled metric samples with resource and consumer dimensions. Any researcher using Alumet-agent to profile HPC applications—whether in fluid dynamics, machine learning training, molecular dynamics, or bioinformatics—can use AlumetInsight directly for exploratory analysis of energy consumption and hardware utilization.
 
-The dashboard is parameterized through the sidebar at runtime, making it straightforward to adapt when Alumet-agent adds new measurement plugins or metric families. Users wishing to extend the tool can add aggregation strategies or category rules in `backend/`, new Plotly builders in `backend/visualization/interactive.py`, or additional Dash panels in `frontend/` by following the [contribution guidelines](#contributing). Because the CLI and dashboard share the same backend, scripted pipelines and interactive sessions remain consistent.
+The dashboard is parameterized through the sidebar at runtime, making it straightforward to adapt when Alumet-agent adds new measurement plugins or metric families. Users wishing to extend the tool can add aggregation strategies or category rules in `backend/`, new Plotly builders in `frontend/figures.py`, or additional Dash panes in `frontend/panes/` by following the [contribution guidelines](#contributing). Because the CLI and dashboard share the same backend, scripted pipelines and interactive sessions remain consistent.
 
 ## Citation
 
