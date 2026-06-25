@@ -97,7 +97,7 @@ present in some existing RAPL-based software powermeter.
 Table 1 summarizes the key distinctions between the tools discussed above.
 
 | Tool | Language | Measurement level | Process attribution | Instrumentation required | Primary interface |
-|---|---|---|---|---|---|
+|---|:---:|:---:|:---:|:---:|:---:|
 | LIKWID | C | Hardware thread / socket | x | Marker API (source code) | CLI + library |
 | PMT | C++ | Hardware power domain | x | Marker API (source code) | Library |
 | Variorum | C | Node / socket | x | API calls (source code) | Library + JSON |
