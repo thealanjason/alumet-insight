@@ -55,7 +55,7 @@ Modern scientific computing increasingly relies on understanding the energy foot
 operational budgets, and "green computing" has emerged as an active research area in which the trade-off between time-to-solution and
 energy-to-solution must be empirically characterized. Capturing and making sense of these dynamics requires tooling that is lightweight enough to deploy on production HPC nodes and expressive enough to surface meaningful trends at the granularity of an individual process or metric family.
 
-#### Existing HPC energy measurement tools.
+#### Existing HPC energy measurement tools
 
 Several mature tools address parts of this problem. 
 [LIKWID](https://github.com/RRZE-HPC/likwid) is a command-line toolsuite and C library that
@@ -105,7 +105,7 @@ Table 1 summarizes the key distinctions between the tools discussed above.
 
 *Table 1: Comparison of HPC energy measurement tools.*
 
-#### AlumetInsight.
+#### AlumetInsight
 
 While Alumet's process-granular, agent-based measurements address the data-collection gap, the rich CSV output it produces containing
 timestamped records of energy, power, CPU utilization, GPU metrics, and other
