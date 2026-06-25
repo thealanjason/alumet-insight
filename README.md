@@ -239,7 +239,7 @@ Open `http://localhost:8051` in your browser. You will see the AlumetInsight das
 
 In the **Configuration Setup** panel on the left, enter the path to your Alumet-agent experiment folder (it must contain the `.toml` config, agent log, and output CSV), then click **Visualize**. AlumetInsight discovers the measurement files, populates internal stores, and displays experiment metadata (name, PID, device) in the **Experiment Summary** card.
 
-<!-- TODO: Add a screenshot here (images/tutorial_step2.png). -->
+<img src="./images/setup.png" height=350>
 
 #### Step 3. Explore the three dashboard tabs
 
