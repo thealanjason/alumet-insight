@@ -24,6 +24,48 @@ CARD_STYLE = {"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(
 
 
 # ---------------------------------------------------------------------------
+# Process-specific 2x2 grid layout constants
+# ---------------------------------------------------------------------------
+
+GRID_SIZE = 2
+
+FILTER_KEYS = ("rk", "rid", "ck", "cid", "la")
+
+FILTER_SPECS: tuple[tuple[str, str, str, str], ...] = (
+    ("rk", "R.Kind", "resource-kind-dropdown", "rk-container"),
+    ("rid", "R.ID", "resource-id-dropdown", "rid-container"),
+    ("ck", "C.Kind", "consumer-kind-dropdown", "ck-container"),
+    ("cid", "C.ID", "consumer-id-dropdown", "cid-container"),
+    ("la", "Attr", "late-attr-dropdown", "la-container"),
+)
+
+FILTER_LABEL_MAP = {
+    "rk": "Resource Kind",
+    "rid": "Resource ID",
+    "ck": "Consumer Kind",
+    "cid": "Consumer ID",
+    "la": "Late Attributes",
+}
+
+STYLE_HIDDEN = {"display": "none"}
+STYLE_VISIBLE = {"display": "flex"}
+STYLE_FILTER_SLOT_VISIBLE = {
+    "display": "flex",
+    "flexDirection": "column",
+    "flex": "1 1 0",
+    "minWidth": 0,
+}
+
+GRID_GRAPH_CONFIG = {
+    "displayModeBar": "hover",
+    "displaylogo": False,
+    "responsive": True,
+}
+
+GRID_PLACEHOLDER_MARGIN = dict(l=40, r=12, t=28, b=22)
+GRID_DATA_MARGIN = dict(l=40, r=12, t=8, b=22)
+
+# ---------------------------------------------------------------------------
 # Alert helpers
 # ---------------------------------------------------------------------------
 

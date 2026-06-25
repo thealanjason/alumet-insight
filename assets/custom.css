@@ -703,6 +703,8 @@ div.rc-slider-mark-text-active {
 
 #results-tabs {
     background: var(--app-main-bg);
+    flex: 0 0 auto;
+    margin-bottom: clamp(8px, 1vh, 14px) !important;
     min-width: 0;
     position: sticky;
     top: 0;
@@ -712,15 +714,21 @@ div.rc-slider-mark-text-active {
 #tab-content-area {
     display: flex;
     flex-direction: column;
+    flex: 1 1 0;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
 }
 
+#tab-content-area.tab-area-locked {
+    overflow-y: hidden;
+}
+
 #loading-tab-content {
     display: flex;
     flex-direction: column;
-    min-height: 100%;
+    flex: 1 1 0;
+    min-height: 0;
     overflow: visible;
     position: relative;
     z-index: 1;
@@ -728,17 +736,26 @@ div.rc-slider-mark-text-active {
 
 #loading-tab-content > div {
     display: flex;
+    flex: 1 1 0;
     flex-direction: column;
     min-height: 0;
     overflow: visible;
+    width: 100%;
 }
 
 #time-series-content,
-#process-specific-content,
 #comparative-content {
     flex: 0 0 auto;
     min-height: 0;
     overflow: visible;
+}
+
+#process-specific-content {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .viewport-card,
@@ -758,28 +775,156 @@ div.rc-slider-mark-text-active {
     margin-bottom: clamp(10px, 1.6vh, 20px) !important;
 }
 
-#timeseries-plot-container,
-.process-grid-scroll {
+#timeseries-plot-container {
     min-height: 0;
     overflow-x: hidden;
-    overflow-y: visible !important;
+    overflow-y: auto !important;
     width: 100%;
-}
-
-#timeseries-plot-container {
     height: auto !important;
     max-height: none !important;
     padding: clamp(8px, 1vw, 15px) !important;
-}
-
-.process-grid-scroll {
-    padding-right: 4px;
 }
 
 .comparative-card-body #ps-xy-graph {
     flex: 1 1 auto;
     min-height: 0;
 }
+
+/* ---- Process-specific 2x2 viewport grid ---- */
+.process-grid-card {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+.process-grid-card-body {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    padding: clamp(6px, 0.8vw, 10px) !important;
+}
+
+.process-grid-viewport {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(4px, 0.5vh, 6px);
+    flex: 1 1 0;
+    height: 100%;
+    max-height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    width: 100%;
+}
+
+.process-grid-cell {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+}
+
+.process-grid-inner-card {
+    flex: 1 1 0;
+    min-height: 0;
+    margin-bottom: 0 !important;
+    overflow: hidden;
+}
+
+.process-grid-cell-body {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
+    padding: clamp(6px, 0.8vw, 10px) !important;
+}
+
+.process-grid-toolbar {
+    align-items: flex-end;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 6px;
+    margin-bottom: 4px;
+    min-height: 0;
+    min-width: 0;
+}
+
+.process-grid-metric-group {
+    align-items: center;
+    display: flex;
+    flex: 1 1 0;
+    gap: 6px;
+    min-width: 140px;
+}
+
+.process-grid-metric-label {
+    color: var(--app-text);
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-bottom: 0;
+    white-space: nowrap;
+}
+
+.process-grid-metric-dropdown {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.process-grid-filters {
+    align-items: flex-end;
+    display: flex;
+    flex: 2 1 0;
+    gap: 4px;
+    min-width: 0;
+}
+
+.process-grid-filter-slot {
+    display: none;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.process-grid-filter-label {
+    color: var(--app-accent-soft);
+    font-size: 0.65rem;
+    margin-bottom: 1px;
+    white-space: nowrap;
+}
+
+.process-grid-plot-area {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    width: 100%;
+}
+
+.process-grid-plot-area .grid-plot-graph,
+.process-grid-plot-area .js-plotly-plot,
+.process-grid-plot-area .plotly,
+.process-grid-plot-area .plot-container {
+    flex: 1 1 0;
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    width: 100% !important;
+}
+
+.process-grid-download {
+    flex: 0 0 24px;
+    margin-top: 2px;
+    padding-top: 0;
+    text-align: right;
+}
+
 
 @media (max-width: 900px) {
     .app-shell .sidebar-col,
@@ -792,5 +937,15 @@ div.rc-slider-mark-text-active {
     .app-shell .sidebar-col {
         height: auto;
         min-height: auto !important;
+    }
+
+    #tab-content-area {
+        overflow-y: auto;
+    }
+
+    .process-grid-viewport {
+        grid-template-columns: 1fr;
+        grid-template-rows: repeat(4, minmax(320px, 1fr));
+        min-height: min(100%, 1280px);
     }
 }
