@@ -1,4 +1,4 @@
-name: alumet-viz
+name: alumet-insight
 channels:
   - conda-forge
 dependencies:
