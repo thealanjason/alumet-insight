@@ -196,7 +196,8 @@ flowchart TB
   IN --> BE
   EP -->|dashboard| FE
   EP -->|cli| BE
-  FE --> BE
+  FE -->|filter, query| BE
+  BE -->|DataFrames, metadata| FE
   FE --> UI
   BE --> OUT
 ```
