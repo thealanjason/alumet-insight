@@ -46,7 +46,6 @@ def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path
     measurement_name = Path(measurement_dir).expanduser().resolve().name
     return Path(output_dir).expanduser() / measurement_name
 
-
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, data: AlumetData) -> None:
     """Validate argument combinations before executing any action."""
     if args.metric_id and args.metric_id not in data.metric_ids:
@@ -220,6 +219,14 @@ def main(argv: list[str] | None = None) -> None:
         ran_action = True
 
     if args.export_figures:
+        if not args.category and not args.metric_id:
+            series_count = len(data.metric_ids)
+            print(
+                f"Warning: exporting figures for all {series_count} metric series "
+                f"(one file per series). This can take a while. "
+                f"Use --category or --metric-id to narrow the export.",
+                file=sys.stderr,
+            )
         out = _measurement_output_root(args.export_figures, args.directory)
         out.mkdir(parents=True, exist_ok=True)
         created = export_figures(
