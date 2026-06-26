@@ -9,11 +9,13 @@ import pandas as pd
 from dash import Input, Output, State, ctx, dcc, html
 
 from frontend.app import app
-from frontend.cache import df_from_store, ensure_timestamp_datetime
+from frontend.cache import df_from_store
+from frontend.helpers import parse_process_time_range_store, ensure_timestamp_datetime
 from frontend.style import apply_figure_theme, DROPDOWN_STYLE, CARD_STYLE
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import (
+    base_metric_from_id,
     is_cumulative_metric,
     get_metric_unit,
     is_memory_metric,
@@ -33,8 +35,7 @@ def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list
         return []
     df_processed = df_from_store(processed_df_data)
     ensure_timestamp_datetime(df_processed)
-    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
     return comparative_metric_ids(df_processed, proc_start, proc_end)
 
 
@@ -297,8 +298,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
     dfp = df_from_store(processed_df_data)
     ensure_timestamp_datetime(dfp)
 
-    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
     if proc_start is None or proc_end is None:
         fig.update_layout(title=dict(text="Process time range not available", x=0.5))
         return fig
@@ -309,8 +309,8 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
         return fig
 
-    x_abbrev = x_metric_id.split("_R_")[0] if "_R_" in str(x_metric_id) else str(x_metric_id)
-    y_abbrev = y_metric_id.split("_R_")[0] if "_R_" in str(y_metric_id) else str(y_metric_id)
+    x_abbrev = base_metric_from_id(x_metric_id)
+    y_abbrev = base_metric_from_id(y_metric_id)
 
     x_unit = get_metric_unit(x_metric_id)
     y_unit = get_metric_unit(y_metric_id)
@@ -489,9 +489,7 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     dfp = df_from_store(processed_df_data)
     ensure_timestamp_datetime(dfp)
 
-    proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None
-
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
     if proc_start is None or proc_end is None:
         return None
 

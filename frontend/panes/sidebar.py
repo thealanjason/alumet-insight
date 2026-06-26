@@ -3,14 +3,14 @@
 import time
 
 import dash
-from dash import ClientsideFunction, Input, Output, State, html
+import pandas as pd
+from dash import Input, Output, State, html
 from pathlib import Path
 
 from frontend.app import app
 from frontend.cache import cache_dataframe
 from frontend.style import status_alert
 from backend.data import AlumetData
-from backend.utils import find_measurement_file_in_directory
 
 
 # ---------------------------------------------------------------------------
@@ -150,18 +150,6 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             )
             return status_msg, None, None, None, *_no_info
 
-        try:
-            csv_file = find_measurement_file_in_directory(directory_path, [".csv"])
-        except ValueError:
-            csv_file = None
-        if not csv_file:
-            status_msg = status_alert(
-                "danger",
-                "Error:",
-                "CSV file is required. Please ensure the directory contains a .csv file.",
-            )
-            return status_msg, None, None, None, *_no_info
-
         t0 = time.perf_counter()
         data = AlumetData(directory_path.strip())
         t_load = time.perf_counter()
@@ -212,17 +200,20 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         return status_msg, None, None, None, *_no_info
 
 
-# Tab visibility and process-specific viewport sizing (see assets/process_grid_layout.js)
-app.clientside_callback(
-    ClientsideFunction(namespace="process_grid", function_name="toggleTabPanels"),
+# Tab visibility toggle
+@app.callback(
     Output("time-series-content", "style"),
     Output("process-specific-content", "style"),
     Output("comparative-content", "style"),
     Input("results-tabs", "value"),
 )
-
-app.clientside_callback(
-    ClientsideFunction(namespace="process_grid", function_name="afterGridBuild"),
-    Output("process-grid-layout-ts", "data"),
-    Input("process-specific-content", "children"),
-)
+def toggle_tab_visibility(tab_value):
+    """Toggle tab panel visibility. No content is re-created."""
+    hidden = {"display": "none", "marginTop": "10px"}
+    visible = {"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0}
+    if tab_value == "time-series-tab":
+        return visible, hidden, hidden
+    elif tab_value == "process-specific-tab":
+        return hidden, visible, hidden
+    else:
+        return hidden, hidden, visible
