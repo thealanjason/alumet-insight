@@ -1,8 +1,8 @@
 """Frontend UI helpers for Dash dropdown formatting."""
 
 import json
-
 import pandas as pd
+from typing import Optional
 
 from backend.categories import available_category_values, CATEGORY_LABELS
 
