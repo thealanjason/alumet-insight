@@ -1,3 +1,4 @@
+import io
 import sys
 import tempfile
 import unittest
@@ -116,6 +117,27 @@ class CLIValidationTests(unittest.TestCase):
             root = self._make_dir(tmp)
             with self.assertRaises(SystemExit):
                 _run_cli([str(root), "--export-csv", str(tmp), "--metric-name", "cpu_percent"])
+
+    def test_export_figures_without_filter_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            out = Path(tmp) / "figs"
+            stderr = io.StringIO()
+            with patch("cli.export_figures", return_value=[]):
+                with patch("sys.stderr", stderr):
+                    _run_cli([str(root), "--export-figures", str(out)])
+            self.assertIn("Warning:", stderr.getvalue())
+            self.assertIn("metric series", stderr.getvalue())
+
+    def test_export_figures_with_category_does_not_warn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            out = Path(tmp) / "figs"
+            stderr = io.StringIO()
+            with patch("cli.export_figures", return_value=[]):
+                with patch("sys.stderr", stderr):
+                    _run_cli([str(root), "--export-figures", str(out), "--category", "power"])
+            self.assertNotIn("Warning:", stderr.getvalue())
 
     def test_entry_point_forwards_cli_help(self):
         import alumet_insight
