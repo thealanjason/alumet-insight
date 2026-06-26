@@ -10,7 +10,8 @@ import pandas as pd
 from dash import Input, Output, State, ctx, dcc, html, MATCH, ALL
 
 from frontend.app import app
-from frontend.cache import df_from_store, is_cache_miss, ensure_timestamp_datetime
+from frontend.cache import df_from_store, is_cache_miss
+from frontend.helpers import normalize_dropdown_value, triggered_component_type, parse_process_time_range_store, ensure_timestamp_datetime
 from frontend.style import (
     CARD_STYLE,
     COMPACT_DROPDOWN_STYLE,
@@ -348,8 +349,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     if not original_df_data or not process_time_range:
         return empty_process_specific_content()
 
-    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range.get("end") else None
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
     if proc_start is None or proc_end is None:
         return dbc.Alert(
@@ -469,8 +469,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
         message = "Please complete selections: " + (", ".join(missing) if missing else "more filters")
         return grid_message_figure(fig, message, use_light_mode)
 
-    proc_start = pd.to_datetime(process_time_range["start"]) if process_time_range and process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range["end"]) if process_time_range and process_time_range.get("end") else None
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
     dff = filter_to_time_range(dff, proc_start, proc_end, require_bounds=False).sort_values("timestamp")
 
@@ -633,8 +632,7 @@ def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, 
     df_original = df_from_store(original_df_data)
     ensure_timestamp_datetime(df_original)
 
-    proc_start = pd.to_datetime(process_time_range.get("start")) if process_time_range and process_time_range.get("start") else None
-    proc_end = pd.to_datetime(process_time_range.get("end")) if process_time_range and process_time_range.get("end") else None
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
     df_export = prepare_download_df(df_original, metric, rk, rid, ck, cid, la, proc_start, proc_end)
 
