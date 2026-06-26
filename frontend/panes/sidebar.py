@@ -3,8 +3,7 @@
 import time
 
 import dash
-import pandas as pd
-from dash import Input, Output, State, html
+from dash import ClientsideFunction, Input, Output, State, html
 from pathlib import Path
 
 from frontend.app import app
@@ -200,20 +199,17 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
         return status_msg, None, None, None, *_no_info
 
 
-# Tab visibility toggle
-@app.callback(
+# Tab visibility and process-specific viewport sizing (see assets/process_grid_layout.js)
+app.clientside_callback(
+    ClientsideFunction(namespace="process_grid", function_name="toggleTabPanels"),
     Output("time-series-content", "style"),
     Output("process-specific-content", "style"),
     Output("comparative-content", "style"),
     Input("results-tabs", "value"),
 )
-def toggle_tab_visibility(tab_value):
-    """Toggle tab panel visibility. No content is re-created."""
-    hidden = {"display": "none", "marginTop": "10px"}
-    visible = {"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0}
-    if tab_value == "time-series-tab":
-        return visible, hidden, hidden
-    elif tab_value == "process-specific-tab":
-        return hidden, visible, hidden
-    else:
-        return hidden, hidden, visible
+
+app.clientside_callback(
+    ClientsideFunction(namespace="process_grid", function_name="afterGridBuild"),
+    Output("process-grid-layout-ts", "data"),
+    Input("process-specific-content", "children"),
+)
