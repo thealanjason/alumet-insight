@@ -4,12 +4,15 @@ from pathlib import Path
 
 import pandas as pd
 
+from backend.categories import category_for_metric_id, filter_time_series_category
 from backend.data import (
     AlumetData,
     _read_csv_with_polars,
     load_csv_from_path,
     preprocess_dataframe_for_visualization,
 )
+from backend.metrics import filter_by_base_metric, metric_id_is_process_consumer
+from backend.transforms import parse_timestamp, validate_time_range
 from tests.fixtures import (
     TempMeasurementDirectory,
     make_alumetdata_stub,
@@ -97,40 +100,67 @@ class DataTests(unittest.TestCase):
         self.assertFalse(data.source_df.empty)
         self.assertFalse(data.processed_df.empty)
 
-    def test_alumetdata_query_and_export_helpers(self):
+    def test_alumetdata_state_properties(self):
         data = make_alumetdata_stub()
 
         self.assertEqual(data.pid, 99)
         self.assertEqual(data.device, "CPU")
-        self.assertIn("Number of metrics", data.summary())
         self.assertEqual(data.metrics, sorted(processed_rows()["base_metric"].unique().tolist()))
-        self.assertEqual(len(data.filter_by_metric("mem_total_kB")), 1)
-        self.assertEqual(len(data.filter_process_metrics()), 3)
-        self.assertEqual(len(data.filter_by_category("memory")), 1)
-
-        windowed = data.filter_to_process_time_range(processed_rows())
-        self.assertGreaterEqual(len(windowed), 1)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            created = data.export_csvs(Path(tmp), category="power", process_specific=True)
-            self.assertEqual(len(created), 1)
-            self.assertTrue(created[0].exists())
+        self.assertEqual(len(filter_by_base_metric(data.processed_df, "mem_total_kB")), 1)
+        self.assertEqual(data.processed_df["metric_id"].apply(metric_id_is_process_consumer).sum(), 3)
+        self.assertEqual(len(filter_time_series_category(data.processed_df, "memory")), 1)
 
     def test_alumetdata_device_detection_variants(self):
         self.assertEqual(make_alumetdata_stub(log_content="pid 1\nnvml").device, "GPU")
         self.assertEqual(make_alumetdata_stub(log_content="pid 1\nrapl").device, "CPU")
         self.assertEqual(make_alumetdata_stub(log_content="pid 1").device, "CPU + GPU")
 
-    def test_alumetdata_export_csvs_cpu_core_suffix(self):
+    def test_validate_time_range_against_data_bounds(self):
         data = make_alumetdata_stub()
 
-        with tempfile.TemporaryDirectory() as tmp:
-            created = data.export_csvs(Path(tmp), category=None, cpu_core="0", process_specific=False)
-            self.assertGreaterEqual(len(created), 1)
+        start, end = validate_time_range("2024-01-01T00:00:01", "2024-01-01T00:00:02", *data.data_time_range)
+        self.assertEqual(start, pd.Timestamp("2024-01-01T00:00:01"))
+        self.assertEqual(end, pd.Timestamp("2024-01-01T00:00:02"))
 
-            kernel_paths = [p for p in created if p.parent.parent.name == "kernel_cpu_time"]
-            self.assertTrue(kernel_paths)
-            self.assertIn("_core_0", kernel_paths[0].stem)
+        with self.assertRaises(AssertionError):
+            validate_time_range("2023-12-31T23:59:59", "2024-01-01T00:00:02", *data.data_time_range)
+
+        with self.assertRaises(AssertionError):
+            validate_time_range("2024-01-01T00:00:01", "2024-01-01T00:00:04", *data.data_time_range)
+
+    def test_filter_by_category(self):
+        data = make_alumetdata_stub()
+        power_df = filter_time_series_category(data.processed_df, "power")
+        power_ids = sorted(power_df["metric_id"].astype(str).unique().tolist())
+        self.assertEqual(power_ids, ["nvml_instant_power_W_R_gpu_0_C_process_123_A_"])
+
+        energy_df = filter_time_series_category(data.processed_df, "energy")
+        energy_ids = energy_df["metric_id"].astype(str).tolist()
+        self.assertIn("attributed_energy_J_R_local_machine__C_process_123_A_", energy_ids)
+
+        temp_df = filter_time_series_category(data.processed_df, "temperature")
+        self.assertTrue(temp_df.empty)
+
+    def test_filter_by_base_metric(self):
+        data = make_alumetdata_stub()
+        df = filter_by_base_metric(data.processed_df, "nvml_instant_power_W")
+        ids = sorted(df["metric_id"].astype(str).unique().tolist())
+        self.assertEqual(ids, ["nvml_instant_power_W_R_gpu_0_C_process_123_A_"])
+        self.assertTrue(filter_by_base_metric(data.processed_df, "nonexistent").empty)
+
+    def test_category_for_metric_id(self):
+        data = make_alumetdata_stub()
+        metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        self.assertEqual(category_for_metric_id(data.processed_df, metric_id), "power")
+        self.assertEqual(category_for_metric_id(data.processed_df, metric_id, category="power"), "power")
+
+    def test_parse_timestamp_invalid(self):
+        with self.assertRaisesRegex(ValueError, "Invalid --start-time"):
+            parse_timestamp("not-a-date", "--start-time")
+
+    def test_parse_timestamp_valid(self):
+        ts = parse_timestamp("2024-01-01T00:00:01", "--start-time")
+        self.assertEqual(ts, pd.Timestamp("2024-01-01T00:00:01"))
 
 
 if __name__ == "__main__":
