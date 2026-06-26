@@ -254,7 +254,7 @@ def create_layout(app):
                                     dcc.Tab(label="\U0001f50e Process-Specific Analysis", value="process-specific-tab"),
                                     dcc.Tab(label="\u2696\ufe0f Comparative Analysis", value="comparative-tab"),
                                 ],
-                                style={"marginBottom": "25px"},
+                                className="results-tabs",
                             ),
                             html.Div(
                                 id="tab-content-area",
@@ -309,6 +309,8 @@ def create_layout(app):
             dcc.Store(id="process-time-range-store", data=None),
             dcc.Store(id="timeseries-filtered-df-store", data=None),
             dcc.Store(id="grid-shared-xrange-store", data=None),
+            # Dummy store: clientside afterGridBuild writes here to re-sync grid height after tab build.
+            dcc.Store(id="process-grid-layout-ts", data=None),
         ],
         style={
             "backgroundColor": "var(--app-main-bg)",
