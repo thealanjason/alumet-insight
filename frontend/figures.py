@@ -8,7 +8,8 @@ from typing import List, Optional
 
 from backend.categories import category_yaxis_label
 from backend.formatting import format_metric_title
-from backend.transforms import compute_yaxis_ranges
+from backend.transforms import compute_yaxis_ranges, get_time_range_from_df
+from frontend.style import set_plotly_rgba
 
 
 def get_color_palette(n_colors: int) -> List[str]:
@@ -59,8 +60,7 @@ def create_all_timeseries_plots(
     if full_time_range:
         x_min, x_max = full_time_range
     else:
-        x_min = df_processed["timestamp"].min()
-        x_max = df_processed["timestamp"].max()
+        x_min, x_max = get_time_range_from_df(df_processed)
     x_min = pd.Timestamp(x_min)
     x_max = pd.Timestamp(x_max)
 
@@ -130,17 +130,7 @@ def create_all_timeseries_plots(
         show_markers = show_markers_global and n_pts < 5000
 
         color = color_map[metric_id]
-
-        if color.startswith("#"):
-            hex_color = color.lstrip("#")
-            rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-            rgba_fill = f"rgba({rgb[0]}, {rgb[1]}, {rgb[2]}, 0.15)"
-        elif color.startswith("rgba"):
-            rgba_fill = color.rsplit(",", 1)[0] + ", 0.15)"
-        elif color.startswith("rgb"):
-            rgba_fill = color.replace("rgb", "rgba").replace(")", ", 0.15)")
-        else:
-            rgba_fill = "rgba(136, 192, 208, 0.15)"
+        rgba_fill = set_plotly_rgba(color)
 
         ScatterClass = go.Scattergl if use_webgl else go.Scatter
 
@@ -225,3 +215,24 @@ def create_all_timeseries_plots(
     fig.update_xaxes(type="date", rangeslider=dict(visible=False), row=n_metrics, col=1)
 
     return fig
+
+def update_yaxis_ranges_in_layout(
+    layout: dict,
+    yaxis_updates: dict,
+    *,
+    y_axis_label: Optional[str] = None,
+) -> None:
+    """Apply compute_yaxis_ranges output to in-place Plotly figure layout dict."""
+    for yaxis_key, settings in yaxis_updates.items():
+        if yaxis_key not in layout:
+            continue
+        layout[yaxis_key]["range"] = settings["range"]
+        layout[yaxis_key]["autorange"] = settings["autorange"]
+        if y_axis_label is not None:
+            layout[yaxis_key]["title"] = {"text": y_axis_label}
+        if "tickvals" in settings:
+            layout[yaxis_key]["tickvals"] = settings["tickvals"]
+            layout[yaxis_key]["ticktext"] = settings["ticktext"]
+        else:
+            layout[yaxis_key].pop("tickvals", None)
+            layout[yaxis_key].pop("ticktext", None)

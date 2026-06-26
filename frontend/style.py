@@ -24,48 +24,6 @@ CARD_STYLE = {"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(
 
 
 # ---------------------------------------------------------------------------
-# Process-specific 2x2 grid layout constants
-# ---------------------------------------------------------------------------
-
-GRID_SIZE = 2
-
-FILTER_KEYS = ("rk", "rid", "ck", "cid", "la")
-
-FILTER_SPECS: tuple[tuple[str, str, str, str], ...] = (
-    ("rk", "R.Kind", "resource-kind-dropdown", "rk-container"),
-    ("rid", "R.ID", "resource-id-dropdown", "rid-container"),
-    ("ck", "C.Kind", "consumer-kind-dropdown", "ck-container"),
-    ("cid", "C.ID", "consumer-id-dropdown", "cid-container"),
-    ("la", "Attr", "late-attr-dropdown", "la-container"),
-)
-
-FILTER_LABEL_MAP = {
-    "rk": "Resource Kind",
-    "rid": "Resource ID",
-    "ck": "Consumer Kind",
-    "cid": "Consumer ID",
-    "la": "Late Attributes",
-}
-
-STYLE_HIDDEN = {"display": "none"}
-STYLE_VISIBLE = {"display": "flex"}
-STYLE_FILTER_SLOT_VISIBLE = {
-    "display": "flex",
-    "flexDirection": "column",
-    "flex": "1 1 0",
-    "minWidth": 0,
-}
-
-GRID_GRAPH_CONFIG = {
-    "displayModeBar": "hover",
-    "displaylogo": False,
-    "responsive": True,
-}
-
-GRID_PLACEHOLDER_MARGIN = dict(l=40, r=12, t=28, b=22)
-GRID_DATA_MARGIN = dict(l=40, r=12, t=8, b=22)
-
-# ---------------------------------------------------------------------------
 # Alert helpers
 # ---------------------------------------------------------------------------
 
@@ -106,6 +64,19 @@ def status_alert(
 # ---------------------------------------------------------------------------
 # Figure theming
 # ---------------------------------------------------------------------------
+
+def set_plotly_rgba(color: str, alpha: float = 0.15) -> str:
+    """Convert a Plotly color string to an rgba fill with the given alpha."""
+    if color.startswith("#"):
+        h = color.lstrip("#")
+        r, g, b = (int(h[k : k + 2], 16) for k in (0, 2, 4))
+        return f"rgba({r}, {g}, {b}, {alpha})"
+    if color.startswith("rgba"):
+        return color.rsplit(",", 1)[0] + f", {alpha})"
+    if color.startswith("rgb"):
+        return color.replace("rgb", "rgba").replace(")", f", {alpha})")
+    return f"rgba(136, 192, 208, {alpha})"
+
 
 def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
     """Apply the dashboard theme colors to Plotly figures."""
