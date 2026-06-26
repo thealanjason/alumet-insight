@@ -7,19 +7,21 @@ import polars as pl
 from typing import Optional
 from pathlib import Path
 
-from backend.categories import available_category_values, filter_time_series_category
-from backend.utils import (
-    find_measurement_file_in_directory,
-    read_file_content,
-    extract_pid_from_content,
-    is_gpu_from_content,
-    is_cpu_from_content,
-    is_gpu_from_metrics,
-    is_cpu_from_metrics,
-    safe_filename,
-)
-from backend.transforms import filter_to_time_range, get_process_time_range_from_df, normalize_to_si
 from backend.synthesis import synthesize_attributed_energy_total
+from backend.transforms import (
+    get_process_time_range_from_df,
+    get_time_range_from_df,
+    normalize_to_si,
+)
+from backend.utils import (
+    extract_pid_from_content,
+    find_measurement_file_in_directory,
+    is_cpu_from_content,
+    is_cpu_from_metrics,
+    is_gpu_from_content,
+    is_gpu_from_metrics,
+    read_file_content,
+)
 
 
 # CSV / Parquet I/O
@@ -109,10 +111,9 @@ def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
     return result_pl.to_pandas()
 
 
-# OOP wrapper for all data operations
 class AlumetData:
     """
-    Load, preprocess, query, and export data from an Alumet measurement directory.
+    Load and expose measurement data from an Alumet measurement directory.
 
     Args:
         directory: Path to the directory containing ``.csv`` and ``.log/.txt`` files.
@@ -173,6 +174,11 @@ class AlumetData:
         return get_process_time_range_from_df(self._df_source)
 
     @property
+    def data_time_range(self) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+        """First and last timestamps present in the measurement CSV."""
+        return get_time_range_from_df(self._df_processed)
+
+    @property
     def metrics(self) -> list[str]:
         """Unique base metric names."""
         if "base_metric" in self._df_processed.columns:
@@ -196,71 +202,3 @@ class AlumetData:
         """The preprocessed DataFrame (metric_id, base_metric, timestamp, value)."""
         return self._df_processed.copy()
 
-    # ==========
-    #   Query
-    # ==========
-    def filter_by_metric(self, metric: str) -> pd.DataFrame:
-        """Return rows whose ``base_metric`` matches *metric*."""
-        return self._df_processed[self._df_processed["base_metric"] == metric].copy()
-
-    def filter_process_metrics(self) -> pd.DataFrame:
-        """Return only rows attributed to a process (``_C_process_`` in metric_id)."""
-        from backend.metrics import metric_id_is_process_consumer
-        mask = self._df_processed["metric_id"].apply(metric_id_is_process_consumer)
-        return self._df_processed[mask].copy()
-
-    def filter_by_category(self, category: Optional[str], cpu_core: Optional[str] = None) -> pd.DataFrame:
-        """Return rows matching a dashboard time-series category."""
-        return filter_time_series_category(self._df_processed, category, selected_cpu_core=cpu_core)
-
-    def filter_to_process_time_range(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Return rows from dataframe that fall within the measured process active time range."""
-        return filter_to_time_range(df, *self.process_time_range)
-
-    # ==========
-    #   Export
-    # ==========
-    def summary(self) -> str:
-        """Return a human-readable text summary of the dataset."""
-        proc_start, proc_end = self.process_time_range
-        categories = available_category_values(self._df_processed)
-        lines = [
-            f"Experiment name              : {Path(self.directory).name}",
-            f"Process ID                   : {self.pid or 'N/A'}",
-            f"Device type                  : {self.device}",
-            f"Number of metric categories  : {len(categories)}",
-            f"Number of metrics            : {len(self.metrics)}",
-            f"Number of metric series IDs  : {len(self.metric_ids)}",
-            f"Time range                   : {proc_start} - {proc_end}",
-        ]
-        return "\n".join(lines)
-
-    def selected_categories(self, category: Optional[str]) -> list[str]:
-        """Return selected categories, or all available categories when not specified."""
-        if category:
-            return [category]
-        return available_category_values(self._df_processed)
-
-    def export_csvs(
-        self,
-        output_root: Path,
-        category: Optional[str] = None,
-        cpu_core: Optional[str] = None,
-        process_specific: bool = False,
-    ) -> list[Path]:
-        """Export category CSV files under ``output_root/<category>/csv/``."""
-        output_root = Path(output_root)
-        created = []
-        for category_value in self.selected_categories(category):
-            df = self.filter_by_category(category_value, cpu_core=cpu_core)
-            if process_specific:
-                df = self.filter_to_process_time_range(df)
-            if df.empty:
-                continue
-            category_dir = output_root / category_value / "csv"
-            category_dir.mkdir(parents=True, exist_ok=True)
-            suffix = f"_core_{cpu_core}" if category_value == "kernel_cpu_time" and cpu_core else ""
-            path = category_dir / f"{safe_filename(category_value + suffix)}.csv"
-            df.to_csv(path, index=False)
-            created.append(path)
-        return created
