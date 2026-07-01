@@ -8,14 +8,14 @@ import pandas as pd
 from dash import Input, Output, State, dcc, html
 
 from frontend.app import app
-from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe, ensure_timestamp_datetime
+from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe
 from frontend.style import status_alert_class, apply_figure_theme, DROPDOWN_STYLE
 from frontend.layout import empty_time_series_content
-from frontend.helpers import available_category_options
+from frontend.helpers import available_category_options, parse_process_time_range_store, ensure_timestamp_datetime
+from frontend.figures import update_yaxis_ranges_in_layout, create_all_timeseries_plots
 from backend.categories import available_cpu_cores, category_yaxis_label, filter_time_series_category, is_yaxis_shareable
 from backend.metrics import is_memory_metric
-from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range
-from frontend.figures import create_all_timeseries_plots
+from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range, get_time_range_from_df
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +209,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     df_processed = df_from_store(processed_df_data)
     ensure_timestamp_datetime(df_processed)
 
-    full_time_min = df_processed["timestamp"].min()
-    full_time_max = df_processed["timestamp"].max()
-    full_time_range = (full_time_min, full_time_max)
+    full_time_range = get_time_range_from_df(df_processed)
 
     if selected_category == "kernel_cpu_time":
         if not selected_cpu_core:
@@ -233,12 +231,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     if df_filtered.empty:
         return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None
 
-    proc_start = None
-    proc_end = None
-    if process_time_range and process_time_range.get("start"):
-        proc_start = pd.to_datetime(process_time_range["start"])
-    if process_time_range and process_time_range.get("end"):
-        proc_end = pd.to_datetime(process_time_range["end"])
+    proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
     metric_order = df_filtered["metric_id"].unique().tolist()
 
@@ -339,17 +332,7 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
     is_memory_cat = metric_order and is_memory_metric(metric_order[0])
 
     yaxis_updates = compute_yaxis_ranges(visible_data, metric_order, share_yaxis, is_memory_cat)
-    for yaxis_key, settings in yaxis_updates.items():
-        if yaxis_key in layout:
-            layout[yaxis_key]["range"] = settings["range"]
-            layout[yaxis_key]["autorange"] = settings["autorange"]
-            layout[yaxis_key]["title"] = {"text": y_axis_label}
-            if "tickvals" in settings:
-                layout[yaxis_key]["tickvals"] = settings["tickvals"]
-                layout[yaxis_key]["ticktext"] = settings["ticktext"]
-            else:
-                layout[yaxis_key].pop("tickvals", None)
-                layout[yaxis_key].pop("ticktext", None)
+    update_yaxis_ranges_in_layout(layout, yaxis_updates, y_axis_label=y_axis_label)
 
     updated_figure["layout"] = layout
     return updated_figure
@@ -393,13 +376,7 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
 
         yaxis_updates = compute_yaxis_ranges(df, metric_order, share_yaxis, is_memory_cat)
-        for yaxis_key, settings in yaxis_updates.items():
-            if yaxis_key in layout:
-                layout[yaxis_key]["range"] = settings["range"]
-                layout[yaxis_key]["autorange"] = settings["autorange"]
-                if "tickvals" in settings:
-                    layout[yaxis_key]["tickvals"] = settings["tickvals"]
-                    layout[yaxis_key]["ticktext"] = settings["ticktext"]
+        update_yaxis_ranges_in_layout(layout, yaxis_updates)
 
         updated_figure["layout"] = layout
         return updated_figure
@@ -447,16 +424,7 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
         return current_figure
 
     yaxis_updates = compute_yaxis_ranges(visible_data, metric_order, share_yaxis, is_memory_cat)
-    for yaxis_key, settings in yaxis_updates.items():
-        if yaxis_key in layout:
-            layout[yaxis_key]["range"] = settings["range"]
-            layout[yaxis_key]["autorange"] = settings["autorange"]
-            if "tickvals" in settings:
-                layout[yaxis_key]["tickvals"] = settings["tickvals"]
-                layout[yaxis_key]["ticktext"] = settings["ticktext"]
-            else:
-                layout[yaxis_key].pop("tickvals", None)
-                layout[yaxis_key].pop("ticktext", None)
+    update_yaxis_ranges_in_layout(layout, yaxis_updates)
 
     updated_figure["layout"] = layout
     return updated_figure
