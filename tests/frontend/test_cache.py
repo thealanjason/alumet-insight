@@ -6,7 +6,6 @@ import frontend.cache as cache_module
 from frontend.cache import (
     cache_dataframe,
     df_from_store,
-    ensure_timestamp_datetime,
     is_cache_miss,
     load_cached_dataframe,
 )
@@ -62,20 +61,6 @@ class CacheTests(unittest.TestCase):
 
         pd.testing.assert_frame_equal(loaded, df)
         self.assertIn(cache_id, cache_module._MEMORY_CACHE)
-
-    def test_ensure_timestamp_datetime(self):
-        raw = pd.DataFrame({"timestamp": ["2024-01-01", "2024-01-02"], "value": [1, 2]})
-        converted = ensure_timestamp_datetime(raw.copy())
-        self.assertTrue(pd.api.types.is_datetime64_any_dtype(converted["timestamp"]))
-
-        already_dt = pd.DataFrame({"timestamp": pd.to_datetime(["2024-01-01"]), "value": [1]})
-        unchanged = ensure_timestamp_datetime(already_dt)
-        pd.testing.assert_frame_equal(unchanged, already_dt)
-
-    def test_ensure_timestamp_datetime_leaves_df_without_timestamp_unchanged(self):
-        df = pd.DataFrame({"value": [1, 2]})
-        unchanged = ensure_timestamp_datetime(df.copy())
-        pd.testing.assert_frame_equal(unchanged, df)
 
 
 if __name__ == "__main__":

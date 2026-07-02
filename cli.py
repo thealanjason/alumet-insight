@@ -16,50 +16,15 @@ import sys
 from pathlib import Path
 
 from backend.categories import CATEGORY_VALUES
+from backend.cli_export import export_csvs, export_figures, summary
 from backend.data import AlumetData
-from backend.figures import SUPPORTED_FIGURE_FORMATS, export_category_figures
+from backend.figures import SUPPORTED_FIGURE_FORMATS
 
 
 def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path) -> Path:
     """Return output_dir/<last measurement subfolder name>."""
     measurement_name = Path(measurement_dir).expanduser().resolve().name
     return Path(output_dir).expanduser() / measurement_name
-
-
-def export_figures(
-    data: AlumetData,
-    output_root: Path,
-    category: str | None = None,
-    cpu_core: str | None = None,
-    figure_format: str = "png",
-    dpi: int = 150,
-    process_specific: bool = False,
-) -> list[Path]:
-    """Export one static time-series figure per metric_id under output_root/<category>/plots/."""
-    proc_start, proc_end = data.process_time_range
-    created: list[Path] = []
-
-    for category_value in data.selected_categories(category):
-        df_category = data.filter_by_category(category_value, cpu_core=cpu_core)
-        if process_specific:
-            df_category = data.filter_to_process_time_range(df_category)
-        if df_category.empty:
-            continue
-
-        plots_dir = output_root / category_value / "plots"
-        created.extend(
-            export_category_figures(
-                df_category,
-                plots_dir,
-                category_value,
-                figure_format=figure_format,
-                proc_start=proc_start,
-                proc_end=proc_end,
-                dpi=dpi,
-            )
-        )
-
-    return created
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -106,13 +71,14 @@ def main(argv: list[str] | None = None) -> None:
     ran_action = False
 
     if args.summary:
-        print(data.summary())
+        print(summary(data))
         ran_action = True
 
     if args.export_csv:
         out = _measurement_output_root(args.export_csv, args.directory)
         out.mkdir(parents=True, exist_ok=True)
-        created = data.export_csvs(
+        created = export_csvs(
+            data,
             out,
             category=args.category,
             cpu_core=args.cpu_core,

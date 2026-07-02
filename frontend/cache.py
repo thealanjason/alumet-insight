@@ -111,18 +111,3 @@ def df_from_store(store_data: Any) -> pd.DataFrame:
     else:
         # Legacy 'records' format or direct dict
         return pd.DataFrame(store_data)
-
-
-def ensure_timestamp_datetime(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensure timestamp column is datetime64 dtype.
-    
-    Args:
-        df: DataFrame to ensure timestamp column is datetime64 dtype
-    
-    Returns:
-        DataFrame with timestamp column as datetime64 dtype
-    """
-    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-    return df

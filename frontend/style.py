@@ -134,3 +134,15 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
     if fig.layout.legend:
         fig.update_layout(legend=dict(bgcolor=theme["legend"], font=dict(color=theme["legend_font"])))
     return fig
+
+def set_plotly_rgba(color: str, alpha: float = 0.15) -> str:
+    """Convert a Plotly color string to an rgba fill with the given alpha."""
+    if color.startswith("#"):
+        h = color.lstrip("#")
+        r, g, b = (int(h[k : k + 2], 16) for k in (0, 2, 4))
+        return f"rgba({r}, {g}, {b}, {alpha})"
+    if color.startswith("rgba"):
+        return color.rsplit(",", 1)[0] + f", {alpha})"
+    if color.startswith("rgb"):
+        return color.replace("rgb", "rgba").replace(")", f", {alpha})")
+    return f"rgba(136, 192, 208, {alpha})"

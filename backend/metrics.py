@@ -1,3 +1,54 @@
+import pandas as pd
+
+
+def base_metric_from_id(metric_id: str) -> str:
+    """Return the base metric name from a full metric_id (part before the first ``_R_``)."""
+    s = str(metric_id)
+    return s.split("_R_")[0] if "_R_" in s else s
+
+
+def metric_ids_from_df(df: pd.DataFrame) -> list[str]:
+    """Return sorted metric_id strings from a dataframe."""
+    if df.empty or "metric_id" not in df.columns:
+        return []
+    return sorted(df["metric_id"].dropna().astype(str).unique().tolist())
+
+
+def filter_by_metric_id(df: pd.DataFrame, metric_id: str) -> pd.DataFrame:
+    """Return rows whose full ``metric_id`` matches *metric_id*."""
+    return df[df["metric_id"].astype(str) == str(metric_id)].copy()
+
+
+def filter_by_base_metric(df: pd.DataFrame, metric: str) -> pd.DataFrame:
+    """Return rows whose ``base_metric`` matches *metric*."""
+    return df[df["base_metric"] == metric].copy()
+
+
+def format_metric_id_list(
+    metric_ids: list[str],
+    heading: str,
+    *,
+    limit: int | None = None,
+) -> str:
+    """Return a formatted metric-id listing."""
+    total = len(metric_ids)
+    visible_ids = metric_ids
+    truncated = False
+    if limit is not None and limit < total:
+        visible_ids = metric_ids[:limit]
+        truncated = True
+
+    lines = [heading, "-" * 80]
+    lines.extend(f"  - {metric_id}" for metric_id in visible_ids)
+    if truncated:
+        lines.append(
+            f"  ... and {total - limit} more hidden. "
+            "Omit --limit or pass a larger value to show all."
+        )
+    lines.append(f"Total: {total}")
+    return "\n".join(lines)
+
+
 def filter_process_metric_ids(metric_ids: list[str], process_only: bool) -> list[str]:
     """Restrict to process-attributed series when *process_only* is True."""
     if not process_only:

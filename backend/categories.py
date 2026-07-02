@@ -7,6 +7,8 @@ from typing import Optional
 
 import pandas as pd
 
+from backend.metrics import metric_ids_from_df
+
 
 YAXIS_SHAREABLE_CATEGORIES: frozenset[str] = frozenset(
     {"energy", "power", "utilization", "temperature", "memory", "kernel_cpu_time"}
@@ -222,4 +224,33 @@ def filter_time_series_category(
         return df[~(is_energy | is_power | is_util | is_temp | is_mem | is_perf | is_kernel | is_network)].copy()
 
     raise ValueError(f"Unknown time-series category: {category}")
+
+
+def category_for_metric_id(
+    df_processed: pd.DataFrame,
+    metric_id: str,
+    category: Optional[str] = None,
+) -> str:
+    """Return the corresponding category for the given metric_id."""
+    if category:
+        return category
+    for category_value in available_category_values(df_processed):
+        df_category = filter_time_series_category(df_processed, category_value)
+        if str(metric_id) in metric_ids_from_df(df_category):
+            return category_value
+    return "miscellaneous"
+
+
+def validate_metric_id_in_category(
+    df_processed: pd.DataFrame,
+    metric_id: str,
+    category: Optional[str],
+    selected_cpu_core: Optional[str] = None,
+) -> None:
+    """Raise ValueError when a metric-id/category combination is inconsistent."""
+    if category is None:
+        return
+    df_category = filter_time_series_category(df_processed, category, selected_cpu_core=selected_cpu_core)
+    if str(metric_id) not in metric_ids_from_df(df_category):
+        raise ValueError(f"Metric '{metric_id}' is not in category '{category}'; use --summary or omit --category.")
 

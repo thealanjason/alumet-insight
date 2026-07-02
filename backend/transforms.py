@@ -59,6 +59,20 @@ def filter_to_time_range(
     return filtered[(filtered[timestamp_col] >= start) & (filtered[timestamp_col] <= end)].copy()
 
 
+def get_time_range_from_df(
+    df: pd.DataFrame,
+    *,
+    timestamp_col: str = "timestamp",
+) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+    """Return the first and last valid timestamps in a dataframe."""
+    if df.empty or timestamp_col not in df.columns:
+        return None, None
+    timestamps = pd.to_datetime(df[timestamp_col], errors="coerce").dropna()
+    if timestamps.empty:
+        return None, None
+    return timestamps.min(), timestamps.max()
+
+
 def align_xrange_tz(
     x_min: pd.Timestamp,
     x_max: pd.Timestamp,
@@ -76,6 +90,41 @@ def align_xrange_tz(
         if x_max.tz is not None:
             x_max = x_max.tz_convert(None) if hasattr(x_max, "tz_convert") else x_max.replace(tzinfo=None)
     return x_min, x_max
+
+
+def parse_timestamp(value: str | pd.Timestamp, label: str) -> pd.Timestamp:
+    """Parse a timestamp value, raising ValueError with a CLI-friendly label on failure."""
+    if isinstance(value, pd.Timestamp):
+        return value
+    try:
+        return pd.to_datetime(value)
+    except (ValueError, TypeError):
+        raise ValueError(
+            f"Invalid {label} '{value}'. "
+            "Expected date+time with T, e.g. 2026-03-24T23:51:41+00:00."
+        )
+
+
+def validate_time_range(
+    start: Optional[str | pd.Timestamp],
+    end: Optional[str | pd.Timestamp],
+    data_start: Optional[pd.Timestamp],
+    data_end: Optional[pd.Timestamp],
+) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+    """Validate a user-provided time range against dataframe timestamp bounds."""
+    if start is None and end is None:
+        return None, None
+
+    assert data_start is not None and data_end is not None, "Cannot filter by time: CSV has no valid timestamps"
+
+    start_ts = parse_timestamp(start, "--start-time") if start is not None else data_start
+    end_ts = parse_timestamp(end, "--end-time") if end is not None else data_end
+    start_ts, end_ts = align_xrange_tz(start_ts, end_ts, getattr(data_start, "tz", None))
+
+    assert start_ts <= end_ts, f"Start time must be before or equal to end time: {start_ts} > {end_ts}"
+    assert start_ts >= data_start, f"Start time {start_ts} is before CSV minimum timestamp {data_start}"
+    assert end_ts <= data_end, f"End time {end_ts} is after CSV maximum timestamp {data_end}"
+    return start_ts, end_ts
 
 
 def _padded_range(y_min: float, y_max: float, *, clamp_zero: bool = False) -> tuple[float, float]:
