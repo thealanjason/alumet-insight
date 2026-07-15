@@ -36,7 +36,10 @@ class _CLIArgumentParser(argparse.ArgumentParser):
         super().print_help(file=file)
 
 def main(argv: list[str] | None = None) -> None:
+    entry = Path(sys.argv[0]).name
+    prog = f"{entry} cli" if entry.startswith("alumet_insight") else None
     parser = _CLIArgumentParser(
+        prog=prog,
         description="Alumet measurement analysis: summary, CSV export, and static time-series figure export.",
     )
     parser.add_argument("directory", help="Path to measurement directory containing .csv and optional .log/.txt files")

@@ -11,6 +11,16 @@ import sys
 
 
 def main() -> None:
+    # Dispatch CLI before argparse so -h/--help reaches cli.py.
+    # argparse cannot forward unrecognized options like --help via REMAINDER.
+    if len(sys.argv) >= 2 and sys.argv[1] == "cli":
+        from cli import main as cli_main
+
+        forwarded = sys.argv[2:]
+        # Empty argv: avoids parse_args(None) treating "cli" as a directory path.
+        cli_main(forwarded if forwarded else ["--help"])
+        return
+
     parser = argparse.ArgumentParser(
         description="Alumet Insight: interactive dashboard or command-line analysis.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -19,9 +29,7 @@ def main() -> None:
     subparsers.required = True
 
     subparsers.add_parser("dashboard", help="Launch the interactive Dash web dashboard")
-
-    cli_parser = subparsers.add_parser("cli", help="Command-line measurement analysis")
-    cli_parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments forwarded to the CLI tool")
+    subparsers.add_parser("cli", help="Command-line measurement analysis")
 
     parsed = parser.parse_args()
 
@@ -32,11 +40,6 @@ def main() -> None:
 
         app.layout = create_layout(app)
         app.run(debug=True, host="0.0.0.0", port=8051)
-
-    elif parsed.command == "cli":
-        from cli import main as cli_main
-
-        cli_main(parsed.args if parsed.args else None)
 
 
 if __name__ == "__main__":
