@@ -30,7 +30,6 @@ from frontend.style import (
     status_alert_class,
 )
 from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
-from frontend.helpers import normalize_dropdown_value, triggered_component_type
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import get_metric_unit, is_memory_metric
 from backend.transforms import filter_to_time_range

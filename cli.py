@@ -17,6 +17,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from cli_branding import print_logo
+
 from backend.categories import CATEGORY_VALUES, validate_metric_id_in_category
 from backend.cli_export import build_metric_id_listing, export_csvs, export_figures, summary
 from backend.data import AlumetData
@@ -39,6 +41,16 @@ TIMESTAMP_ARG_HELP = (
     "Inclusive {bound} timestamp for exports. Use date+time with a T, e.g. 2026-03-24T23:51:41+00:00 "
     "(check min/max timestamps from --summary)."
 )
+
+
+class _CLIArgumentParser(argparse.ArgumentParser):
+    """Print the CLI banner before argparse help text."""
+
+    def print_help(self, file=None):
+        if file is None:
+            file = sys.stderr
+        print_logo(file=file)
+        super().print_help(file=file)
 
 
 def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path) -> Path:
@@ -99,7 +111,7 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, da
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
+    parser = _CLIArgumentParser(
         description="Alumet measurement analysis: summary, metric discovery, CSV export, and figure export.",
         epilog=CLI_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,

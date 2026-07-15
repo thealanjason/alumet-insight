@@ -17,7 +17,7 @@ Alumet Insight explores and visualizes output from [Alumet-agent](https://alumet
 
 1. Clone this repository
 ```bash
-git clone https://github.com/thealanjason/alumet-viz.git
+git clone https://github.com/thealanjason/alumet-insight.git
 ```
 
 2. Create and activate the conda environment
