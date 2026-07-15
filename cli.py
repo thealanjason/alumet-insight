@@ -19,16 +19,24 @@ from backend.categories import CATEGORY_VALUES
 from backend.cli_export import export_csvs, export_figures, summary
 from backend.data import AlumetData
 from backend.figures import SUPPORTED_FIGURE_FORMATS
-
+from cli_branding import print_logo
 
 def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path) -> Path:
     """Return output_dir/<last measurement subfolder name>."""
     measurement_name = Path(measurement_dir).expanduser().resolve().name
     return Path(output_dir).expanduser() / measurement_name
 
+class _CLIArgumentParser(argparse.ArgumentParser):
+    """Print the CLI banner before argparse help text."""
+
+    def print_help(self, file=None):
+        if file is None:
+            file = sys.stderr
+        print_logo(file=file)
+        super().print_help(file=file)
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
+    parser = _CLIArgumentParser(
         description="Alumet measurement analysis: summary, CSV export, and static time-series figure export.",
     )
     parser.add_argument("directory", help="Path to measurement directory containing .csv and optional .log/.txt files")
