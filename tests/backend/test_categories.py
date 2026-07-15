@@ -6,6 +6,7 @@ from backend.categories import (
     available_category_values,
     available_cpu_cores,
     category_yaxis_label,
+    classify_metric,
     filter_time_series_category,
     is_yaxis_shareable,
 )
@@ -13,6 +14,18 @@ from tests.fixtures import processed_rows
 
 
 class CategoryTests(unittest.TestCase):
+    def test_classify_metric_buckets(self):
+        self.assertEqual(classify_metric("nvml_instant_power_W"), "power")
+        self.assertEqual(classify_metric("attributed_energy_J"), "energy")
+        self.assertEqual(classify_metric("cpu_percent"), "utilization")
+        self.assertEqual(classify_metric("nvml_temperature_C"), "temperature")
+        self.assertEqual(classify_metric("memory_rss_bytes"), "memory")
+        self.assertEqual(classify_metric("perf_hardware_INSTRUCTIONS"), "perf_counters")
+        self.assertEqual(classify_metric("kernel_cpu_time_ms"), "kernel_cpu_time")
+        self.assertEqual(classify_metric("kernel_n_procs_running"), "kernel_system")
+        self.assertEqual(classify_metric("network_rx_bytes"), "kernel_system")
+        self.assertEqual(classify_metric("custom_counter"), "miscellaneous")
+
     def test_available_category_values_and_cpu_cores(self):
         df = processed_rows()
 

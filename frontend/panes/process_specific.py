@@ -27,13 +27,13 @@ from frontend.style import (
     STYLE_HIDDEN,
     STYLE_VISIBLE,
     apply_figure_theme,
+    set_plotly_rgba,
     status_alert_class,
 )
 from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
-from frontend.helpers import normalize_dropdown_value, triggered_component_type
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import get_metric_unit, is_memory_metric
-from backend.transforms import filter_to_time_range
+from backend.transforms import _padded_range, filter_to_time_range
 from backend.utils import safe_filename
 from frontend.figures import get_color_palette
 
@@ -173,7 +173,7 @@ def prepare_download_df(
     if la:
         dfm = dfm[dfm["la"] == str(la).strip()]
 
-    dfm = filter_to_time_range(dfm, proc_start, proc_end, require_bounds=False)
+    dfm = filter_to_time_range(dfm, proc_start, proc_end)
 
     if dfm.empty:
         return dfm
@@ -476,20 +476,10 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     if dff.empty:
         return grid_message_figure(fig, "No data during process active period", use_light_mode)
 
-    y_min, y_max = dff["value"].min(), dff["value"].max()
-    y_range = (y_max - y_min) if y_max != y_min else (abs(y_max) if y_max != 0 else 1)
-    y_pad = 0.1 * y_range
-    y_bottom, y_top = y_min - y_pad, y_max + y_pad
-
     colors = get_color_palette(100)
     idx_str = my_id.get("index", "0-0")
     color = colors[abs(hash(idx_str)) % len(colors)]
-
-    rgba_fill = "rgba(136, 192, 208, 0.15)"
-    if isinstance(color, str) and color.startswith("#"):
-        h = color.lstrip("#")
-        r, g, b = (int(h[k:k+2], 16) for k in (0, 2, 4))
-        rgba_fill = f"rgba({r}, {g}, {b}, 0.15)"
+    rgba_fill = set_plotly_rgba(color)
 
     unit = get_metric_unit(metric)
     y_axis_title = f"Value ({unit})" if unit else "Value"
@@ -509,6 +499,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     yaxis_config = dict(gridcolor="rgba(76, 86, 106, 0.2)", title=y_axis_title)
 
     if is_memory_metric(metric):
+        y_bottom, y_top = _padded_range(dff["value"].min(), dff["value"].max(), clamp_zero=True)
         tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
         yaxis_config["tickvals"] = tickvals
         yaxis_config["ticktext"] = ticktext

@@ -26,12 +26,9 @@ def main() -> None:
     parsed = parser.parse_args()
 
     if parsed.command == "dashboard":
-        from frontend.app import app
-        from frontend.layout import create_layout
-        import frontend.panes  # registers all @app.callback decorators
+        from dashboard import run as run_dashboard
 
-        app.layout = create_layout(app)
-        app.run(debug=True, host="0.0.0.0", port=8051)
+        run_dashboard()
 
     elif parsed.command == "cli":
         from cli import main as cli_main

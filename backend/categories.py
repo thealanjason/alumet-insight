@@ -55,6 +55,38 @@ TIME_SERIES_CATEGORIES: tuple[TimeSeriesCategory, ...] = (
 CATEGORY_LABELS = {category.value: category.label for category in TIME_SERIES_CATEGORIES}
 CATEGORY_VALUES = tuple(category.value for category in TIME_SERIES_CATEGORIES)
 
+UTILIZATION_SUBSTRINGS = (
+    "cpu_percent",
+    "nvml_gpu_utilization",
+    "nvml_sm_utilization",
+    "nvml_encoder_utilization",
+    "nvml_decoder_utilization",
+    "nvml_memory_utilization",
+)
+
+
+def classify_metric(base_metric: str) -> str:
+    """Classify a base metric name into a time-series category value."""
+    metric_lower = str(base_metric).lower()
+
+    if "nvml_instant_power" in metric_lower:
+        return "power"
+    if "energy" in metric_lower or "rapl" in metric_lower or "attributed" in metric_lower:
+        return "energy"
+    if any(token in metric_lower for token in UTILIZATION_SUBSTRINGS):
+        return "utilization"
+    if "temperature" in metric_lower:
+        return "temperature"
+    if ("mem" in metric_lower or "memory" in metric_lower or "kb" in metric_lower) and "nvml" not in metric_lower:
+        return "memory"
+    if metric_lower.startswith("perf_hardware") or metric_lower.startswith("perf_software"):
+        return "perf_counters"
+    if "kernel_cpu_time" in metric_lower:
+        return "kernel_cpu_time"
+    if metric_lower.startswith("kernel_") or metric_lower.startswith("network_"):
+        return "kernel_system"
+    return "miscellaneous"
+
 
 def _ensure_base_metric(df_processed: pd.DataFrame) -> pd.DataFrame:
     """Return a DataFrame with a ``base_metric`` column."""
@@ -70,56 +102,8 @@ def available_category_values(df_processed: pd.DataFrame) -> list[str]:
     df = _ensure_base_metric(df_processed)
     base_metrics = df["base_metric"].dropna().unique()
 
-    buckets = {
-        "energy": set(),
-        "power": set(),
-        "utilization": set(),
-        "temperature": set(),
-        "memory": set(),
-        "perf_counters": set(),
-        "kernel_cpu_time": set(),
-        "kernel_system": set(),
-    }
-    all_categorized = set()
-
-    for metric in base_metrics:
-        metric_lower = str(metric).lower()
-        if "nvml_instant_power" in metric_lower:
-            buckets["power"].add(metric)
-            all_categorized.add(metric)
-        elif "energy" in metric_lower or "rapl" in metric_lower or "attributed" in metric_lower:
-            buckets["energy"].add(metric)
-            all_categorized.add(metric)
-        elif (
-            "cpu_percent" in metric_lower
-            or "nvml_gpu_utilization" in metric_lower
-            or "nvml_sm_utilization" in metric_lower
-            or "nvml_encoder_utilization" in metric_lower
-            or "nvml_decoder_utilization" in metric_lower
-            or "nvml_memory_utilization" in metric_lower
-        ):
-            buckets["utilization"].add(metric)
-            all_categorized.add(metric)
-        elif "temperature" in metric_lower:
-            buckets["temperature"].add(metric)
-            all_categorized.add(metric)
-        elif ("mem" in metric_lower or "memory" in metric_lower or "kb" in metric_lower) and "nvml" not in metric_lower:
-            buckets["memory"].add(metric)
-            all_categorized.add(metric)
-        elif metric_lower.startswith("perf_hardware") or metric_lower.startswith("perf_software"):
-            buckets["perf_counters"].add(metric)
-            all_categorized.add(metric)
-        elif "kernel_cpu_time" in metric_lower:
-            buckets["kernel_cpu_time"].add(metric)
-            all_categorized.add(metric)
-        elif metric_lower.startswith("kernel_") or metric_lower.startswith("network_"):
-            buckets["kernel_system"].add(metric)
-            all_categorized.add(metric)
-
-    values = [category.value for category in TIME_SERIES_CATEGORIES if category.value in buckets and buckets[category.value]]
-    if set(base_metrics) - all_categorized:
-        values.append("miscellaneous")
-    return values
+    buckets = {classify_metric(metric) for metric in base_metrics}
+    return [category.value for category in TIME_SERIES_CATEGORIES if category.value in buckets]
 
 
 def available_cpu_cores(df_processed: pd.DataFrame) -> list[str]:
@@ -153,77 +137,24 @@ def filter_time_series_category(
     if not category:
         return df.copy()
 
-    if category == "energy":
-        energy_mask = df["base_metric"].str.contains("energy|rapl|attributed", case=False, na=False)
-        not_power = ~df["base_metric"].str.contains("nvml_instant_power", case=False, na=False)
-        return df[energy_mask & not_power].copy()
+    if category not in CATEGORY_VALUES:
+        raise ValueError(f"Unknown time-series category: {category}")
 
-    if category == "power":
-        return df[df["base_metric"].str.contains("nvml_instant_power", case=False, na=False)].copy()
+    mask = df["base_metric"].map(classify_metric) == category
+    filtered = df[mask].copy()
 
-    if category == "utilization":
-        return df[
-            df["base_metric"].str.contains(
-                "cpu_percent|nvml_gpu_utilization|nvml_sm_utilization|nvml_encoder_utilization|nvml_decoder_utilization|nvml_memory_utilization",
-                case=False,
-                na=False,
-            )
-        ].copy()
+    if category == "kernel_cpu_time" and selected_cpu_core:
+        core_patterns = [
+            f"_R_cpu_core_{selected_cpu_core}.0_",
+            f"_R_cpu_core_{selected_cpu_core}_",
+            f"_R_cpu_core_{selected_cpu_core}.",
+        ]
+        core_mask = pd.Series(False, index=filtered.index)
+        for pattern in core_patterns:
+            core_mask |= filtered["metric_id"].str.contains(pattern, na=False, regex=False)
+        filtered = filtered[core_mask]
 
-    if category == "temperature":
-        return df[df["base_metric"].str.contains("temperature", case=False, na=False)].copy()
-
-    if category == "memory":
-        mem_mask = df["base_metric"].str.contains("mem|memory|kb", case=False, na=False)
-        nvml_mask = df["base_metric"].str.contains("nvml", case=False, na=False)
-        return df[mem_mask & ~nvml_mask].copy()
-
-    if category == "perf_counters":
-        return df[
-            df["base_metric"].str.contains("^perf_hardware|^perf_software", case=False, na=False, regex=True)
-        ].copy()
-
-    if category == "kernel_cpu_time":
-        filtered = df[df["base_metric"] == "kernel_cpu_time_ms"].copy()
-        if selected_cpu_core:
-            core_patterns = [
-                f"_R_cpu_core_{selected_cpu_core}.0_",
-                f"_R_cpu_core_{selected_cpu_core}_",
-                f"_R_cpu_core_{selected_cpu_core}.",
-            ]
-            mask = pd.Series([False] * len(filtered), index=filtered.index)
-            for pattern in core_patterns:
-                mask |= filtered["metric_id"].str.contains(pattern, na=False, regex=False)
-            filtered = filtered[mask]
-        return filtered
-
-    if category == "kernel_system":
-        kernel_mask = df["base_metric"].str.startswith("kernel_")
-        kernel_cpu_time_mask = df["base_metric"].str.contains("kernel_cpu_time", na=False)
-        network_mask = df["base_metric"].str.startswith("network_")
-        return df[(kernel_mask & ~kernel_cpu_time_mask) | network_mask].copy()
-
-    if category == "miscellaneous":
-        energy_pat = "energy|rapl|attributed"
-        power_pat = "nvml_instant_power"
-        util_pat = "cpu_percent|nvml_gpu_utilization|nvml_sm_utilization|nvml_encoder_utilization|nvml_decoder_utilization|nvml_memory_utilization"
-        temp_pat = "temperature"
-        mem_pat = "mem|memory|kb"
-        perf_pat = "^perf_hardware|^perf_software"
-        kernel_pat = "^kernel_"
-        network_pat = "^network_"
-
-        is_energy = df["base_metric"].str.contains(energy_pat, case=False, na=False) & ~df["base_metric"].str.contains(power_pat, case=False, na=False)
-        is_power = df["base_metric"].str.contains(power_pat, case=False, na=False)
-        is_util = df["base_metric"].str.contains(util_pat, case=False, na=False)
-        is_temp = df["base_metric"].str.contains(temp_pat, case=False, na=False)
-        is_mem = df["base_metric"].str.contains(mem_pat, case=False, na=False) & ~df["base_metric"].str.contains("nvml", case=False, na=False)
-        is_perf = df["base_metric"].str.contains(perf_pat, case=False, na=False, regex=True)
-        is_kernel = df["base_metric"].str.contains(kernel_pat, case=False, na=False, regex=True)
-        is_network = df["base_metric"].str.contains(network_pat, case=False, na=False, regex=True)
-        return df[~(is_energy | is_power | is_util | is_temp | is_mem | is_perf | is_kernel | is_network)].copy()
-
-    raise ValueError(f"Unknown time-series category: {category}")
+    return filtered
 
 
 def category_for_metric_id(
@@ -253,4 +184,3 @@ def validate_metric_id_in_category(
     df_category = filter_time_series_category(df_processed, category, selected_cpu_core=selected_cpu_core)
     if str(metric_id) not in metric_ids_from_df(df_category):
         raise ValueError(f"Metric '{metric_id}' is not in category '{category}'; use --summary or omit --category.")
-

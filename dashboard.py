@@ -9,5 +9,11 @@ import frontend.panes  # registers all @app.callback decorators
 
 app.layout = create_layout(app)
 
+
+def run(*, debug: bool = True, host: str = "0.0.0.0", port: int = 8051) -> None:
+    """Start the Dash web dashboard."""
+    app.run(debug=debug, host=host, port=port)
+
+
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=8051)
+    run()

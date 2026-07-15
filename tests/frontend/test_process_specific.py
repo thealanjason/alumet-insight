@@ -111,7 +111,17 @@ class ProcessSpecificTests(unittest.TestCase):
             }
         )
 
-        out = prepare_download_df(df, "m", "cpu", "0", "process", "10", "user")
+        out = prepare_download_df(
+            df,
+            "m",
+            "cpu",
+            "0",
+            "process",
+            "10",
+            "user",
+            pd.Timestamp("2024-01-01 00:00:00"),
+            pd.Timestamp("2024-01-01 00:00:01"),
+        )
         self.assertEqual(out["value"].tolist(), [1])
         self.assertIn("__late_attributes", out.columns)
 
