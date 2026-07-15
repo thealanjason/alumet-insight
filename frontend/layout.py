@@ -141,15 +141,38 @@ def create_layout(app):
                                         [
                                             html.Label(
                                                 [
+                                                    "Upload Experiment Folder ",
+                                                    html.Span("(local filesystem)", className="sidebar-label-optional"),
+                                                ],
+                                                className="sidebar-label",
+                                            ),
+                                            dcc.Upload(
+                                                id="directory-upload",
+                                                children=html.Div(
+                                                    [
+                                                        "Drag and drop a folder, or ",
+                                                        html.A("browse"),
+                                                    ],
+                                                    className="sidebar-upload-text",
+                                                ),
+                                                multiple=True,
+                                                enable_folder_selection=True,
+                                                accept=".csv,.log,.txt,.toml",
+                                                className="sidebar-upload",
+                                            ),
+                                            html.Div(id="upload-status", className="sidebar-upload-status"),
+                                            html.Div("or", className="sidebar-or-divider"),
+                                            html.Label(
+                                                [
                                                     "Directory Path ",
-                                                    html.Span("(Required)", className="sidebar-label-required"),
+                                                    html.Span("(server filesystem)", className="sidebar-label-optional"),
                                                 ],
                                                 className="sidebar-label",
                                             ),
                                             dcc.Input(
                                                 id="directory-path-input",
                                                 type="text",
-                                                placeholder="Path containing .csv, .log/.txt, and .toml files",
+                                                placeholder="Server path with .csv, .log/.txt, and .toml files",
                                                 debounce=True,
                                                 className="sidebar-input",
                                             ),
