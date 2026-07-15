@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pandas as pd
 
+import base64
+
 from backend.utils import (
     extract_pid_from_content,
     find_measurement_file_in_directory,
@@ -11,6 +13,7 @@ from backend.utils import (
     is_cpu_from_metrics,
     is_gpu_from_content,
     is_gpu_from_metrics,
+    save_upload_to_temp_dir,
     read_file_content,
     safe_filename,
 )
@@ -73,6 +76,30 @@ class UtilsTests(unittest.TestCase):
         self.assertTrue(is_cpu_from_metrics(df_both))
         self.assertFalse(is_gpu_from_metrics(df_empty))
         self.assertFalse(is_cpu_from_metrics(df_empty))
+
+    def test_save_upload_to_temp_dir(self):
+        def _payload(text: str) -> str:
+            return "data:text/plain;base64," + base64.b64encode(text.encode("utf-8")).decode("ascii")
+
+        dir_path, experiment_name = save_upload_to_temp_dir(
+            [_payload("csv-body"), _payload("log-body"), _payload("skip-me")],
+            ["runA/data.csv", "runA/agent.log", "runA/notes.md"],
+        )
+        try:
+            self.assertEqual(experiment_name, "runA")
+            self.assertTrue((dir_path / "data.csv").exists())
+            self.assertTrue((dir_path / "agent.log").exists())
+            self.assertFalse((dir_path / "notes.md").exists())
+            self.assertEqual((dir_path / "data.csv").read_text(encoding="utf-8"), "csv-body")
+        finally:
+            for path in dir_path.iterdir():
+                path.unlink()
+            dir_path.rmdir()
+
+        with self.assertRaises(ValueError):
+            save_upload_to_temp_dir(None, None)
+        with self.assertRaises(ValueError):
+            save_upload_to_temp_dir([_payload("x")], ["runA/notes.md"])
 
 
 if __name__ == "__main__":

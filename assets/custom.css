@@ -210,6 +210,56 @@ body[data-bs-theme="light"] {
     font-weight: 400;
 }
 
+.app-shell .sidebar-label-optional {
+    color: var(--app-text-muted);
+    font-size: 0.8rem;
+    font-weight: 400;
+}
+
+.app-shell .sidebar-or-divider {
+    color: var(--app-text-muted);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08rem;
+    margin: 12px 0 10px;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+.app-shell .sidebar-upload {
+    background-color: var(--app-control-bg) !important;
+    border: 2px dashed var(--app-accent) !important;
+    border-radius: 8px;
+    color: var(--app-text) !important;
+    cursor: pointer;
+    padding: 14px 12px;
+    text-align: center;
+    transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
+    width: 100%;
+}
+
+.app-shell .sidebar-upload:hover {
+    background-color: var(--app-control-bg-hover) !important;
+}
+
+.app-shell .sidebar-upload-text {
+    color: var(--app-text-muted);
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.app-shell .sidebar-upload-text a {
+    color: var(--app-accent-soft);
+    text-decoration: underline;
+}
+
+.app-shell .sidebar-upload-status {
+    color: var(--app-accent-soft);
+    font-size: 0.82rem;
+    margin-top: 8px;
+    min-height: 1.1em;
+}
+
 .app-shell .sidebar-section-label {
     color: var(--app-accent-soft);
     font-size: 0.78rem;
