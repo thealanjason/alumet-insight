@@ -1,13 +1,34 @@
 """Alumet Insight — unified entry point.
 
 Usage:
+  - Dashboard:
     python alumet_insight.py dashboard
+
+  - CLI:
+    python alumet_insight.py cli -h
     python alumet_insight.py cli /path/to/measurements --summary
-    python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output
+    python alumet_insight.py cli /path/to/measurements --list-metric-ids --category energy
+    python alumet_insight.py cli /path/to/measurements --list-metric-ids --metric-name rapl_consumed_energy_J --limit 50
+    python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --category energy
+    python alumet_insight.py cli /path/to/measurements --export-figures /path/to/output --category energy
+    python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --metric-id <metric_id>
+    python alumet_insight.py cli /path/to/measurements --export-figures /path/to/output --start-time 2024-01-01T00:00:00 --end-time 2024-01-01T00:01:00
+    python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --process-specific
+
+Exports are written under /path/to/output/<measurement-folder-name>/.
+Run ``python alumet_insight.py cli -h`` for full flag reference and workflows.
 """
 
 import argparse
 import sys
+
+
+def _cli_help() -> bool:
+    if len(sys.argv) >= 3 and sys.argv[1] == "cli" and sys.argv[2] in ("-h", "--help"):
+        from cli import main as cli_main
+        cli_main(["--help"])
+        return True
+    return False
 
 
 def main() -> None:
