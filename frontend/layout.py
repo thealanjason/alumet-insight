@@ -124,11 +124,11 @@ def create_layout(app):
                                         className="sidebar-brand-row",
                                     ),
                                     html.H1(
-                                        "Alumet Energy Visualization",
+                                        "Alumet-Insight",
                                         className="sidebar-title",
                                     ),
                                     html.P(
-                                        "Visualization dashboard to monitor process-specific compute resource usage measured by Alumet.",
+                                        "Turn Alumet measurements into insight — analyze process-specific energy, power, and resource usage faster.",
                                         className="sidebar-description",
                                     ),
                                 ],
