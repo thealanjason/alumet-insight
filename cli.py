@@ -56,11 +56,6 @@ class _CLIArgumentParser(argparse.ArgumentParser):
         print_logo(file=file)
         super().print_help(file=file)
 
-def main(argv: list[str] | None = None) -> None:
-    entry = Path(sys.argv[0]).name
-    prog = f"{entry} cli" if entry.startswith("alumet_insight") else None
-    parser = _CLIArgumentParser(
-        prog=prog,
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, data: AlumetData) -> None:
     """Validate argument combinations before executing any action."""
     if args.metric_id and args.metric_id not in data.metric_ids:
@@ -112,12 +107,11 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, da
     if args.limit is not None and not args.list_metric_ids:
         parser.error("--limit is only valid with --list-metric-ids.")
 
-
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        description="Alumet measurement analysis: summary, metric discovery, CSV export, and figure export.",
-        epilog=CLI_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    entry = Path(sys.argv[0]).name
+    prog = f"{entry} cli" if entry.startswith("alumet_insight") else None
+    parser = _CLIArgumentParser(
+        prog=prog,
     )
     parser.add_argument("directory", help="Path to measurement directory containing .csv and optional .log/.txt files")
 
