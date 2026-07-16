@@ -45,7 +45,7 @@ LOGO_PLAIN_STACKED = """\
  ██║ ██║ ╚████║ ███████║ ██║ ╚██████╔╝ ██║  ██║    ██║
  ╚═╝ ╚═╝  ╚═══╝ ╚══════╝ ╚═╝  ╚═════╝  ╚═╝  ╚═╝    ╚═╝"""
 
-LOGO_COMPACT = "Alumet-Insight: analyze experiments faster"
+LOGO_COMPACT = "Alumet-Insight"
 
 # Backwards-compatible alias (wide variant).
 LOGO_PLAIN = LOGO_PLAIN_WIDE
