@@ -22,14 +22,13 @@ def main() -> None:
         return
 
     parser = argparse.ArgumentParser(
-        description="Alumet Insight: interactive dashboard or command-line analysis.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.required = True
 
-    subparsers.add_parser("dashboard", help="Launch the interactive Dash web dashboard")
-    subparsers.add_parser("cli", help="Command-line measurement analysis")
+    subparsers.add_parser("dashboard", help="Interactive dashboard for measurement analysis")
+    subparsers.add_parser("cli", help="Command-line interface for measurement analysis")
 
     parsed = parser.parse_args()
 
