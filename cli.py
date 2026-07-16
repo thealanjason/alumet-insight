@@ -21,6 +21,7 @@ from backend.categories import CATEGORY_VALUES, validate_metric_id_in_category
 from backend.cli_export import build_metric_id_listing, export_csvs, export_figures, summary
 from backend.data import AlumetData
 from backend.figures import SUPPORTED_FIGURE_FORMATS
+from cli_branding import print_logo
 from backend.transforms import parse_timestamp, validate_time_range
 
 CLI_EPILOG = """\
@@ -45,6 +46,15 @@ def _measurement_output_root(output_dir: str | Path, measurement_dir: str | Path
     """Return output_dir/<last measurement subfolder name>."""
     measurement_name = Path(measurement_dir).expanduser().resolve().name
     return Path(output_dir).expanduser() / measurement_name
+
+class _CLIArgumentParser(argparse.ArgumentParser):
+    """Print the CLI banner before argparse help text."""
+
+    def print_help(self, file=None):
+        if file is None:
+            file = sys.stderr
+        print_logo(file=file)
+        super().print_help(file=file)
 
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, data: AlumetData) -> None:
     """Validate argument combinations before executing any action."""
@@ -97,12 +107,11 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, da
     if args.limit is not None and not args.list_metric_ids:
         parser.error("--limit is only valid with --list-metric-ids.")
 
-
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(
-        description="Alumet measurement analysis: summary, metric discovery, CSV export, and figure export.",
-        epilog=CLI_EPILOG,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+    entry = Path(sys.argv[0]).name
+    prog = f"{entry} cli" if entry.startswith("alumet_insight") else None
+    parser = _CLIArgumentParser(
+        prog=prog,
     )
     parser.add_argument("directory", help="Path to measurement directory containing .csv and optional .log/.txt files")
 

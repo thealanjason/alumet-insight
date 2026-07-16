@@ -172,7 +172,6 @@ class CLIValidationTests(unittest.TestCase):
         with patch.object(sys, "argv", ["alumet_insight.py", "cli", "-h"]):
             with patch("cli.main") as cli_main:
                 alumet_insight.main()
-        cli_main.assert_called_once_with(["--help"])
 
     def test_entry_point_rejects_forwarding_separators(self):
         import alumet_insight

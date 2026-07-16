@@ -32,24 +32,24 @@ def _cli_help() -> bool:
 
 
 def main() -> None:
-    if _cli_help():
+    # Dispatch CLI before argparse so -h/--help reaches cli.py.
+    # argparse cannot forward unrecognized options like --help via REMAINDER.
+    if len(sys.argv) >= 2 and sys.argv[1] == "cli":
+        from cli import main as cli_main
+
+        forwarded = sys.argv[2:]
+        # Empty argv: avoids parse_args(None) treating "cli" as a directory path.
+        cli_main(forwarded if forwarded else ["--help"])
         return
 
     parser = argparse.ArgumentParser(
-        description="Alumet Insight: interactive dashboard or command-line analysis.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
     subparsers.required = True
 
-    subparsers.add_parser("dashboard", help="Launch the interactive Dash web dashboard")
-
-    cli_parser = subparsers.add_parser(
-        "cli",
-        help="Command-line measurement analysis",
-        add_help=False,
-    )
-    cli_parser.add_argument("args", nargs=argparse.REMAINDER, help="Arguments forwarded to the CLI tool")
+    subparsers.add_parser("dashboard", help="Interactive dashboard for measurement analysis")
+    subparsers.add_parser("cli", help="Command-line interface for measurement analysis")
 
     parsed = parser.parse_args()
 
@@ -60,19 +60,6 @@ def main() -> None:
 
         app.layout = create_layout(app)
         app.run(debug=True, host="0.0.0.0", port=8051)
-
-    elif parsed.command == "cli":
-        from cli import main as cli_main
-
-        args = list(parsed.args)
-        if args and args[0] in ("--", "-"):
-            parser.error(
-                "Unexpected '-' or '--' after 'cli'. "
-                "Pass the measurement directory directly, e.g. "
-                "'python alumet_insight.py cli /path/to/measurements --summary'. "
-                "Use 'python alumet_insight.py cli -h' for help."
-            )
-        cli_main(args if args else None)
 
 
 if __name__ == "__main__":
