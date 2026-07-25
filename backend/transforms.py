@@ -6,6 +6,7 @@ from typing import Optional
 
 import pandas as pd
 
+from backend.counterdiff import observed_only
 from backend.formatting import get_bytes_tickvals_ticktext
 
 
@@ -28,7 +29,7 @@ def normalize_to_si(df: pd.DataFrame, col: str = "metric") -> pd.DataFrame:
         mask = df[col].str.endswith(from_suffix, na=False)
         if mask.any():
             df.loc[mask, "value"] = df.loc[mask, "value"] * factor
-            df.loc[mask, col] = df.loc[mask, col].str[: -len(from_suffix)] + to_suffix
+            df.loc[mask, col] = df.loc[mask, col].astype(str).str[: -len(from_suffix)] + to_suffix
 
     return df
 
@@ -99,10 +100,7 @@ def parse_timestamp(value: str | pd.Timestamp, label: str) -> pd.Timestamp:
     try:
         return pd.to_datetime(value)
     except (ValueError, TypeError):
-        raise ValueError(
-            f"Invalid {label} '{value}'. "
-            "Expected date+time with T, e.g. 2026-03-24T23:51:41+00:00."
-        )
+        raise ValueError(f"Invalid {label} '{value}'. Expected date+time with T, e.g. 2026-03-24T23:51:41+00:00.")
 
 
 def validate_time_range(
@@ -216,9 +214,10 @@ def align_xy_metrics(
     """Align two metric series on timestamps within the process window.
 
     Returns a DataFrame with columns ``timestamp``, ``x``, ``y``.
-    Uses nearest-neighbour matching (merge_asof) — avoids synthetic data points.
+    Uses nearest-neighbour matching (merge_asof) on observed rows only —
+    synthetic CounterDiff padding never participates in matching.
     """
-    dfw = filter_to_time_range(df_processed, proc_start, proc_end)
+    dfw = observed_only(filter_to_time_range(df_processed, proc_start, proc_end))
 
     dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
     dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
@@ -226,8 +225,17 @@ def align_xy_metrics(
     if dfx.empty or dfy.empty:
         return pd.DataFrame(columns=["timestamp", "x", "y"])
 
-    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first").sort_values("timestamp", ignore_index=True)
-    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first").sort_values("timestamp", ignore_index=True)
+    for label, frame in (("x", dfx), ("y", dfy)):
+        dup_mask = frame.duplicated(subset=["timestamp"], keep=False)
+        if dup_mask.any():
+            raise ValueError(
+                f"Duplicate observed timestamps for {label}-metric after filtering; "
+                "refusing silent drop_duplicates. "
+                f"timestamps={frame.loc[dup_mask, 'timestamp'].tolist()}"
+            )
+
+    dfx = dfx.sort_values("timestamp", ignore_index=True)
+    dfy = dfy.sort_values("timestamp", ignore_index=True)
 
     dx = dfx["timestamp"].diff().median()
     dy = dfy["timestamp"].diff().median()
