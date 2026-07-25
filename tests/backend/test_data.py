@@ -39,6 +39,117 @@ class DataTests(unittest.TestCase):
         self.assertEqual(out.loc[0, "base_metric"], "cpu_percent")
         self.assertEqual(out.loc[0, "metric_id"], "cpu_percent_R_local_machine__C_process_123_A_kind_user")
 
+    def test_finalize_processed_dataframe_expands_counterdiff(self):
+        from backend.data import finalize_processed_dataframe
+
+        df = pd.DataFrame(
+            {
+                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
+                "base_metric": ["rapl_consumed_energy_J"],
+                "timestamp": [pd.Timestamp("2024-01-01")],
+                "value": [1.5],
+            }
+        )
+        out = finalize_processed_dataframe(df)
+        self.assertIn("point_role", out.columns)
+        self.assertEqual(set(out["point_role"]), {"observed", "synthetic"})
+        self.assertEqual(out.loc[out["point_role"] == "observed", "value"].iloc[0], 1.5)
+        self.assertEqual(out.loc[out["point_role"] == "synthetic", "value"].iloc[0], 0.0)
+
+    def test_preprocess_attaches_measured_semantics_and_identity_columns(self):
+        df = pd.DataFrame(
+            {
+                "metric": ["nvml_instant_power_W", "cpu_percent"],
+                "resource_kind": ["gpu", "local_machine"],
+                "resource_id": ["0", ""],
+                "consumer_kind": ["", "process"],
+                "consumer_id": ["", "9"],
+                "__late_attributes": ["", ""],
+                "timestamp": [
+                    pd.Timestamp("2024-01-01"),
+                    pd.Timestamp("2024-01-01"),
+                ],
+                "value": [11.0, 3.0],
+            }
+        )
+        out = preprocess_dataframe_for_visualization(df)
+        self.assertIn("resource_kind", out.columns)
+        self.assertIn("consumer_id", out.columns)
+        self.assertEqual(set(out["metric_origin"]), {"measured"})
+        self.assertNotIn("power_semantics", out.columns)
+
+    def test_finalize_processed_dataframe_end_to_end_provenance(self):
+        from backend.counterdiff import observed_only, validate_point_metadata
+        from backend.data import finalize_processed_dataframe
+
+        raw = pd.DataFrame(
+            {
+                "metric_id": [
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                    "attributed_energy_cpu_J_R_cpu_0_C_process_1_A_",
+                    "attributed_energy_cpu_J_R_cpu_0_C_process_1_A_",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_1_A_",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_1_A_",
+                ],
+                "base_metric": [
+                    "rapl_consumed_energy_J",
+                    "rapl_consumed_energy_J",
+                    "rapl_consumed_energy_J",
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_gpu_J",
+                    "attributed_energy_gpu_J",
+                ],
+                "timestamp": pd.to_datetime(
+                    [
+                        "2024-01-01 00:00:01",
+                        "2024-01-01 00:00:01",
+                        "2024-01-01 00:00:03",
+                        "2024-01-01 00:00:01",
+                        "2024-01-01 00:00:03",
+                        "2024-01-01 00:00:01",
+                        "2024-01-01 00:00:03",
+                    ]
+                ),
+                "value": [8.0, 0.0, 4.0, 1.0, 2.0, 3.0, 5.0],
+                "metric_origin": ["measured"] * 7,
+                "resource_kind": ["pkg", "pkg", "pkg", "cpu", "cpu", "gpu", "gpu"],
+                "resource_id": ["0", "0", "0", "0", "0", "0", "0"],
+                "consumer_kind": ["", "", "", "process", "process", "process", "process"],
+                "consumer_id": ["", "", "", "1", "1", "1", "1"],
+                "__late_attributes": [""] * 7,
+                "metric": [
+                    "rapl_consumed_energy_J",
+                    "rapl_consumed_energy_J",
+                    "rapl_consumed_energy_J",
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_gpu_J",
+                    "attributed_energy_gpu_J",
+                ],
+            }
+        )
+        out = finalize_processed_dataframe(raw)
+        validate_point_metadata(out)
+
+        observed = observed_only(out)
+        self.assertIn("rapl_average_power_W", set(observed["base_metric"]))
+        self.assertIn("attributed_energy_total_J", set(observed["base_metric"]))
+        self.assertIn("attributed_power_total_W", set(observed["base_metric"]))
+
+        rapl_obs = observed.loc[observed["metric_id"] == "rapl_consumed_energy_J_R_pkg_0_C__A_"]
+        self.assertEqual(sorted(rapl_obs["value"].tolist()), [4.0, 8.0])
+        self.assertEqual(set(rapl_obs["metric_origin"]), {"measured"})
+
+        power = observed.loc[observed["base_metric"] == "rapl_average_power_W"]
+        self.assertTrue((power["metric_origin"] == "derived").all())
+        self.assertIn("interval_start", power.columns)
+
+        totals = observed.loc[observed["base_metric"] == "attributed_energy_total_J"]
+        self.assertTrue((totals["metric_origin"] == "derived").all())
+
     def test_load_csv_from_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "run.csv"
@@ -64,6 +175,7 @@ class DataTests(unittest.TestCase):
 
     def test_read_csv_with_polars_uses_parquet_sidecar(self):
         import os
+
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "run.csv"
             csv_path.write_text(sample_csv_body(), encoding="utf-8")
@@ -96,6 +208,7 @@ class DataTests(unittest.TestCase):
             data = AlumetData(root)
 
         self.assertIsNone(data.pid)
+        self.assertEqual(data.device, "CPU + GPU")
         self.assertGreater(len(data.metrics), 0)
         self.assertFalse(data.source_df.empty)
         self.assertFalse(data.processed_df.empty)
