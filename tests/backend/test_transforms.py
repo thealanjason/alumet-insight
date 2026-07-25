@@ -3,8 +3,8 @@ import unittest
 import pandas as pd
 
 from backend.transforms import (
-    align_xy_metrics,
     align_xrange_tz,
+    align_xy_metrics,
     comparative_metric_ids,
     compute_yaxis_ranges,
     filter_to_time_range,
@@ -21,7 +21,9 @@ class TransformsTests(unittest.TestCase):
         self.assertEqual(filtered["value"].tolist(), [2, 3])
         self.assertTrue(filter_to_time_range(df, None, None).empty)
         self.assertEqual(filter_to_time_range(df, None, None, require_bounds=False)["value"].tolist(), [1, 2, 3])
-        self.assertTrue(filter_to_time_range(pd.DataFrame(), pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")).empty)
+        self.assertTrue(
+            filter_to_time_range(pd.DataFrame(), pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")).empty
+        )
         with self.assertRaises(ValueError):
             filter_to_time_range(df.drop(columns=["timestamp"]), pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02"))
 
@@ -123,10 +125,46 @@ class TransformsTests(unittest.TestCase):
         aligned = align_xy_metrics(df, "x_R_a_C_process_1_A_", "y_R_a_C_process_1_A_", start, end)
         self.assertEqual(aligned[["x", "y"]].values.tolist(), [[1, 10], [2, 20], [3, 30]])
 
-        empty = align_xy_metrics(
-            pd.DataFrame(columns=["metric_id", "timestamp", "value"]), "a", "b", start, end
-        )
+        empty = align_xy_metrics(pd.DataFrame(columns=["metric_id", "timestamp", "value"]), "a", "b", start, end)
         self.assertTrue(empty.empty)
+
+    def test_align_xy_metrics_ignores_synthetic_padding(self):
+        ts = pd.Timestamp("2024-01-01")
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts, ts, ts, ts],
+                "metric_id": [
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                    "cpu_percent_R_host__C_process_1_A_",
+                    "cpu_percent_R_host__C_process_1_A_",
+                ],
+                "value": [5.0, 0.0, 40.0, 40.0],
+                "point_role": ["observed", "synthetic", "observed", "synthetic"],
+                "point_order": [0, 1, 0, 1],
+            }
+        )
+        aligned = align_xy_metrics(
+            df,
+            "rapl_consumed_energy_J_R_pkg_0_C__A_",
+            "cpu_percent_R_host__C_process_1_A_",
+            ts,
+            ts,
+        )
+        self.assertEqual(aligned[["x", "y"]].values.tolist(), [[5.0, 40.0]])
+
+    def test_align_xy_metrics_rejects_duplicate_observed_timestamps(self):
+        ts = pd.Timestamp("2024-01-01")
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts, ts],
+                "metric_id": ["x_R_a_C__A_", "x_R_a_C__A_"],
+                "value": [1.0, 2.0],
+                "point_role": ["observed", "observed"],
+            }
+        )
+        with self.assertRaises(ValueError):
+            align_xy_metrics(df, "x_R_a_C__A_", "x_R_a_C__A_", ts, ts)
 
 
 if __name__ == "__main__":
