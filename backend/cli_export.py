@@ -5,6 +5,7 @@ These are higher-level workflow functions used by the CLI. They accept a loaded
 AlumetData instance and orchestrate filtering, formatting, and file I/O.
 Backend modules and the Dash frontend should not import from this module.
 """
+
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +17,8 @@ from backend.categories import (
     filter_time_series_category,
     validate_metric_id_in_category,
 )
+from backend.counterdiff import export_observed_measurements
+from backend.data import AlumetData
 from backend.figures import export_category_figures
 from backend.metrics import (
     filter_by_base_metric,
@@ -25,7 +28,7 @@ from backend.metrics import (
 )
 from backend.transforms import filter_to_time_range, validate_time_range
 from backend.utils import safe_filename
-from backend.data import AlumetData
+
 
 def _selected_categories(data: AlumetData, category: Optional[str]) -> list[str]:
     if category:
@@ -40,13 +43,18 @@ def _prepare_df_for_export(
     process_specific: bool = False,
     start_time: Optional[str | pd.Timestamp] = None,
     end_time: Optional[str | pd.Timestamp] = None,
+    measurement_faithful: bool = False,
 ) -> pd.DataFrame:
     if process_specific:
         df = filter_to_time_range(df, *data.process_time_range)
     start_ts, end_ts = validate_time_range(start_time, end_time, *data.data_time_range)
     if start_ts is None and end_ts is None:
-        return df.copy()
-    return filter_to_time_range(df, start_ts, end_ts)
+        out = df.copy()
+    else:
+        out = filter_to_time_range(df, start_ts, end_ts)
+    if measurement_faithful:
+        return export_observed_measurements(out)
+    return out
 
 
 def summary(data: AlumetData) -> str:
@@ -89,9 +97,7 @@ def summary(data: AlumetData) -> str:
         field("Process start time", proc_start or "N/A"),
         field("Process end time", proc_end or "N/A"),
         *section("Available Categories"),
-        *(
-            [bullet(cat) for cat in categories] if categories else [bullet("N/A")]
-        ),
+        *([bullet(cat) for cat in categories] if categories else [bullet("N/A")]),
         *section("Base Metrics"),
         *(available_metrics or [bullet("N/A")]),
         *section("Next Steps"),
@@ -144,8 +150,12 @@ def export_csvs(
     if metric_id:
         validate_metric_id_in_category(df_processed, metric_id, category, selected_cpu_core=cpu_core)
         df = _prepare_df_for_export(
-            data, filter_by_metric_id(df_processed, metric_id),
-            process_specific=process_specific, start_time=start_time, end_time=end_time,
+            data,
+            filter_by_metric_id(df_processed, metric_id),
+            process_specific=process_specific,
+            start_time=start_time,
+            end_time=end_time,
+            measurement_faithful=True,
         )
         if df.empty:
             return created
@@ -159,7 +169,10 @@ def export_csvs(
         df = _prepare_df_for_export(
             data,
             filter_time_series_category(df_processed, category_value, selected_cpu_core=cpu_core),
-            process_specific=process_specific, start_time=start_time, end_time=end_time,
+            process_specific=process_specific,
+            start_time=start_time,
+            end_time=end_time,
+            measurement_faithful=True,
         )
         if df.empty:
             continue
@@ -193,8 +206,11 @@ def export_figures(
     if metric_id:
         validate_metric_id_in_category(df_processed, metric_id, category, selected_cpu_core=cpu_core)
         df = _prepare_df_for_export(
-            data, filter_by_metric_id(df_processed, metric_id),
-            process_specific=process_specific, start_time=start_time, end_time=end_time,
+            data,
+            filter_by_metric_id(df_processed, metric_id),
+            process_specific=process_specific,
+            start_time=start_time,
+            end_time=end_time,
         )
         if df.empty:
             return created
@@ -212,7 +228,9 @@ def export_figures(
         df = _prepare_df_for_export(
             data,
             filter_time_series_category(df_processed, category_value, selected_cpu_core=cpu_core),
-            process_specific=process_specific, start_time=start_time, end_time=end_time,
+            process_specific=process_specific,
+            start_time=start_time,
+            end_time=end_time,
         )
         if df.empty:
             continue
