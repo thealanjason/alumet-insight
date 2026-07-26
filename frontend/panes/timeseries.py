@@ -12,7 +12,12 @@ from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe
 from frontend.style import status_alert_class, apply_figure_theme, DROPDOWN_STYLE
 from frontend.layout import empty_time_series_content
 from frontend.helpers import available_category_options, parse_process_time_range_store, ensure_timestamp_datetime
-from frontend.figures import update_yaxis_ranges_in_layout, create_all_timeseries_plots
+from frontend.figures import (
+    create_all_timeseries_plots,
+    relayout_requests_reset,
+    update_xaxis_ranges_in_layout,
+    update_yaxis_ranges_in_layout,
+)
 from backend.categories import available_cpu_cores, category_yaxis_label, filter_time_series_category, is_yaxis_shareable
 from backend.metrics import is_memory_metric
 from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range, get_time_range_from_df
@@ -249,6 +254,11 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
         "cache_id": filtered_cache_id,
         "metric_order": metric_order,
         "y_axis_label": category_yaxis_label(selected_category),
+        "default_x_range": [
+            pd.Timestamp(full_time_range[0]).isoformat(),
+            pd.Timestamp(full_time_range[1]).isoformat(),
+        ],
+        "is_memory_category": selected_category == "memory",
     }
 
     graph_component = html.Div(
@@ -264,6 +274,11 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
                 "displayModeBar": True,
                 "displaylogo": False,
                 "responsive": True,
+                # Always emit an autorange event\
+                # The callback then restores the application's explicit defaults
+                # instead of Plotly's mutable internal "initial" ranges.
+                # See issues https://github.com/plotly/plotly.js/issues/6336
+                "doubleClick": "autosize",
             },
         ),
         style={
@@ -329,7 +344,10 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
     if visible_data.empty:
         return current_figure
 
-    is_memory_cat = metric_order and is_memory_metric(metric_order[0])
+    is_memory_cat = filtered_df_store.get(
+        "is_memory_category",
+        bool(metric_order and is_memory_metric(metric_order[0])),
+    )
 
     yaxis_updates = compute_yaxis_ranges(visible_data, metric_order, share_yaxis, is_memory_cat)
     update_yaxis_ranges_in_layout(layout, yaxis_updates, y_axis_label=y_axis_label)
@@ -361,19 +379,22 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
     if not cache_id or not metric_order:
         return current_figure
 
-    is_reset = any("autorange" in key or "autosize" in key for key in relayout_data)
-    if is_reset:
-        is_memory_cat = metric_order and is_memory_metric(metric_order[0])
-
-        if not is_memory_cat:
-            return current_figure
-
+    is_memory_cat = filtered_df_store.get(
+        "is_memory_category",
+        bool(metric_order and is_memory_metric(metric_order[0])),
+    )
+    if relayout_requests_reset(relayout_data):
         df = load_cached_dataframe(cache_id)
         ensure_timestamp_datetime(df)
+        if df.empty:
+            return current_figure
 
         updated_figure = copy.deepcopy(current_figure)
         layout = updated_figure.get("layout", {})
         share_yaxis = shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+        default_x_range = filtered_df_store.get("default_x_range")
+        if default_x_range:
+            update_xaxis_ranges_in_layout(layout, default_x_range)
 
         yaxis_updates = compute_yaxis_ranges(df, metric_order, share_yaxis, is_memory_cat)
         update_yaxis_ranges_in_layout(layout, yaxis_updates)
@@ -417,12 +438,12 @@ def update_yaxis_on_zoom(relayout_data, current_figure, filtered_df_store, share
     raw_x_min, raw_x_max = xaxis_changes[first_subplot_idx]
     x_min, x_max = align_xrange_tz(raw_x_min, raw_x_max, df["timestamp"].dt.tz)
 
-    is_memory_cat = metric_order and is_memory_metric(metric_order[0])
     visible_data = filter_to_time_range(df, x_min, x_max)
 
     if visible_data.empty:
         return current_figure
 
+    update_xaxis_ranges_in_layout(layout, [raw_x_min.isoformat(), raw_x_max.isoformat()])
     yaxis_updates = compute_yaxis_ranges(visible_data, metric_order, share_yaxis, is_memory_cat)
     update_yaxis_ranges_in_layout(layout, yaxis_updates)
 

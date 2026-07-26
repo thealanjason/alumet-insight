@@ -35,7 +35,11 @@ from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import get_metric_unit, is_memory_metric
 from backend.transforms import filter_to_time_range
 from backend.utils import safe_filename
-from frontend.figures import get_color_palette
+from frontend.figures import (
+    get_color_palette,
+    relayout_requests_reset,
+    restore_axis_defaults,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -507,6 +511,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     ))
 
     yaxis_config = dict(gridcolor="rgba(76, 86, 106, 0.2)", title=y_axis_title)
+    yaxis_defaults = {"autorange": True}
 
     if is_memory_metric(metric):
         tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
@@ -514,12 +519,33 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
         yaxis_config["ticktext"] = ticktext
         yaxis_config["range"] = [y_bottom, y_top]
         yaxis_config["autorange"] = False
+        yaxis_defaults = {
+            "range": [float(y_bottom), float(y_top)],
+            "autorange": False,
+            "tickvals": list(tickvals),
+            "ticktext": list(ticktext),
+        }
+
+    default_x_start = proc_start if proc_start is not None else dff["timestamp"].min()
+    default_x_end = proc_end if proc_end is not None else dff["timestamp"].max()
+    xaxis_defaults = {
+        "range": [
+            pd.Timestamp(default_x_start).isoformat(),
+            pd.Timestamp(default_x_end).isoformat(),
+        ],
+        "autorange": False,
+    }
 
     fig.update_layout(
         hovermode="closest",
         margin=GRID_DATA_MARGIN,
-        xaxis=dict(gridcolor="rgba(76, 86, 106, 0.2)"),
+        xaxis=dict(
+            gridcolor="rgba(76, 86, 106, 0.2)",
+            range=xaxis_defaults["range"],
+            autorange=False,
+        ),
         yaxis=yaxis_config,
+        meta={"axis_defaults": {"xaxis": xaxis_defaults, "yaxis": yaxis_defaults}},
         showlegend=False,
         autosize=True,
     )
@@ -554,21 +580,26 @@ def sync_grid_plot_zoom(rd_00, rd_01, rd_10, rd_11, current_shared_range):
     if not relayout_data:
         return dash.no_update
 
+    revision = int((current_shared_range or {}).get("revision", 0)) + 1
+
+    if relayout_requests_reset(relayout_data):
+        return {"mode": "reset", "revision": revision}
+
     if "xaxis.range[0]" in relayout_data and "xaxis.range[1]" in relayout_data:
-        new_range = {"x0": relayout_data["xaxis.range[0]"], "x1": relayout_data["xaxis.range[1]"]}
+        new_range = {
+            "mode": "zoom",
+            "x0": relayout_data["xaxis.range[0]"],
+            "x1": relayout_data["xaxis.range[1]"],
+            "revision": revision,
+        }
         if (
             current_shared_range
-            and not current_shared_range.get("autorange")
+            and current_shared_range.get("mode") == "zoom"
             and current_shared_range.get("x0") == new_range["x0"]
             and current_shared_range.get("x1") == new_range["x1"]
         ):
             return dash.no_update
         return new_range
-
-    if "xaxis.autorange" in relayout_data and relayout_data["xaxis.autorange"]:
-        if current_shared_range and current_shared_range.get("autorange"):
-            return dash.no_update
-        return {"autorange": True}
 
     return dash.no_update
 
@@ -586,7 +617,7 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
     if not shared_range or not current_figures:
         return [dash.no_update] * len(current_figures) if current_figures else dash.no_update
 
-    is_autorange = shared_range.get("autorange", False)
+    is_reset = shared_range.get("mode") == "reset" or shared_range.get("autorange", False)
     updated_figures = []
 
     for fig in current_figures:
@@ -598,9 +629,18 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
         if "xaxis" not in new_fig["layout"]:
             new_fig["layout"]["xaxis"] = {}
 
-        if is_autorange:
-            new_fig["layout"]["xaxis"]["autorange"] = True
-            new_fig["layout"]["xaxis"].pop("range", None)
+        if is_reset:
+            defaults = new_fig["layout"].get("meta", {}).get("axis_defaults", {})
+            xaxis_defaults = defaults.get("xaxis")
+            if xaxis_defaults:
+                restore_axis_defaults(new_fig["layout"]["xaxis"], xaxis_defaults)
+            else:
+                new_fig["layout"]["xaxis"]["autorange"] = True
+                new_fig["layout"]["xaxis"].pop("range", None)
+
+            yaxis_defaults = defaults.get("yaxis")
+            if yaxis_defaults and "yaxis" in new_fig["layout"]:
+                restore_axis_defaults(new_fig["layout"]["yaxis"], yaxis_defaults)
         else:
             new_fig["layout"]["xaxis"]["range"] = [shared_range["x0"], shared_range["x1"]]
             new_fig["layout"]["xaxis"]["autorange"] = False

@@ -216,6 +216,45 @@ def create_all_timeseries_plots(
 
     return fig
 
+
+def relayout_requests_reset(relayout_data: dict | None) -> bool:
+    """Return True when Plotly reports an axis reset or autosize action."""
+    if not relayout_data:
+        return False
+    return any(
+        value is True and (key == "autosize" or key.endswith(".autorange"))
+        for key, value in relayout_data.items()
+    )
+
+
+def update_xaxis_ranges_in_layout(layout: dict, x_range: list) -> None:
+    """Apply one explicit X range to every Cartesian X axis in a layout."""
+    for key, axis in layout.items():
+        suffix = key.removeprefix("xaxis")
+        if key != "xaxis" and (not key.startswith("xaxis") or not suffix.isdigit()):
+            continue
+        if not isinstance(axis, dict):
+            continue
+        axis["range"] = list(x_range)
+        axis["autorange"] = False
+
+
+def restore_axis_defaults(axis: dict, defaults: dict) -> None:
+    """Restore an axis from defaults saved independently of its live range."""
+    if defaults.get("autorange", False):
+        axis["autorange"] = True
+        axis.pop("range", None)
+    else:
+        axis["range"] = list(defaults["range"])
+        axis["autorange"] = False
+
+    for key in ("tickvals", "ticktext"):
+        if key in defaults:
+            axis[key] = list(defaults[key])
+        else:
+            axis.pop(key, None)
+
+
 def update_yaxis_ranges_in_layout(
     layout: dict,
     yaxis_updates: dict,

@@ -60,6 +60,7 @@ GRID_GRAPH_CONFIG = {
     "displayModeBar": "hover",
     "displaylogo": False,
     "responsive": True,
+    "doubleClick": "autosize",
 }
 
 GRID_PLACEHOLDER_MARGIN = dict(l=40, r=12, t=28, b=22)
