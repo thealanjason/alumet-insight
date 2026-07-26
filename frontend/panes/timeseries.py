@@ -7,26 +7,30 @@ import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Input, Output, State, dcc, html
 
+from backend.categories import (
+    available_cpu_cores,
+    category_yaxis_label,
+    filter_time_series_category,
+    is_yaxis_shareable,
+)
+from backend.metrics import is_memory_metric
+from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range, get_time_range_from_df
 from frontend.app import app
 from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe
-from frontend.style import status_alert_class, apply_figure_theme, DROPDOWN_STYLE
-from frontend.layout import empty_time_series_content
-from frontend.helpers import available_category_options, parse_process_time_range_store, ensure_timestamp_datetime
 from frontend.figures import (
     create_all_timeseries_plots,
     relayout_requests_reset,
     update_xaxis_ranges_in_layout,
     update_yaxis_ranges_in_layout,
 )
-from backend.categories import available_cpu_cores, category_yaxis_label, filter_time_series_category, is_yaxis_shareable
-from backend.metrics import is_memory_metric
-from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range, get_time_range_from_df
+from frontend.helpers import available_category_options, ensure_timestamp_datetime, parse_process_time_range_store
+from frontend.layout import empty_time_series_content
+from frontend.style import DROPDOWN_STYLE, apply_figure_theme, status_alert_class
 
 
 # ---------------------------------------------------------------------------
 # Callbacks
 # ---------------------------------------------------------------------------
-
 
 
 @app.callback(
@@ -103,7 +107,9 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                         ),
                                         dcc.Checklist(
                                             id="shared-yaxis-toggle",
-                                            options=[{"label": " Share Y-axis range across subplots", "value": "shared"}],
+                                            options=[
+                                                {"label": " Share Y-axis range across subplots", "value": "shared"}
+                                            ],
                                             value=[],
                                             style={"color": "var(--app-text)", "fontSize": "0.9rem"},
                                             inputStyle={"marginRight": "8px"},
@@ -137,7 +143,6 @@ def build_time_series_tab(processed_df_data, process_time_range):
         style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
         className="viewport-card timeseries-card",
     )
-
 
 
 @app.callback(
@@ -177,7 +182,6 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     return selector_children, options, visible_style
 
 
-
 @app.callback(
     Output("yaxis-options-container", "style"),
     Output("shared-yaxis-toggle", "value"),
@@ -192,7 +196,6 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
         return {"display": "none"}, dash.no_update
 
 
-
 @app.callback(
     Output("timeseries-plot-container", "children"),
     Output("timeseries-filtered-df-store", "data"),
@@ -204,12 +207,16 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode, shared_yaxis_toggle, processed_df_data, process_time_range):
+def update_timeseries_plot(
+    selected_category, selected_cpu_core, use_light_mode, shared_yaxis_toggle, processed_df_data, process_time_range
+):
     if not processed_df_data:
         return dbc.Alert("No data available.", color="warning", className=status_alert_class("warning")), None
 
     if not selected_category:
-        return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None
+        return dbc.Alert(
+            "Please select a metric category.", color="warning", className=status_alert_class("warning")
+        ), None
 
     df_processed = df_from_store(processed_df_data)
     ensure_timestamp_datetime(df_processed)
@@ -234,21 +241,38 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     )
 
     if df_filtered.empty:
-        return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None
+        return dbc.Alert(
+            "No data available for the selected category.", color="warning", className=status_alert_class("warning")
+        ), None
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
     metric_order = df_filtered["metric_id"].unique().tolist()
 
-    share_yaxis = (
-        is_yaxis_shareable(selected_category)
-        and shared_yaxis_toggle
-        and "shared" in shared_yaxis_toggle
+    share_yaxis = is_yaxis_shareable(selected_category) and shared_yaxis_toggle and "shared" in shared_yaxis_toggle
+    fig = create_all_timeseries_plots(
+        df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis
     )
-    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
     apply_figure_theme(fig, use_light_mode)
 
-    df_for_store = df_filtered[["metric_id", "timestamp", "value"]].copy()
+    # Keep CounterDiff / derived-power metadata needed for zoom and y-axis updates.
+    df_for_store = df_filtered.copy()
+    keep_cols = [
+        c
+        for c in (
+            "metric_id",
+            "timestamp",
+            "value",
+            "interval_start",
+            "point_role",
+            "point_order",
+            "sample_id",
+            "base_metric",
+            "metric_origin",
+        )
+        if c in df_for_store.columns
+    ]
+    df_for_store = df_for_store[keep_cols]
     filtered_cache_id = cache_dataframe(df_for_store, prefix="ts_filtered") if not df_for_store.empty else None
     filtered_df_json = {
         "cache_id": filtered_cache_id,
@@ -274,10 +298,10 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
                 "displayModeBar": True,
                 "displaylogo": False,
                 "responsive": True,
-                # Always emit an autorange event\
+                # Always emit an autorange event.
                 # The callback then restores the application's explicit defaults
                 # instead of Plotly's mutable internal "initial" ranges.
-                # See issues https://github.com/plotly/plotly.js/issues/6336
+                # See https://github.com/plotly/plotly.js/issues/6336
                 "doubleClick": "autosize",
             },
         ),
@@ -292,7 +316,6 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     )
 
     return graph_component, filtered_df_json
-
 
 
 @app.callback(
@@ -354,7 +377,6 @@ def update_yaxis_on_toggle(shared_yaxis_toggle, current_figure, filtered_df_stor
 
     updated_figure["layout"] = layout
     return updated_figure
-
 
 
 @app.callback(
