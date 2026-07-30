@@ -776,12 +776,11 @@ div.rc-slider-mark-text-active {
 }
 
 #timeseries-plot-container {
-    min-height: 0;
+    height: clamp(320px, calc(100vh - 360px), 900px) !important;
+    min-height: 320px;
     overflow-x: hidden;
     overflow-y: auto !important;
     width: 100%;
-    height: auto !important;
-    max-height: none !important;
     padding: clamp(8px, 1vw, 15px) !important;
 }
 

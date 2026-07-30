@@ -462,8 +462,8 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
             xaxis=dict(title=dict(text="Time", font=dict(size=12)), gridcolor="rgba(76, 86, 106, 0.2)", domain=[0.05, 0.95]),
             yaxis=yaxis_config,
             yaxis2=yaxis2_config,
-            legend=dict(orientation="h", yanchor="top", y=-0.15, xanchor="center", x=0.5, bgcolor="rgba(59, 66, 82, 0.8)"),
-            margin=dict(b=80),
+            legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5, bgcolor="rgba(59, 66, 82, 0.8)"),
+            margin=dict(b=100),
             hovermode="x unified",
         )
 
