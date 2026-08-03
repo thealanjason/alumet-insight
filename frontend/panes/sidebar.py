@@ -10,7 +10,7 @@ from frontend.app import app
 from frontend.cache import cache_dataframe
 from frontend.style import status_alert
 from backend.data import AlumetData
-from backend.utils import find_measurement_file_in_directory
+from backend.utils import find_measurement_file_in_directory, save_upload_to_temp_dir
 
 
 # ---------------------------------------------------------------------------
@@ -50,9 +50,24 @@ def update_theme_icon(use_light_mode):
     return "bi bi-moon-stars-fill" if use_light_mode else "bi bi-sun-fill"
 
 
+@app.callback(
+    Output("upload-status", "children"),
+    Input("directory-upload", "filename"),
+)
+def update_upload_status(filenames):
+    """Show how many files were staged in the upload control (load still needs Visualize)."""
+    if not filenames:
+        return ""
+    names = [filenames] if isinstance(filenames, str) else list(filenames)
+    count = len(names)
+    return f"Selected: {count} file{'s' if count != 1 else ''}"
+
+
 # Reset
 @app.callback(
     Output("directory-path-input", "value", allow_duplicate=True),
+    Output("directory-upload", "contents"),
+    Output("directory-upload", "filename"),
     Output("processed-df-store", "data", allow_duplicate=True),
     Output("original-df-store", "data", allow_duplicate=True),
     Output("process-time-range-store", "data", allow_duplicate=True),
@@ -75,6 +90,8 @@ def reset_app(n_clicks):
         None,
         None,
         None,
+        None,
+        None,
         "Name: N/A",
         "Process ID: N/A",
         "Device: N/A",
@@ -82,11 +99,23 @@ def reset_app(n_clicks):
             "warning",
             "Ready to load",
             [
-                "Enter a directory path above, then click ",
+                "Upload an experiment folder or enter a server directory path, then click ",
                 html.Strong("Visualize"),
-                " or press Enter/Tab to load and visualize data.",
+                ".",
             ],
         ),
+    )
+
+
+def _ready_status():
+    return status_alert(
+        "warning",
+        "Ready to load",
+        [
+            "Upload an experiment folder or enter a server directory path, then click ",
+            html.Strong("Visualize"),
+            ".",
+        ],
     )
 
 
@@ -103,67 +132,62 @@ def reset_app(n_clicks):
     Input("directory-path-input", "n_submit"),
     Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
+    State("directory-upload", "contents"),
+    State("directory-upload", "filename"),
 )
-def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
+def load_and_visualize(n_clicks, n_submit, n_blur, directory_path, upload_contents, upload_filenames):
     _no_info = ("Name: N/A", "Process ID: N/A", "Device: N/A")
 
     if not any([n_clicks, n_submit, n_blur]):
-        return (
-            status_alert(
-                "warning",
-                "Ready to load",
-                [
-                    "Enter a directory path above, then click ",
-                    html.Strong("Visualize"),
-                    " or press Enter/Tab to load and visualize data.",
-                ],
-            ),
-            None,
-            None,
-            None,
-            *_no_info,
-        )
+        return (_ready_status(), None, None, None, *_no_info)
 
-    if not directory_path or not directory_path.strip():
+    has_upload = bool(upload_contents) and bool(upload_filenames)
+    has_path = bool(directory_path and directory_path.strip())
+
+    if not has_upload and not has_path:
         status_msg = status_alert(
             "danger",
             "Error:",
-            "Directory path is required. Please enter a directory path.",
+            "Provide an uploaded folder or a server directory path.",
         )
         return status_msg, None, None, None, *_no_info
 
     try:
-        dir_path = Path(directory_path.strip())
-        if not dir_path.exists():
-            status_msg = status_alert(
-                "danger",
-                "Error:",
-                f"Directory does not exist: {directory_path}",
-            )
-            return status_msg, None, None, None, *_no_info
+        if has_upload:
+            dir_path, experiment_name = save_upload_to_temp_dir(upload_contents, upload_filenames)
+        else:
+            dir_path = Path(directory_path.strip())
+            if not dir_path.exists():
+                status_msg = status_alert(
+                    "danger",
+                    "Error:",
+                    f"Directory does not exist: {directory_path}",
+                )
+                return status_msg, None, None, None, *_no_info
 
-        if not dir_path.is_dir():
-            status_msg = status_alert(
-                "danger",
-                "Error:",
-                f"Path is not a directory: {directory_path}",
-            )
-            return status_msg, None, None, None, *_no_info
+            if not dir_path.is_dir():
+                status_msg = status_alert(
+                    "danger",
+                    "Error:",
+                    f"Path is not a directory: {directory_path}",
+                )
+                return status_msg, None, None, None, *_no_info
+            experiment_name = dir_path.name or "N/A"
 
         try:
-            csv_file = find_measurement_file_in_directory(directory_path, [".csv"])
+            csv_file = find_measurement_file_in_directory(str(dir_path), [".csv"])
         except ValueError:
             csv_file = None
         if not csv_file:
             status_msg = status_alert(
                 "danger",
                 "Error:",
-                "CSV file is required. Please ensure the directory contains a .csv file.",
+                "CSV file is required. Please ensure the folder contains a .csv file.",
             )
             return status_msg, None, None, None, *_no_info
 
         t0 = time.perf_counter()
-        data = AlumetData(directory_path.strip())
+        data = AlumetData(str(dir_path))
         t_load = time.perf_counter()
 
         processed_cache_id = cache_dataframe(data.processed_df, prefix="processed")
@@ -188,7 +212,6 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
             "end": proc_end.isoformat() if proc_end else None,
         }
 
-        experiment_name = dir_path.name or "N/A"
         pid = data.pid
         device = data.device
 
