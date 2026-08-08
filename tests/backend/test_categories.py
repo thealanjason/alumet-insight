@@ -31,6 +31,37 @@ class CategoryTests(unittest.TestCase):
         energy = filter_time_series_category(df, "energy")
         self.assertTrue((energy["base_metric"] == "attributed_energy_J").any())
 
+    def test_filter_time_series_category_keeps_counterdiff_padding_rows(self):
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
+                ],
+                "base_metric": ["rapl_consumed_energy_J", "rapl_consumed_energy_J"],
+                "timestamp": [pd.Timestamp("2024-01-01")] * 2,
+                "value": [3.0, 0.0],
+                "point_role": ["observed", "synthetic"],
+                "point_order": [0, 1],
+            }
+        )
+        energy = filter_time_series_category(df, "energy")
+        self.assertEqual(len(energy), 2)
+        self.assertEqual(set(energy["point_role"]), {"observed", "synthetic"})
+
+    def test_filter_time_series_category_includes_derived_power(self):
+        df = pd.DataFrame(
+            {
+                "metric_id": ["rapl_average_power_W_R_pkg_0_C__A_"],
+                "base_metric": ["rapl_average_power_W"],
+                "timestamp": [pd.Timestamp("2024-01-01")],
+                "value": [12.0],
+            }
+        )
+        power = filter_time_series_category(df, "power")
+        self.assertEqual(len(power), 1)
+        self.assertEqual(available_category_values(df), ["power"])
+
     def test_filter_time_series_category_miscellaneous_and_utilization(self):
         df = pd.DataFrame(
             {
@@ -60,17 +91,19 @@ class CategoryTests(unittest.TestCase):
                 "metric_id": [
                     "nvml_temperature_C_R_gpu_0_C_process_1_A_",
                     "perf_hardware_INSTRUCTIONS_R_cpu_0_C_process_1_A_",
+                    "perf_cache_LL_READ_MISS_R_cpu_0_C_process_1_A_",
                     "kernel_n_procs_running_R_local__C__A_",
                     "network_rx_bytes_R_eth0__C__A_",
                 ],
                 "base_metric": [
                     "nvml_temperature_C",
                     "perf_hardware_INSTRUCTIONS",
+                    "perf_cache_LL_READ_MISS",
                     "kernel_n_procs_running",
                     "network_rx_bytes",
                 ],
-                "timestamp": pd.date_range("2024-01-01", periods=4, freq="s"),
-                "value": [70.0, 100.0, 2.0, 4096.0],
+                "timestamp": pd.date_range("2024-01-01", periods=5, freq="s"),
+                "value": [70.0, 100.0, 10.0, 2.0, 4096.0],
             }
         )
 
@@ -80,7 +113,7 @@ class CategoryTests(unittest.TestCase):
         )
         self.assertEqual(
             filter_time_series_category(df, "perf_counters")["base_metric"].tolist(),
-            ["perf_hardware_INSTRUCTIONS"],
+            ["perf_hardware_INSTRUCTIONS", "perf_cache_LL_READ_MISS"],
         )
         kernel_system = filter_time_series_category(df, "kernel_system")
         self.assertEqual(
