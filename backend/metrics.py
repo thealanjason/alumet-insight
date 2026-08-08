@@ -181,6 +181,7 @@ EXACT_COUNTERDIFF_STEMS: frozenset[str] = frozenset(
         "attributed_energy_gpu",
         "attributed_energy_gpu_total",
         "attributed_energy_total",
+        "compute_energy_total",
         "cpu_time_delta",
         "kernel_cpu_time",
         "kernel_context_switches",
@@ -219,6 +220,7 @@ EXACT_DERIVED_POWER_STEMS: frozenset[str] = frozenset(
         "attributed_power_gpu",
         "attributed_power_gpu_total",
         "attributed_power_total",
+        "compute_power_total",
         "amd_gpu_average_power",
         "grace_average_power",
     }
@@ -350,6 +352,7 @@ def derived_power_base_metric(energy_base_metric: str) -> str:
         ("attributed_energy_cpu_J", "attributed_power_cpu_W"),
         ("attributed_energy_gpu_J", "attributed_power_gpu_W"),
         ("attributed_energy_J", "attributed_power_W"),
+        ("compute_energy_total_J", "compute_power_total_W"),
         ("rapl_consumed_energy_J", "rapl_average_power_W"),
         ("rapl_consumed_energy", "rapl_average_power_W"),
         ("nvml_energy_consumption_J", "nvml_average_power_W"),
@@ -398,7 +401,11 @@ def should_derive_power_from_energy(
             for identity in available_identities
         )
 
-    return "rapl" in energy_lower or "attributed_energy" in energy_lower
+    return (
+        "rapl" in energy_lower
+        or "attributed_energy" in energy_lower
+        or "compute_energy_total" in energy_lower
+    )
 
 
 # ---------------------------------------------------------------------------
