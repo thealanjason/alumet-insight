@@ -361,6 +361,66 @@ class SynthesisTests(unittest.TestCase):
         reconstructed = float((power["value"].astype(float) * dt).sum())
         self.assertAlmostEqual(reconstructed, 26.0)
 
+    def test_attributed_total_fills_missing_side_with_zero_on_union_timeline(self):
+        """Process totals span the union window; absent GPU/CPU side counts as 0 J."""
+        t0, t1, t2, t3 = pd.date_range("2024-01-01", periods=4, freq="s")
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "attributed_energy_cpu_J_R_local_machine__C_process_5_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_5_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_5_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_5_A_domain=package_total,kind=total",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_5_A_",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_5_A_",
+                ],
+                "base_metric": (
+                    ["attributed_energy_cpu_J"] * 4 + ["attributed_energy_gpu_J"] * 2
+                ),
+                # GPU starts later and ends earlier than CPU.
+                "timestamp": [t0, t1, t2, t3, t1, t2],
+                "value": [1.0, 3.0, 5.0, 7.0, 10.0, 20.0],
+            }
+        )
+
+        totals = observed_only(synthesize_attributed_energy_total(df))
+        combined = totals.loc[
+            totals["base_metric"] == "attributed_energy_total_J"
+        ].sort_values("timestamp")
+
+        self.assertEqual(list(combined["timestamp"]), [t0, t1, t2, t3])
+        # t0: CPU-only (GPU not started → 0), t1/t2: both, t3: CPU-only (GPU ended → 0)
+        self.assertEqual(combined["value"].tolist(), [1.0, 13.0, 25.0, 7.0])
+
+    def test_compute_total_uses_overlap_window_only(self):
+        """Machine compute totals omit times before both instruments have started."""
+        t0, t1, t2, t3 = pd.date_range("2024-01-01", periods=4, freq="s")
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=package_total",
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=package_total",
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=package_total",
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=package_total",
+                    "nvml_energy_consumption_J_R_gpu_0_C_local_machine__A_",
+                    "nvml_energy_consumption_J_R_gpu_0_C_local_machine__A_",
+                ],
+                "base_metric": (
+                    ["rapl_consumed_energy_J"] * 4 + ["nvml_energy_consumption_J"] * 2
+                ),
+                # NVML starts later and ends earlier than RAPL.
+                "timestamp": [t0, t1, t2, t3, t1, t2],
+                "value": [10.0, 20.0, 30.0, 40.0, 1.0, 2.0],
+            }
+        )
+
+        energy = observed_only(synthesize_compute_energy_total(df)).sort_values("timestamp")
+        # Overlap is [t1, t2] only — not RAPL-only t0/t3 with NVML treated as 0.
+        self.assertEqual(list(energy["timestamp"]), [t1, t2])
+        self.assertEqual(energy["value"].tolist(), [21.0, 32.0])
+        self.assertNotIn(t0, set(energy["timestamp"]))
+        self.assertNotIn(t3, set(energy["timestamp"]))
+
 
 if __name__ == "__main__":
     unittest.main()

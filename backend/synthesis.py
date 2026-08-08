@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 import pandas as pd
 
@@ -156,8 +157,17 @@ def _build_aligned_sum_rows(
     *,
     left_name: str,
     right_name: str,
+    boundary: Literal["fill_zero", "overlap"] = "overlap",
 ) -> pd.DataFrame:
-    """Align two CounterDiff energy series and return timestamp/value sums."""
+    """
+    Align two CounterDiff energy series and return timestamp/value sums.
+
+    Boundary policies:
+    - ``fill_zero``: fill missing values with 0 before the first sample and after the last.
+      The total spans the union timeline. This policy is appropriate only for process-level attributed CPU+GPU totals.
+    - ``overlap``: keep only timestamps inside both series' `[first, last]` windows. Do not treat "not yet started" as zero energy since the measurement depends on the polling interval and does not necessarily mean that the machine is not consuming energy. 
+      Safer for machine-level totals since it avoids understating a missing side.
+    """
     if left.empty or right.empty:
         return pd.DataFrame(columns=["timestamp", "value"])
 
@@ -174,7 +184,28 @@ def _build_aligned_sum_rows(
             right_name: right_aligned.to_numpy(),
         }
     )
-    out.dropna(subset=[left_name, right_name], inplace=True)
+
+    if boundary == "fill_zero":
+        # Interpolator already yields 0 before the first sample; after the last
+        # it yields NaN — treat that as "no more attributed energy from this side".
+        out[left_name] = out[left_name].fillna(0.0)
+        out[right_name] = out[right_name].fillna(0.0)
+    elif boundary == "overlap":
+        left_start = pd.Timestamp(left["timestamp"].min())
+        left_end = pd.Timestamp(left["timestamp"].max())
+        right_start = pd.Timestamp(right["timestamp"].min())
+        right_end = pd.Timestamp(right["timestamp"].max())
+        in_overlap = (
+            (out["timestamp"] >= left_start)
+            & (out["timestamp"] <= left_end)
+            & (out["timestamp"] >= right_start)
+            & (out["timestamp"] <= right_end)
+        )
+        out = out.loc[in_overlap].copy()
+        out.dropna(subset=[left_name, right_name], inplace=True)
+    else:
+        raise ValueError(f"Unknown alignment boundary policy: {boundary!r}")
+
     if out.empty:
         return pd.DataFrame(columns=["timestamp", "value"])
     out["value"] = out[left_name] + out[right_name]
@@ -193,6 +224,7 @@ def _build_cpu_gpu_total_rows(
         gpu_pid,
         left_name="cpu_value",
         right_name="gpu_value",
+        boundary="fill_zero",
     )
     if total_pid.empty:
         return total_pid
@@ -223,6 +255,10 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
     Creates:
     1. `attributed_energy_gpu_total_J`: sum of attributed GPU energy across GPUs per pid.
     2. `attributed_energy_total_J`: package_total-attributed CPU + GPU total per pid.
+
+    CPU+GPU totals use the ``fill_zero`` boundary policy: a missing side (not yet
+    started or already ended) counts as 0 J so the process total covers the union
+    of CPU/GPU activity (e.g. CPU-only tail after GPU attribution stops).
     """
     observed = observed_only(df_processed)
     if observed.empty:
@@ -309,6 +345,10 @@ def synthesize_compute_energy_total(df_processed: pd.DataFrame) -> pd.DataFrame:
     Components already exist as separate Alumet series; this emits one combined
     `compute_energy_total_J` series for local_machine. DRAM/platform RAPL domains are
     intentionally excluded to avoid double-counting overlapping RAPL scopes.
+
+    RAPL+NVML totals use the ``overlap`` boundary policy: emit only while both
+    instruments have started and neither has ended. "Not yet reporting" is not
+    treated as zero GPU/CPU energy (avoids understating a missing side).
     """
     observed = observed_only(df_processed)
     if observed.empty:
@@ -340,7 +380,13 @@ def synthesize_compute_energy_total(df_processed: pd.DataFrame) -> pd.DataFrame:
 
     cpu = _sum_observed_by_timestamp(rapl_pkg[["timestamp", "value"]])
     gpu = _sum_observed_by_timestamp(nvml_machine[["timestamp", "value"]])
-    total = _build_aligned_sum_rows(cpu, gpu, left_name="cpu_value", right_name="gpu_value")
+    total = _build_aligned_sum_rows(
+        cpu,
+        gpu,
+        left_name="cpu_value",
+        right_name="gpu_value",
+        boundary="overlap",
+    )
     if total.empty:
         return pd.DataFrame(columns=observed.columns)
 
