@@ -3,7 +3,12 @@ import unittest
 import pandas as pd
 
 from backend.counterdiff import observed_only
-from backend.synthesis import synthesize_attributed_energy_total, synthesize_derived_power
+from backend.synthesis import (
+    synthesize_attributed_energy_total,
+    synthesize_derived_metrics,
+    synthesize_derived_power,
+    synthesize_compute_energy_total,
+)
 from tests.fixtures import attributed_energy_source_rows
 
 
@@ -173,38 +178,188 @@ class SynthesisTests(unittest.TestCase):
             ["nvml_average_power_W_R_gpu_1_C__A_"],
         )
 
-    def test_synthesize_totals_preserve_attribution_identity(self):
+    def test_synthesize_total_uses_package_total_cpu_and_ignores_other_domains(self):
         timestamp = pd.Timestamp("2024-01-01")
         df = pd.DataFrame(
             {
                 "metric_id": [
-                    "attributed_energy_cpu_J_R_cpu_0_C_process_7_A_user",
-                    "attributed_energy_gpu_J_R_gpu_0_C_process_7_A_user",
-                    "attributed_energy_cpu_J_R_cpu_0_C_process_7_A_system",
-                    "attributed_energy_gpu_J_R_gpu_0_C_process_7_A_system",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_7_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_7_A_domain=dram_total,kind=total",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_7_A_",
                 ],
                 "base_metric": [
                     "attributed_energy_cpu_J",
-                    "attributed_energy_gpu_J",
                     "attributed_energy_cpu_J",
                     "attributed_energy_gpu_J",
                 ],
-                "timestamp": [timestamp] * 4,
-                "value": [1.0, 2.0, 10.0, 20.0],
+                "timestamp": [timestamp] * 3,
+                "value": [1.0, 100.0, 2.0],
             }
         )
 
         totals = observed_only(synthesize_attributed_energy_total(df))
-        combined = totals[totals["base_metric"] == "attributed_energy_total_J"].set_index("metric_id")["value"]
+        combined = totals.loc[totals["base_metric"] == "attributed_energy_total_J", "value"]
+        self.assertEqual(combined.tolist(), [3.0])
+
+    def test_synthesize_total_refuses_ambiguous_cpu_late_attributes(self):
+        """Do not invent a process total by summing mixed CPU attribution tags."""
+        timestamp = pd.Timestamp("2024-01-01")
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "attributed_energy_cpu_J_R_cpu_0_C_process_7_A_kind=user",
+                    "attributed_energy_cpu_J_R_cpu_0_C_process_7_A_kind=system",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_7_A_",
+                ],
+                "base_metric": [
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_gpu_J",
+                ],
+                "timestamp": [timestamp] * 3,
+                "value": [1.0, 10.0, 2.0],
+            }
+        )
+
+        totals = observed_only(synthesize_attributed_energy_total(df))
+        self.assertNotIn("attributed_energy_total_J", set(totals["base_metric"]))
+        self.assertIn("attributed_energy_gpu_total_J", set(totals["base_metric"]))
+
+    def test_synthesize_total_joins_mismatched_rapl_and_gpu_late_attributes(self):
+        """RAPL CPU attribution tags must not block a per-process CPU+GPU total."""
+        timestamps = pd.date_range("2024-01-01", periods=2, freq="s")
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "attributed_energy_cpu_J_R_local_machine__C_process_42_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_42_A_domain=package_total,kind=total",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_42_A_",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_42_A_",
+                ],
+                "base_metric": [
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_cpu_J",
+                    "attributed_energy_gpu_J",
+                    "attributed_energy_gpu_J",
+                ],
+                "timestamp": list(timestamps) * 2,
+                "value": [1.0, 3.0, 2.0, 4.0],
+            }
+        )
+
+        totals = observed_only(synthesize_attributed_energy_total(df))
+        combined = totals.loc[
+            totals["base_metric"] == "attributed_energy_total_J"
+        ].sort_values("timestamp")
 
         self.assertEqual(
-            combined["attributed_energy_total_J_R_total__C_process_7_A_user"],
-            3.0,
+            combined["metric_id"].tolist(),
+            [
+                "attributed_energy_total_J_R_total__C_process_42_A_",
+                "attributed_energy_total_J_R_total__C_process_42_A_",
+            ],
         )
-        self.assertEqual(
-            combined["attributed_energy_total_J_R_total__C_process_7_A_system"],
-            30.0,
+        self.assertEqual(combined["__late_attributes"].tolist(), ["", ""])
+        self.assertEqual(combined["value"].tolist(), [3.0, 7.0])
+
+    def test_derived_power_matches_energy_times_interval(self):
+        """Interval-average power must satisfy sum(E) == sum(P · Δt) for derived pairs."""
+        timestamps = pd.to_datetime(
+            [
+                "2024-01-01 00:00:00",
+                "2024-01-01 00:00:02",
+                "2024-01-01 00:00:05",
+            ]
         )
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "attributed_energy_cpu_J_R_local_machine__C_process_9_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_9_A_domain=package_total,kind=total",
+                    "attributed_energy_cpu_J_R_local_machine__C_process_9_A_domain=package_total,kind=total",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_9_A_",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_9_A_",
+                    "attributed_energy_gpu_J_R_gpu_0_C_process_9_A_",
+                ],
+                "base_metric": (
+                    ["attributed_energy_cpu_J"] * 3 + ["attributed_energy_gpu_J"] * 3
+                ),
+                "timestamp": list(timestamps) * 2,
+                "value": [1.0, 3.0, 9.0, 2.0, 4.0, 10.0],
+            }
+        )
+
+        processed = observed_only(synthesize_derived_metrics(df))
+        energy = processed.loc[
+            processed["base_metric"] == "attributed_energy_total_J"
+        ].sort_values("timestamp")
+        power = processed.loc[
+            processed["base_metric"] == "attributed_power_total_W"
+        ].sort_values("timestamp")
+
+        self.assertFalse(energy.empty)
+        self.assertFalse(power.empty)
+        self.assertEqual(len(power), len(energy) - 1)
+
+        energy_after_first = energy["value"].astype(float).iloc[1:].to_numpy()
+        dt = (
+            pd.to_datetime(power["timestamp"]) - pd.to_datetime(power["interval_start"])
+        ).dt.total_seconds().to_numpy()
+        reconstructed = power["value"].astype(float).to_numpy() * dt
+
+        self.assertTrue((dt > 0).all())
+        self.assertAlmostEqual(float(energy_after_first.sum()), float(reconstructed.sum()))
+        for expected_e, got_e in zip(energy_after_first, reconstructed):
+            self.assertAlmostEqual(float(expected_e), float(got_e))
+
+    def test_synthesize_compute_energy_and_power_from_rapl_package_total_and_nvml(self):
+        timestamps = pd.date_range("2024-01-01", periods=2, freq="s")
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=package_total",
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=package_total",
+                    "rapl_consumed_energy_J_R_local_machine__C_local_machine__A_domain=dram_total",
+                    "nvml_energy_consumption_J_R_gpu_0_C_local_machine__A_",
+                    "nvml_energy_consumption_J_R_gpu_0_C_local_machine__A_",
+                    "nvml_energy_consumption_J_R_gpu_1_C_local_machine__A_",
+                    "nvml_energy_consumption_J_R_gpu_1_C_local_machine__A_",
+                ],
+                "base_metric": (
+                    ["rapl_consumed_energy_J"] * 3
+                    + ["nvml_energy_consumption_J"] * 4
+                ),
+                "timestamp": [
+                    timestamps[0],
+                    timestamps[1],
+                    timestamps[0],
+                    timestamps[0],
+                    timestamps[1],
+                    timestamps[0],
+                    timestamps[1],
+                ],
+                "value": [10.0, 20.0, 1000.0, 1.0, 2.0, 3.0, 4.0],
+            }
+        )
+
+        energy = observed_only(synthesize_compute_energy_total(df)).sort_values("timestamp")
+        self.assertEqual(energy["base_metric"].unique().tolist(), ["compute_energy_total_J"])
+        # DRAM must not be included: (10+1+3)=14 and (20+2+4)=26
+        self.assertEqual(energy["value"].tolist(), [14.0, 26.0])
+
+        processed = observed_only(synthesize_derived_metrics(df))
+        power = processed.loc[
+            processed["base_metric"] == "compute_power_total_W"
+        ].sort_values("timestamp")
+        self.assertFalse(power.empty)
+        # Second interval: 26 J / 1 s
+        self.assertAlmostEqual(float(power["value"].iloc[0]), 26.0)
+
+        dt = (
+            pd.to_datetime(power["timestamp"]) - pd.to_datetime(power["interval_start"])
+        ).dt.total_seconds()
+        reconstructed = float((power["value"].astype(float) * dt).sum())
+        self.assertAlmostEqual(reconstructed, 26.0)
 
 
 if __name__ == "__main__":
