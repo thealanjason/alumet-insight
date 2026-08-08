@@ -11,7 +11,7 @@ As shown in the screenshot, the procedure to setup an experiment for exploration
 > 
 > To run the dashboard successfully, the input configuration directory should contain an `alumet-config-<experiment>.toml` file and the resulting `alumet-agent-<experiment>.log` and `alumet-output-<experiment>.csv` files. Examples can be found [here](https://github.com/thealanjason/energy_measurement/tree/main/measurement_tools/alumet/experiments)
 
-2. Click **Visualize** (or press Enter/Tab in the path field).
+2. Click **Visualize** (or press Enter in the path field).
 
 A **Status** message will be shown to give you the hint whether the experiment is loaded successfully or not. The **Experiment Summary** provides information about experiment name, process ID, device type.
 
