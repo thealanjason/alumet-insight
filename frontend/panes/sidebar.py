@@ -8,6 +8,7 @@ from pathlib import Path
 
 from frontend.app import app
 from frontend.cache import cache_dataframe
+from frontend.layout import LOAD_SOURCE_PATH, LOAD_SOURCE_UPLOAD
 from frontend.style import status_alert
 from backend.data import AlumetData
 from backend.utils import find_measurement_file_in_directory, save_upload_to_temp_dir
@@ -51,6 +52,20 @@ def update_theme_icon(use_light_mode):
 
 
 @app.callback(
+    Output("upload-source-panel", "style"),
+    Output("path-source-panel", "style"),
+    Input("load-source-mode", "value"),
+)
+def toggle_load_source_panels(mode):
+    """Show only the active load method to keep the sidebar compact."""
+    show = {"display": "block"}
+    hide = {"display": "none"}
+    if mode == LOAD_SOURCE_UPLOAD:
+        return show, hide
+    return hide, show
+
+
+@app.callback(
     Output("upload-status", "children"),
     Input("directory-upload", "filename"),
 )
@@ -61,6 +76,41 @@ def update_upload_status(filenames):
     names = [filenames] if isinstance(filenames, str) else list(filenames)
     count = len(names)
     return f"Selected: {count} file{'s' if count != 1 else ''}"
+
+
+def _ready_status(load_mode=None):
+    if load_mode == LOAD_SOURCE_UPLOAD:
+        detail = [
+            "Upload an experiment folder above, then click ",
+            html.Strong("Visualize"),
+            ".",
+        ]
+    elif load_mode == LOAD_SOURCE_PATH:
+        detail = [
+            "Enter a server directory path above, then click ",
+            html.Strong("Visualize"),
+            " or press Enter.",
+        ]
+    else:
+        detail = [
+            "Choose Upload folder or Server path, then click ",
+            html.Strong("Visualize"),
+            ".",
+        ]
+    return status_alert("warning", "Ready to load", detail)
+
+
+@app.callback(
+    Output("status-message", "children", allow_duplicate=True),
+    Input("load-source-mode", "value"),
+    State("processed-df-store", "data"),
+    prevent_initial_call=True,
+)
+def update_ready_hint_on_mode_switch(load_mode, processed_df):
+    """Refresh the ready hint when switching source; never clear loaded data."""
+    if processed_df:
+        raise dash.exceptions.PreventUpdate
+    return _ready_status(load_mode)
 
 
 # Reset
@@ -77,9 +127,10 @@ def update_upload_status(filenames):
     Output("device-display", "children", allow_duplicate=True),
     Output("status-message", "children", allow_duplicate=True),
     Input("reset-button", "n_clicks"),
+    State("load-source-mode", "value"),
     prevent_initial_call=True,
 )
-def reset_app(n_clicks):
+def reset_app(n_clicks, load_mode):
     """Reset the application to its initial state."""
     if n_clicks == 0:
         raise dash.exceptions.PreventUpdate
@@ -95,19 +146,7 @@ def reset_app(n_clicks):
         "Name: N/A",
         "Process ID: N/A",
         "Device: N/A",
-        _ready_status(),
-    )
-
-
-def _ready_status():
-    return status_alert(
-        "warning",
-        "Ready to load",
-        [
-            "Upload an experiment folder or enter a server directory path, then click ",
-            html.Strong("Visualize"),
-            " or press Enter to load and visualize data.",
-        ],
+        _ready_status(load_mode),
     )
 
 
@@ -124,29 +163,51 @@ def _ready_status():
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
     Input("directory-path-input", "n_submit"),
+    State("load-source-mode", "value"),
     State("directory-path-input", "value"),
     State("directory-upload", "contents"),
     State("directory-upload", "filename"),
 )
-def load_and_visualize(n_clicks, n_submit, directory_path, upload_contents, upload_filenames):
+def load_and_visualize(
+    n_clicks,
+    n_submit,
+    load_mode,
+    directory_path,
+    upload_contents,
+    upload_filenames,
+):
     _no_info = ("Name: N/A", "Process ID: N/A", "Device: N/A")
+    triggered = dash.callback_context.triggered_id
 
-    if not any([n_clicks, n_submit]):
-        return (_ready_status(), None, None, None, *_no_info)
+    if triggered is None or not any([n_clicks, n_submit]):
+        return (_ready_status(load_mode), None, None, None, *_no_info)
 
+    # Enter in the path field should only load while Server path is active.
+    if triggered == "directory-path-input" and load_mode != LOAD_SOURCE_PATH:
+        raise dash.exceptions.PreventUpdate
+
+    use_upload = load_mode == LOAD_SOURCE_UPLOAD
     has_upload = bool(upload_contents) and bool(upload_filenames)
     has_path = bool(directory_path and directory_path.strip())
 
-    if not has_upload and not has_path:
+    if use_upload and not has_upload:
         status_msg = status_alert(
             "danger",
             "Error:",
-            "Provide an uploaded folder or a server directory path.",
+            "Upload an experiment folder, then click Visualize.",
+        )
+        return status_msg, None, None, None, *_no_info
+
+    if not use_upload and not has_path:
+        status_msg = status_alert(
+            "danger",
+            "Error:",
+            "Enter a server directory path, then click Visualize.",
         )
         return status_msg, None, None, None, *_no_info
 
     try:
-        if has_upload:
+        if use_upload:
             dir_path, experiment_name = save_upload_to_temp_dir(upload_contents, upload_filenames)
         else:
             dir_path = Path(directory_path.strip())

@@ -7,6 +7,9 @@ from dash import dcc, html
 
 from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLOR_LOADING
 
+LOAD_SOURCE_UPLOAD = "upload"
+LOAD_SOURCE_PATH = "path"
+
 
 def empty_time_series_content():
     """Keep time-series callback targets mounted before data is loaded."""
@@ -139,42 +142,98 @@ def create_layout(app):
                                     dbc.CardHeader("Configuration Setup"),
                                     dbc.CardBody(
                                         [
-                                            html.Label(
-                                                [
-                                                    "Upload Experiment Folder ",
-                                                    html.Span("(local filesystem)", className="sidebar-label-optional"),
+                                            dbc.RadioItems(
+                                                id="load-source-mode",
+                                                options=[
+                                                    {
+                                                        "label": "Upload folder",
+                                                        "value": LOAD_SOURCE_UPLOAD,
+                                                    },
+                                                    {
+                                                        "label": "Server path",
+                                                        "value": LOAD_SOURCE_PATH,
+                                                    },
                                                 ],
-                                                className="sidebar-label",
+                                                # Default Server path; remember the user's last choice.
+                                                # No hostname guessing — local vs SSH-tunneled remote
+                                                # both look like localhost and cannot be distinguished.
+                                                value=LOAD_SOURCE_PATH,
+                                                persistence=True,
+                                                persistence_type="local",
+                                                inline=True,
+                                                className="sidebar-source-toggle",
                                             ),
-                                            dcc.Upload(
-                                                id="directory-upload",
-                                                children=html.Div(
-                                                    [
-                                                        "Drag and drop a folder, or ",
-                                                        html.A("browse"),
-                                                    ],
-                                                    className="sidebar-upload-text",
-                                                ),
-                                                multiple=True,
-                                                enable_folder_selection=True,
-                                                accept=".csv,.log,.txt,.toml",
-                                                className="sidebar-upload",
-                                            ),
-                                            html.Div(id="upload-status", className="sidebar-upload-status"),
-                                            html.Div("or", className="sidebar-or-divider"),
-                                            html.Label(
-                                                [
-                                                    "Directory Path ",
-                                                    html.Span("(server filesystem)", className="sidebar-label-optional"),
+                                            html.Div(
+                                                id="upload-source-panel",
+                                                className="sidebar-source-panel",
+                                                style={"display": "none"},
+                                                children=[
+                                                    html.Label(
+                                                        [
+                                                            "Experiment folder ",
+                                                            html.Span(
+                                                                "(browser / local files)",
+                                                                className="sidebar-label-optional",
+                                                            ),
+                                                        ],
+                                                        className="sidebar-label",
+                                                    ),
+                                                    dcc.Upload(
+                                                        id="directory-upload",
+                                                        children=html.Div(
+                                                            [
+                                                                html.Div(
+                                                                    html.I(className="bi bi-folder2-open"),
+                                                                    className="sidebar-upload-icon",
+                                                                ),
+                                                                html.Div(
+                                                                    [
+                                                                        "Drop a folder here, or ",
+                                                                        html.A("browse"),
+                                                                    ],
+                                                                    className="sidebar-upload-text",
+                                                                ),
+                                                                html.Div(
+                                                                    ".csv, .log/.txt, optional .toml",
+                                                                    className="sidebar-upload-hint",
+                                                                ),
+                                                            ],
+                                                            className="sidebar-upload-inner",
+                                                        ),
+                                                        multiple=True,
+                                                        enable_folder_selection=True,
+                                                        accept=".csv,.log,.txt,.toml",
+                                                        className="sidebar-upload",
+                                                    ),
+                                                    html.Div(
+                                                        id="upload-status",
+                                                        className="sidebar-upload-status",
+                                                    ),
                                                 ],
-                                                className="sidebar-label",
                                             ),
-                                            dcc.Input(
-                                                id="directory-path-input",
-                                                type="text",
-                                                placeholder="Server path with .csv, .log/.txt, and .toml files",
-                                                debounce=True,
-                                                className="sidebar-input",
+                                            html.Div(
+                                                id="path-source-panel",
+                                                className="sidebar-source-panel",
+                                                style={"display": "block"},
+                                                children=[
+                                                    html.Label(
+                                                        [
+                                                            "Directory path ",
+                                                            html.Span(
+                                                                "(server filesystem)",
+                                                                className="sidebar-label-optional",
+                                                            ),
+                                                        ],
+                                                        className="sidebar-label",
+                                                    ),
+                                                    dcc.Input(
+                                                        id="directory-path-input",
+                                                        type="text",
+                                                        placeholder="Path with .csv, .log/.txt, and .toml",
+                                                        debounce=True,
+                                                        className="sidebar-input",
+                                                    ),
+                                                ],
                                             ),
                                             html.Hr(className="sidebar-hr"),
                                             dbc.Row(

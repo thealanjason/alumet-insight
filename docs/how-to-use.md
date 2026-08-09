@@ -6,12 +6,15 @@
 
 As shown in the screenshot, the procedure to setup an experiment for exploration and analysis is as follows:
 
-1. Enter the path to an Alumet experiment directory in **Directory Path**.
+1. In **Configuration Setup**, choose how to load the experiment with the segmented control:
+   - **Server path** (default) — enter a directory path on the machine running the dashboard.
+   - **Upload folder** — drag-and-drop or browse an experiment folder from your local machine.
+   
 > [!IMPORTANT] 
 > 
 > To run the dashboard successfully, the input configuration directory should contain an `alumet-config-<experiment>.toml` file and the resulting `alumet-agent-<experiment>.log` and `alumet-output-<experiment>.csv` files. Examples can be found [here](https://github.com/thealanjason/energy_measurement/tree/main/measurement_tools/alumet/experiments)
 
-2. Click **Visualize** (or press Enter in the path field).
+2. Click **Visualize** (or press Enter in the server path field).
 
 A **Status** message will be shown to give you the hint whether the experiment is loaded successfully or not. The **Experiment Summary** provides information about experiment name, process ID, device type.
 

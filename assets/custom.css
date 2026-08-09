@@ -216,23 +216,74 @@ body[data-bs-theme="light"] {
     font-weight: 400;
 }
 
-.app-shell .sidebar-or-divider {
+/* Compact segmented control: Upload folder | Server path */
+.app-shell .sidebar-source-toggle {
+    background-color: var(--app-control-bg);
+    border: 1px solid var(--app-border);
+    border-radius: 10px;
+    display: flex;
+    gap: 3px;
+    margin: 0 0 14px;
+    padding: 3px;
+    width: 100%;
+}
+
+.app-shell .sidebar-source-toggle .form-check,
+.app-shell .sidebar-source-toggle .form-check-inline {
+    flex: 1 1 0;
+    margin: 0 !important;
+    min-width: 0;
+    padding: 0 !important;
+}
+
+.app-shell .sidebar-source-toggle .form-check-input {
+    position: absolute;
+    clip: rect(0, 0, 0, 0);
+    pointer-events: none;
+}
+
+.app-shell .sidebar-source-toggle .form-check-label {
+    background: transparent;
+    border-radius: 8px;
     color: var(--app-text-muted);
-    font-size: 0.8rem;
+    cursor: pointer;
+    display: block;
+    font-size: 0.82rem;
     font-weight: 600;
-    letter-spacing: 0.08rem;
-    margin: 12px 0 10px;
+    letter-spacing: 0.01em;
+    line-height: 1.25;
+    margin: 0;
+    padding: 8px 6px;
     text-align: center;
-    text-transform: uppercase;
+    transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+    user-select: none;
+    width: 100%;
+}
+
+.app-shell .sidebar-source-toggle .form-check-label:hover {
+    background-color: var(--app-control-bg-hover);
+    color: var(--app-text);
+}
+
+.app-shell .sidebar-source-toggle .form-check-input:checked + .form-check-label,
+.app-shell .sidebar-source-toggle .form-check-input:checked ~ .form-check-label,
+.app-shell .sidebar-source-toggle .form-check:has(.form-check-input:checked) .form-check-label {
+    background-color: var(--app-accent);
+    box-shadow: 0 1px 2px var(--app-shadow);
+    color: #ffffff;
+}
+
+.app-shell .sidebar-source-panel {
+    min-height: 0;
 }
 
 .app-shell .sidebar-upload {
     background-color: var(--app-control-bg) !important;
-    border: 2px dashed var(--app-accent) !important;
+    border: 1.5px dashed var(--app-accent) !important;
     border-radius: 8px;
     color: var(--app-text) !important;
     cursor: pointer;
-    padding: 14px 12px;
+    padding: 12px 10px;
     text-align: center;
     transition: background-color 200ms ease, border-color 200ms ease, color 200ms ease;
     width: 100%;
@@ -240,17 +291,38 @@ body[data-bs-theme="light"] {
 
 .app-shell .sidebar-upload:hover {
     background-color: var(--app-control-bg-hover) !important;
+    border-color: var(--app-accent-soft) !important;
+}
+
+.app-shell .sidebar-upload-inner {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.app-shell .sidebar-upload-icon {
+    color: var(--app-accent-soft);
+    font-size: 1.25rem;
+    line-height: 1;
 }
 
 .app-shell .sidebar-upload-text {
     color: var(--app-text-muted);
-    font-size: 0.9rem;
-    line-height: 1.4;
+    font-size: 0.88rem;
+    line-height: 1.35;
 }
 
 .app-shell .sidebar-upload-text a {
     color: var(--app-accent-soft);
     text-decoration: underline;
+}
+
+.app-shell .sidebar-upload-hint {
+    color: var(--app-text-muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+    opacity: 0.85;
 }
 
 .app-shell .sidebar-upload-status {
