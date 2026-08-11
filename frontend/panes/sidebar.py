@@ -84,13 +84,15 @@ def reset_app(n_clicks):
             [
                 "Enter a directory path above, then click ",
                 html.Strong("Visualize"),
-                " or press Enter/Tab to load and visualize data.",
+                " or press Enter to load and visualize data.",
             ],
         ),
     )
 
 
-# Load, visualize, and update process info
+# Load, visualize, and update process info.
+# Do not listen to directory-path-input n_blur: leaving the field to click a
+# results tab (or any other control) would re-run a full AlumetData load.
 @app.callback(
     Output("status-message", "children"),
     Output("processed-df-store", "data"),
@@ -101,13 +103,12 @@ def reset_app(n_clicks):
     Output("device-display", "children"),
     Input("visualize-button", "n_clicks"),
     Input("directory-path-input", "n_submit"),
-    Input("directory-path-input", "n_blur"),
     State("directory-path-input", "value"),
 )
-def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
+def load_and_visualize(n_clicks, n_submit, directory_path):
     _no_info = ("Name: N/A", "Process ID: N/A", "Device: N/A")
 
-    if not any([n_clicks, n_submit, n_blur]):
+    if not any([n_clicks, n_submit]):
         return (
             status_alert(
                 "warning",
@@ -115,7 +116,7 @@ def load_and_visualize(n_clicks, n_submit, n_blur, directory_path):
                 [
                     "Enter a directory path above, then click ",
                     html.Strong("Visualize"),
-                    " or press Enter/Tab to load and visualize data.",
+                    " or press Enter to load and visualize data.",
                 ],
             ),
             None,
