@@ -398,7 +398,10 @@ def should_derive_power_from_energy(
             for identity in available_identities
         )
 
-    return "rapl" in energy_lower or "attributed_energy" in energy_lower
+    return (
+        "rapl" in energy_lower
+        or "attributed_energy" in energy_lower
+    )
 
 
 # ---------------------------------------------------------------------------
