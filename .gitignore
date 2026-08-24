@@ -8,3 +8,4 @@ dist/
 results/
 .idea/
 .DS_Store
+.env

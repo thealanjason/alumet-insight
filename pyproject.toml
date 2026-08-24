@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "alumet-insight"
-version = "0.1.0"
+version = "0.1.2"
 description = "Explore and visualize Alumet-agent measurement outputs via dashboard and CLI."
 readme = "README.md"
 license = { file = "LICENSE" }
