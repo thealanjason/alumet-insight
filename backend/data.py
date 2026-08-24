@@ -2,12 +2,14 @@
 Data loading and preprocessing.
 """
 
+from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 import polars as pl
-from typing import Optional
-from pathlib import Path
 
-from backend.synthesis import synthesize_attributed_energy_total
+from backend.metrics import mark_as_measured
+from backend.synthesis import synthesize_derived_metrics
 from backend.transforms import (
     get_process_time_range_from_df,
     get_time_range_from_df,
@@ -83,7 +85,10 @@ def load_csv_from_path(csv_path: Path) -> pd.DataFrame:
 
 def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Preprocess dataframe to have metric_id, base_metric, timestamp, and value columns.
+    Preprocess dataframe into the canonical processed schema.
+
+    Preserves metric / resource / consumer / late-attribute identity columns and
+    attaches measured-origin semantic metadata once at the preprocessing boundary.
     """
     df_pl = pl.from_pandas(df)
 
@@ -104,11 +109,23 @@ def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
             col_exprs["__late_attributes"]
         ).alias("metric_id"),
         col_exprs["metric"].alias("base_metric"),
+        col_exprs["metric"].alias("metric"),
+        col_exprs["resource_kind"].alias("resource_kind"),
+        col_exprs["resource_id"].alias("resource_id"),
+        col_exprs["consumer_kind"].alias("consumer_kind"),
+        col_exprs["consumer_id"].alias("consumer_id"),
+        col_exprs["__late_attributes"].alias("__late_attributes"),
         pl.col("timestamp"),
         pl.col("value"),
-    ])
+        ]
+    )
 
-    return result_pl.to_pandas()
+    return mark_as_measured(result_pl.to_pandas())
+
+
+def finalize_processed_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Expand CounterDiff rows and synthesize derived energy/power metrics."""
+    return synthesize_derived_metrics(df)
 
 
 class AlumetData:
@@ -139,10 +156,7 @@ class AlumetData:
 
         # _df_source: non-SI units rescaled to SI and metric names updated — done once here
         self._df_source = normalize_to_si(load_csv_from_path(self._csv_path), col="metric")
-        self._df_processed = preprocess_dataframe_for_visualization(self._df_source)
-        synthetic = synthesize_attributed_energy_total(self._df_processed)
-        if not synthetic.empty:
-            self._df_processed = pd.concat([self._df_processed, synthetic], ignore_index=True)
+        self._df_processed = finalize_processed_dataframe(preprocess_dataframe_for_visualization(self._df_source))
 
     # ==========
     # Properties
@@ -199,6 +213,5 @@ class AlumetData:
 
     @property
     def processed_df(self) -> pd.DataFrame:
-        """The preprocessed DataFrame (metric_id, base_metric, timestamp, value)."""
+        """Processed measurements, point metadata, and synthesized metric rows."""
         return self._df_processed.copy()
-
