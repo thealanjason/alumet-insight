@@ -163,6 +163,43 @@ class ProcessSpecificTests(unittest.TestCase):
         self.assertFalse(figure.layout.yaxis.autorange)
         self.assertEqual(list(figure.layout.yaxis.ticktext), defaults["yaxis"]["ticktext"])
 
+    def test_grid_color_follows_metric(self):
+        timestamps = pd.date_range("2024-01-01", periods=3, freq="s")
+        df = pd.DataFrame(
+            {
+                "timestamp": list(timestamps) * 2,
+                "metric": ["attributed_energy_J"] * 3 + ["rapl_consumption_J"] * 3,
+                "value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                "resource_kind": ["cpu"] * 6,
+                "resource_id": ["0"] * 6,
+                "consumer_kind": ["process"] * 6,
+                "consumer_id": ["10"] * 6,
+                "__late_attributes": [""] * 6,
+            }
+        )
+        process_range = {
+            "start": timestamps[0].isoformat(),
+            "end": timestamps[-1].isoformat(),
+        }
+        kwargs = dict(
+            rk="cpu",
+            rid="0",
+            ck="process",
+            cid="10",
+            la=None,
+            use_light_mode=False,
+            original_df_data=df.to_dict("records"),
+            process_time_range=process_range,
+        )
+
+        energy_a = update_grid_plot_match(metric="attributed_energy_J", my_id={"index": "0-0"}, **kwargs)
+        energy_b = update_grid_plot_match(metric="attributed_energy_J", my_id={"index": "1-1"}, **kwargs)
+        rapl = update_grid_plot_match(metric="rapl_consumption_J", my_id={"index": "0-1"}, **kwargs)
+
+        self.assertEqual(energy_a.data[0].line.color, energy_b.data[0].line.color)
+        self.assertEqual(energy_a.data[0].marker.color, energy_a.data[0].line.color)
+        self.assertNotEqual(energy_a.data[0].line.color, rapl.data[0].line.color)
+
     def test_grid_reset_restores_each_figure_axis_defaults(self):
         memory_figure = {
             "layout": {

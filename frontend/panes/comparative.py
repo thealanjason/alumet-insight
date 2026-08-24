@@ -11,7 +11,7 @@ from dash import Input, Output, State, ctx, dcc, html
 from frontend.app import app
 from frontend.cache import df_from_store
 from frontend.helpers import parse_process_time_range_store, ensure_timestamp_datetime
-from frontend.style import apply_figure_theme, DROPDOWN_STYLE, CARD_STYLE
+from frontend.style import apply_figure_theme, plot_pair_colors, DROPDOWN_STYLE, CARD_STYLE
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import (
@@ -333,8 +333,9 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
 
     show_scatter = scatter_toggle and "scatter" in scatter_toggle
 
-    color_x = "#88C0D0"
-    color_y = "#FF6B6B"
+    accents = plot_pair_colors(use_light_mode)
+    color_x = accents["x"]
+    color_y = accents["y"]
 
     hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
 
@@ -345,7 +346,12 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
                 y=dfxy["y"],
                 mode="markers",
                 name="Data Points",
-                marker=dict(color="#FF8C42", size=10, opacity=0.85, line=dict(width=1, color="#FFFFFF")),
+                marker=dict(
+                    color=accents["scatter"],
+                    size=10,
+                    opacity=0.85,
+                    line=dict(width=1, color=accents["marker_line"]),
+                ),
                 hovertemplate=(
                     "<b>Time:</b> %{customdata}<br>"
                     f"<b>{x_abbrev}:</b> %{{x:.4f}}<br>"
@@ -383,8 +389,8 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
                 x=dfxy["x_cumsum"],
                 y=dfxy["y_cumsum"],
                 mode="lines+markers",
-                line=dict(color="#A3BE8C", width=2),
-                marker=dict(color="#A3BE8C", size=6),
+                line=dict(color=accents["cumulative"], width=2),
+                marker=dict(color=accents["cumulative"], size=6),
                 hovertemplate=(
                     "<b>Time:</b> %{customdata}<br>"
                     f"<b>Cumulative {x_abbrev}:</b> %{{x:.4f}}<br>"

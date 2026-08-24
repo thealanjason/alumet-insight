@@ -13,6 +13,43 @@ COLOR_PRIMARY = "#5E81AC"   # primary action button (Visualize)
 COLOR_DANGER  = "#BF616A"   # destructive action button (Reset)
 COLOR_LOADING = "#88C0D0"   # loading spinner
 
+# Same hue order in both themes so a series keeps its identity when the mode switches. 
+# PLOT_COLORS_DARK keeps the current Plotly qualitative look
+# PLOT_COLORS_LIGHT uses darker counterparts that stay readable on white.
+PLOT_COLORS_DARK = (
+    "#636EFA",
+    "#EF553B",
+    "#00CC96",
+    "#AB63FA",
+    "#FFA15A",
+    "#19D3F3",
+    "#FF6692",
+    "#B6E880",
+    "#FF97FF",
+    "#FECB52",
+    "#88C0D0",
+    "#EBCB8B",
+    "#D08770",
+    "#B48EAD",
+)
+
+PLOT_COLORS_LIGHT = (
+    "#3D4ED8",
+    "#C73E2A",
+    "#0A8F6C",
+    "#7B3FD4",
+    "#D97706",
+    "#0E8AAA",
+    "#C43D6E",
+    "#4F7D3B",
+    "#A21CAF",
+    "#B45309",
+    "#3E6B8F",
+    "#A36A00",
+    "#B85C38",
+    "#7E5693",
+)
+
 
 # ---------------------------------------------------------------------------
 # Component style dicts
@@ -104,6 +141,35 @@ def status_alert(
 # ---------------------------------------------------------------------------
 # Figure theming
 # ---------------------------------------------------------------------------
+
+def plot_color_palette(use_light_mode: bool = False) -> tuple[str, ...]:
+    """Return the qualitative series colors for the active theme."""
+    return PLOT_COLORS_LIGHT if use_light_mode else PLOT_COLORS_DARK
+
+
+def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
+    """Accent colors for comparative dual-axis, scatter, and cumulative plots."""
+    if use_light_mode:
+        return {
+            "x": "#3E6B8F",
+            "y": "#C73E2A",
+            "scatter": "#D97706",
+            "cumulative": "#4F7D3B",
+            "marker_line": "#1F2937",
+        }
+    return {
+        "x": "#88C0D0",
+        "y": "#FF6B6B",
+        "scatter": "#FF8C42",
+        "cumulative": "#A3BE8C",
+        "marker_line": "#FFFFFF",
+    }
+
+
+def process_active_fill(use_light_mode: bool = False) -> str:
+    """Shaded process-window fill that stays visible on both backgrounds."""
+    return "rgba(62, 107, 143, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"
+
 
 def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
     """Apply the dashboard theme colors to Plotly figures."""

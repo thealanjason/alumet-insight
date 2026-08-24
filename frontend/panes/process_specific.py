@@ -29,6 +29,7 @@ from frontend.style import (
     STYLE_HIDDEN,
     STYLE_VISIBLE,
     apply_figure_theme,
+    set_plotly_rgba,
     status_alert_class,
 )
 from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
@@ -38,7 +39,7 @@ from backend.metrics import get_metric_unit, is_memory_metric
 from backend.transforms import _padded_range, align_xrange_tz, filter_to_time_range
 from backend.utils import safe_filename
 from frontend.figures import (
-    get_color_palette,
+    color_for_metric,
     relayout_requests_reset,
     restore_axis_defaults,
 )
@@ -578,15 +579,9 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     is_memory = is_memory_metric(metric)
     y_bottom, y_top = _padded_range(y_min, y_max, clamp_zero=is_memory)
 
-    colors = get_color_palette(100)
-    idx_str = my_id.get("index", "0-0")
-    color = colors[abs(hash(idx_str)) % len(colors)]
-
-    rgba_fill = "rgba(136, 192, 208, 0.15)"
-    if isinstance(color, str) and color.startswith("#"):
-        h = color.lstrip("#")
-        r, g, b = (int(h[k:k+2], 16) for k in (0, 2, 4))
-        rgba_fill = f"rgba({r}, {g}, {b}, 0.15)"
+    metric_order = sorted(df["metric"].dropna().astype(str).unique().tolist()) if "metric" in df.columns else []
+    color = color_for_metric(str(metric), use_light_mode, metric_order)
+    rgba_fill = set_plotly_rgba(color)
 
     unit = get_metric_unit(metric)
     y_axis_title = f"Value ({unit})" if unit else "Value"

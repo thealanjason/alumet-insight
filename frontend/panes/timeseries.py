@@ -253,7 +253,15 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
         and shared_yaxis_toggle
         and "shared" in shared_yaxis_toggle
     )
-    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
+    fig = create_all_timeseries_plots(
+        df_filtered,
+        proc_start,
+        proc_end,
+        full_time_range,
+        category=selected_category,
+        share_yaxis=share_yaxis,
+        use_light_mode=use_light_mode,
+    )
     apply_figure_theme(fig, use_light_mode)
 
     df_for_store = df_filtered[["metric_id", "timestamp", "value"]].copy()
