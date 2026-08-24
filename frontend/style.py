@@ -81,27 +81,24 @@ def status_alert(
     detail=None,
     *,
     icon: str | None = None,
-    detail_style: dict | None = None,
 ):
-    """Build a sidebar status alert with title and detail on separate lines."""
-    title_row = []
+    """Build a sidebar status alert."""
+    line = []
     if icon:
-        title_row.append(icon)
+        line.append(icon)
     if isinstance(title, str):
-        title_row.append(html.Strong(title))
+        line.append(html.Strong(title))
     else:
-        title_row.extend(title)
-
-    children = [html.Div(title_row, className="status-alert-title")]
+        line.extend(title)
     if detail is not None:
-        children.append(
-            html.Div(
-                detail,
-                className="status-alert-detail",
-                style=detail_style or {},
-            )
-        )
-    return dbc.Alert(children, color=color, className=status_alert_class(color))
+        if line:
+            line.append(" ")
+        line.append(html.Span(detail, className="status-alert-detail"))
+    return dbc.Alert(
+        html.Div(line, className="status-alert-line"),
+        color=color,
+        className=status_alert_class(color),
+    )
 
 
 # ---------------------------------------------------------------------------

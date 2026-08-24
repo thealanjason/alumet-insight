@@ -6,11 +6,66 @@ import base64
 import re
 import tempfile
 import warnings
+import pandas as pd
+
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-
 ALLOWED_UPLOAD_SUFFIXES = {".csv", ".log", ".txt", ".toml"}
+
+
+def normalize_upload_filenames(
+    filenames: str | Sequence[str] | None,
+) -> list[str]:
+    """Normalize upload filenames to a list of strings."""
+    if not filenames:
+        return []
+    if isinstance(filenames, str):
+        return [filenames]
+    return [name for name in filenames if name]
+
+
+def folder_from_upload_paths(
+    filenames: str | Sequence[str] | None,
+) -> str | None:
+    """Return the top-level folder from relative paths, or None if only basenames."""
+    for name in normalize_upload_filenames(filenames):
+        parts = Path(name).parts
+        if len(parts) >= 2 and parts[0] not in {".", ".."}:
+            return parts[0]
+    return None
+
+
+def experiment_name_from_upload_filenames(
+    filenames: str | Sequence[str] | None,
+) -> str:
+    """Same rule as server path: folder name, or N/A when it is unknown."""
+    return folder_from_upload_paths(filenames) or "N/A"
+
+
+def prefer_relative_upload_paths(
+    filenames: str | Sequence[str] | None,
+    relative_paths: str | Sequence[str] | None,
+) -> list[str]:
+    """
+    Attach folder prefixes from webkitRelativePath onto Dash's accepted files.
+
+    The browser FileList can include every file in the folder; Dash ``contents``
+    only keeps accepted suffixes. Never return a longer list than ``filenames``.
+    """
+    dash_names = normalize_upload_filenames(filenames)
+    rel_names = normalize_upload_filenames(relative_paths)
+    if not dash_names:
+        return []
+    if not folder_from_upload_paths(rel_names):
+        return dash_names
+    if len(rel_names) == len(dash_names):
+        return rel_names
+
+    rel_by_basename: dict[str, str] = {}
+    for rel in rel_names:
+        rel_by_basename[Path(rel).name] = rel
+    return [rel_by_basename.get(Path(name).name, name) for name in dash_names]
 
 
 def save_upload_to_temp_dir(
@@ -29,16 +84,11 @@ def save_upload_to_temp_dir(
         raise ValueError("No files were uploaded.")
 
     content_list = [contents] if isinstance(contents, str) else list(contents)
-    name_list = [filenames] if isinstance(filenames, str) else list(filenames)
+    name_list = normalize_upload_filenames(filenames)
     if len(content_list) != len(name_list):
         raise ValueError("Uploaded contents and filenames are out of sync.")
 
-    first_components = {
-        Path(name).parts[0]
-        for name in name_list
-        if name and Path(name).parts
-    }
-    experiment_name = next(iter(first_components)) if len(first_components) == 1 else "uploaded"
+    experiment_name = experiment_name_from_upload_filenames(name_list)
 
     target_dir = Path(tempfile.mkdtemp(prefix="alumet_upload_"))
     written = 0
@@ -135,14 +185,14 @@ _GPU_METRIC_PATTERN = re.compile(r"nvml", re.IGNORECASE)
 _CPU_METRIC_PATTERN = re.compile(r"rapl|cpu|kernel|perf|mem", re.IGNORECASE)
 
 
-def is_gpu_from_metrics(df: "pd.DataFrame") -> bool:
+def is_gpu_from_metrics(df: pd.DataFrame) -> bool:
     """Detect GPU presence from metric names in the processed dataframe."""
     if df.empty or "base_metric" not in df.columns:
         return False
     return df["base_metric"].str.contains(_GPU_METRIC_PATTERN).any()
 
 
-def is_cpu_from_metrics(df: "pd.DataFrame") -> bool:
+def is_cpu_from_metrics(df: pd.DataFrame) -> bool:
     """Detect CPU presence from metric names in the processed dataframe."""
     if df.empty or "base_metric" not in df.columns:
         return False

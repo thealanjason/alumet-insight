@@ -9,6 +9,36 @@ from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLO
 
 LOAD_SOURCE_UPLOAD = "upload"
 LOAD_SOURCE_PATH = "path"
+SOURCE_FILE_HINT = ".csv, .log/.txt, and .toml"
+
+
+def upload_prompt_children():
+    """Compact drop-zone contents to keep the same height as the server-path input."""
+    return html.Div(
+        [
+            html.Div(html.I(className="bi bi-folder2-open"), className="sidebar-upload-icon"),
+            html.Div(
+                [
+                    "Drop / browse a folder with ",
+                    html.Span(SOURCE_FILE_HINT),
+                ],
+                className="sidebar-upload-text",
+            ),
+        ],
+        className="sidebar-upload-inner",
+    )
+
+
+def upload_selected_children(experiment_name: str):
+    """Replace the drop zone with the uploaded folder name only."""
+    return html.Div(
+        [
+            html.Div(html.I(className="bi bi-folder2-open"), className="sidebar-upload-icon"),
+            html.Div(experiment_name, className="sidebar-upload-name"),
+        ],
+        className="sidebar-upload-inner sidebar-upload-inner-selected",
+        title="Click to replace folder",
+    )
 
 
 def empty_time_series_content():
@@ -131,7 +161,7 @@ def create_layout(app):
                                         className="sidebar-title",
                                     ),
                                     html.P(
-                                        "Turn Alumet measurements into insight — analyze process-specific energy, power, and resource usage faster.",
+                                        "Turn Alumet measurements into insight: analyze process-specific energy, power, and resource usage faster.",
                                         className="sidebar-description",
                                     ),
                                 ],
@@ -180,34 +210,11 @@ def create_layout(app):
                                                     ),
                                                     dcc.Upload(
                                                         id="directory-upload",
-                                                        children=html.Div(
-                                                            [
-                                                                html.Div(
-                                                                    html.I(className="bi bi-folder2-open"),
-                                                                    className="sidebar-upload-icon",
-                                                                ),
-                                                                html.Div(
-                                                                    [
-                                                                        "Drop a folder here, or ",
-                                                                        html.A("browse"),
-                                                                    ],
-                                                                    className="sidebar-upload-text",
-                                                                ),
-                                                                html.Div(
-                                                                    ".csv, .log/.txt, optional .toml",
-                                                                    className="sidebar-upload-hint",
-                                                                ),
-                                                            ],
-                                                            className="sidebar-upload-inner",
-                                                        ),
+                                                        children=upload_prompt_children(),
                                                         multiple=True,
                                                         enable_folder_selection=True,
                                                         accept=".csv,.log,.txt,.toml",
                                                         className="sidebar-upload",
-                                                    ),
-                                                    html.Div(
-                                                        id="upload-status",
-                                                        className="sidebar-upload-status",
                                                     ),
                                                 ],
                                             ),
@@ -229,13 +236,12 @@ def create_layout(app):
                                                     dcc.Input(
                                                         id="directory-path-input",
                                                         type="text",
-                                                        placeholder="Path with .csv, .log/.txt, and .toml",
+                                                        placeholder=f"Path with {SOURCE_FILE_HINT}",
                                                         debounce=True,
                                                         className="sidebar-input",
                                                     ),
                                                 ],
                                             ),
-                                            html.Hr(className="sidebar-hr"),
                                             dbc.Row(
                                                 [
                                                     dbc.Col(
@@ -281,7 +287,6 @@ def create_layout(app):
                                                 ],
                                                 className="g-2 sidebar-action-row",
                                             ),
-                                            html.Hr(className="sidebar-hr"),
                                             html.Div("Status", className="sidebar-section-label"),
                                             dcc.Loading(
                                                 id="loading-status",
@@ -386,6 +391,7 @@ def create_layout(app):
                 className="g-0",
             ),
             # Hidden stores for data
+            dcc.Store(id="upload-relative-paths", data=None),
             dcc.Store(id="processed-df-store", data=None),
             dcc.Store(id="original-df-store", data=None),
             dcc.Store(id="process-time-range-store", data=None),
