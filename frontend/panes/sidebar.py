@@ -251,9 +251,9 @@ def load_and_visualize(
         return status_msg, None, None, None, *_no_info
 
 
-# Tab visibility and process-specific viewport sizing (see assets/process_grid_layout.js)
+# Tab visibility and viewport sizing (see assets/tab_panel_layout.js)
 app.clientside_callback(
-    ClientsideFunction(namespace="process_grid", function_name="toggleTabPanels"),
+    ClientsideFunction(namespace="tab_panel", function_name="toggleTabPanels"),
     Output("time-series-content", "style"),
     Output("process-specific-content", "style"),
     Output("comparative-content", "style"),
@@ -261,7 +261,9 @@ app.clientside_callback(
 )
 
 app.clientside_callback(
-    ClientsideFunction(namespace="process_grid", function_name="afterGridBuild"),
-    Output("process-grid-layout-ts", "data"),
+    ClientsideFunction(namespace="tab_panel", function_name="afterTabBuild"),
+    Output("tab-panel-layout-ts", "data"),
+    Input("time-series-content", "children"),
     Input("process-specific-content", "children"),
+    Input("comparative-content", "children"),
 )

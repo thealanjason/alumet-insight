@@ -10,6 +10,15 @@ from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLO
 LOAD_SOURCE_UPLOAD = "upload"
 LOAD_SOURCE_PATH = "path"
 SOURCE_FILE_HINT = ".csv, .log/.txt, and .toml"
+TAB_PANEL_VISIBLE = {
+    "display": "flex",
+    "flexDirection": "column",
+    "marginTop": "4px",
+    "minHeight": 0,
+    "flex": "1 1 0",
+    "overflow": "hidden",
+}
+TAB_PANEL_HIDDEN = {"display": "none", "marginTop": "4px"}
 
 
 def upload_prompt_children():
@@ -59,6 +68,7 @@ def empty_time_series_content():
                         id="yaxis-options-container",
                     ),
                     html.Div(id="timeseries-plot-container"),
+                    html.Div(id="timeseries-process-legend", style={"display": "none"}),
                 ],
                 style={"display": "none"},
             ),
@@ -354,19 +364,19 @@ def create_layout(app):
                                             id="time-series-content",
                                             children=empty_time_series_content(),
                                             className="tab-panel-scroll",
-                                            style={"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0},
+                                            style=TAB_PANEL_VISIBLE,
                                         ),
                                         html.Div(
                                             id="process-specific-content",
                                             children=empty_process_specific_content(),
                                             className="tab-panel-scroll",
-                                            style={"display": "none", "marginTop": "10px"},
+                                            style=TAB_PANEL_HIDDEN,
                                         ),
                                         html.Div(
                                             id="comparative-content",
                                             children=empty_comparative_content(),
                                             className="tab-panel-scroll",
-                                            style={"display": "none", "marginTop": "10px"},
+                                            style=TAB_PANEL_HIDDEN,
                                         ),
                                     ],
                                     style={
@@ -397,8 +407,8 @@ def create_layout(app):
             dcc.Store(id="process-time-range-store", data=None),
             dcc.Store(id="timeseries-filtered-df-store", data=None),
             dcc.Store(id="grid-shared-xrange-store", data=None),
-            # Dummy store: clientside afterGridBuild writes here to re-sync grid height after tab build.
-            dcc.Store(id="process-grid-layout-ts", data=None),
+            # Dummy store: clientside afterTabBuild writes here to re-sync panel height after tab build.
+            dcc.Store(id="tab-panel-layout-ts", data=None),
         ],
         style={
             "backgroundColor": "var(--app-main-bg)",

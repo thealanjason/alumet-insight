@@ -98,96 +98,107 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
         [
             dbc.CardBody(
                 [
-                    dbc.Row(
+                    html.Div(
                         [
-                            dbc.Col(
+                            dbc.Row(
                                 [
-                                    html.Label(
-                                        "Metric 1 (X-axis / Left Y-axis):",
-                                        style={"color": "var(--app-text)", "fontWeight": "600"},
+                                    dbc.Col(
+                                        [
+                                            html.Label(
+                                                "Metric 1 (X-axis / Left Y-axis):",
+                                                style={"color": "var(--app-text)", "fontWeight": "600"},
+                                            ),
+                                            dcc.Dropdown(
+                                                id="ps-xmetric-dropdown",
+                                                options=[{"label": m, "value": m} for m in metric_ids],
+                                                value=metric_ids[0],
+                                                clearable=False,
+                                                persistence=True,
+                                                className="dark-dropdown",
+                                                style=DROPDOWN_STYLE,
+                                            ),
+                                        ],
+                                        width=12,
+                                        lg=6,
+                                        className="mb-3",
                                     ),
-                                    dcc.Dropdown(
-                                        id="ps-xmetric-dropdown",
-                                        options=[{"label": m, "value": m} for m in metric_ids],
-                                        value=metric_ids[0],
-                                        clearable=False,
-                                        persistence=True,
-                                        className="dark-dropdown",
-                                        style=DROPDOWN_STYLE,
+                                    dbc.Col(
+                                        [
+                                            html.Label(
+                                                "Metric 2 (Y-axis / Right Y-axis):",
+                                                style={"color": "var(--app-text)", "fontWeight": "600"},
+                                            ),
+                                            dcc.Dropdown(
+                                                id="ps-ymetric-dropdown",
+                                                options=[{"label": m, "value": m} for m in metric_ids],
+                                                value=metric_ids[1],
+                                                clearable=False,
+                                                persistence=True,
+                                                className="dark-dropdown",
+                                                style=DROPDOWN_STYLE,
+                                            ),
+                                        ],
+                                        width=12,
+                                        lg=6,
+                                        className="mb-3",
                                     ),
-                                ],
-                                width=12,
-                                lg=6,
-                                className="mb-3",
+                                ]
                             ),
-                            dbc.Col(
+                            dbc.Row(
                                 [
-                                    html.Label(
-                                        "Metric 2 (Y-axis / Right Y-axis):",
-                                        style={"color": "var(--app-text)", "fontWeight": "600"},
-                                    ),
-                                    dcc.Dropdown(
-                                        id="ps-ymetric-dropdown",
-                                        options=[{"label": m, "value": m} for m in metric_ids],
-                                        value=metric_ids[1],
-                                        clearable=False,
-                                        persistence=True,
-                                        className="dark-dropdown",
-                                        style=DROPDOWN_STYLE,
+                                    dbc.Col(
+                                        [
+                                            dbc.Checklist(
+                                                id="comparative-process-only-toggle",
+                                                options=[{"label": " Process metrics only", "value": "process_only"}],
+                                                value=[],
+                                                inline=True,
+                                                style={"color": "var(--app-text)", "fontSize": "0.9rem"},
+                                                inputStyle={"marginRight": "8px"},
+                                            ),
+                                        ],
+                                        width=12,
+                                        className="mb-2",
                                     ),
                                 ],
-                                width=12,
-                                lg=6,
-                                className="mb-3",
                             ),
-                        ]
-                    ),
-                    dbc.Row(
-                        [
-                            dbc.Col(
+                            dbc.Row(
                                 [
-                                    dbc.Checklist(
-                                        id="comparative-process-only-toggle",
-                                        options=[{"label": " Process metrics only", "value": "process_only"}],
-                                        value=[],
-                                        inline=True,
-                                        style={"color": "var(--app-text)", "fontSize": "0.9rem"},
-                                        inputStyle={"marginRight": "8px"},
+                                    dbc.Col(
+                                        [html.Div(id="comparative-mode-info", style={"marginBottom": "10px"})],
+                                        width=12,
+                                        lg=8,
+                                        className="mb-2",
+                                    ),
+                                    dbc.Col(
+                                        [
+                                            dbc.Checklist(
+                                                id="scatter-toggle",
+                                                options=[{"label": " Show Scatter Plot (X-Y relationship)", "value": "scatter"}],
+                                                value=[],
+                                                inline=True,
+                                                style={"color": "var(--app-text)", "fontSize": "0.9rem"},
+                                                inputStyle={"marginRight": "8px"},
+                                            ),
+                                        ],
+                                        width=12,
+                                        lg=4,
+                                        className="mb-2",
+                                        style={"textAlign": "right"},
                                     ),
                                 ],
-                                width=12,
-                                className="mb-2",
                             ),
                         ],
+                        className="comparative-controls",
                     ),
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                [html.Div(id="comparative-mode-info", style={"marginBottom": "10px"})],
-                                width=12,
-                                lg=8,
-                                className="mb-2",
-                            ),
-                            dbc.Col(
-                                [
-                                    dbc.Checklist(
-                                        id="scatter-toggle",
-                                        options=[{"label": " Show Scatter Plot (X-Y relationship)", "value": "scatter"}],
-                                        value=[],
-                                        inline=True,
-                                        style={"color": "var(--app-text)", "fontSize": "0.9rem"},
-                                        inputStyle={"marginRight": "8px"},
-                                    ),
-                                ],
-                                width=12,
-                                lg=4,
-                                className="mb-2",
-                                style={"textAlign": "right"},
-                            ),
-                        ],
-                        className="mb-2",
+                    html.Div(
+                        dcc.Graph(
+                            id="ps-xy-graph",
+                            style={"height": "100%", "width": "100%"},
+                            config={"responsive": True, "displaylogo": False},
+                        ),
+                        className="comparative-plot-area",
                     ),
-                    dcc.Graph(id="ps-xy-graph", style={"height": "100%"}),
                     html.Div(
                         [
                             dbc.Button(
@@ -196,14 +207,13 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                 n_clicks=0,
                                 color="primary",
                                 size="sm",
-                                style={"marginTop": "10px"},
                             ),
                             dcc.Download(id="xy-download"),
                         ],
-                        style={"textAlign": "right", "marginTop": "5px"},
+                        className="comparative-download",
                     ),
                 ],
-                style={"padding": "25px", "backgroundColor": "var(--app-card-bg)"},
+                style={"backgroundColor": "var(--app-card-bg)"},
                 className="viewport-card-body comparative-card-body",
             )
         ],
@@ -288,7 +298,7 @@ def update_comparative_metric_dropdowns(process_only_toggle, tab_value, processe
 )
 def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range):
     fig = go.Figure()
-    fig.update_layout(margin=dict(l=70, r=70, t=60, b=60))
+    fig.update_layout(margin=dict(l=70, r=70, t=60, b=60), autosize=True)
     apply_figure_theme(fig, use_light_mode)
 
     if not processed_df_data or not process_time_range or not x_metric_id or not y_metric_id:

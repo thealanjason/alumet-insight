@@ -1,5 +1,7 @@
+import base64
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from frontend.panes.process_specific import (
@@ -154,9 +156,11 @@ class ProcessSpecificTests(unittest.TestCase):
         )
 
         defaults = figure.layout.meta["axis_defaults"]
+        self.assertTrue(figure.layout.meta["is_memory"])
         self.assertEqual(list(figure.layout.xaxis.range), defaults["xaxis"]["range"])
         self.assertFalse(figure.layout.xaxis.autorange)
         self.assertEqual(list(figure.layout.yaxis.range), defaults["yaxis"]["range"])
+        self.assertFalse(figure.layout.yaxis.autorange)
         self.assertEqual(list(figure.layout.yaxis.ticktext), defaults["yaxis"]["ticktext"])
 
     def test_grid_reset_restores_each_figure_axis_defaults(self):
@@ -185,25 +189,32 @@ class ProcessSpecificTests(unittest.TestCase):
                 },
             }
         }
-        automatic_figure = {
+        energy_figure = {
+            "data": [
+                {
+                    "x": ["2024-01-01T00:00:00", "2024-01-01T00:00:01", "2024-01-01T00:00:02"],
+                    "y": [10.0, 20.0, 100.0],
+                }
+            ],
             "layout": {
                 "xaxis": {"range": ["zoom-start", "zoom-end"], "autorange": False},
-                "yaxis": {"range": [10, 20], "autorange": False},
+                "yaxis": {"range": [5, 110], "autorange": False},
                 "meta": {
+                    "is_memory": False,
                     "axis_defaults": {
                         "xaxis": {
                             "range": ["process-start", "process-end"],
                             "autorange": False,
                         },
-                        "yaxis": {"autorange": True},
-                    }
+                        "yaxis": {"range": [1.0, 109.0], "autorange": False},
+                    },
                 },
-            }
+            },
         }
 
         updated = apply_shared_xrange_to_grid_plots(
             {"mode": "reset", "revision": 1},
-            [memory_figure, automatic_figure],
+            [memory_figure, energy_figure],
         )
 
         for figure in updated:
@@ -218,9 +229,84 @@ class ProcessSpecificTests(unittest.TestCase):
         self.assertFalse(memory_yaxis["autorange"])
         self.assertEqual(memory_yaxis["ticktext"], ["6.05 GB", "6.33 GB"])
 
-        automatic_yaxis = updated[1]["layout"]["yaxis"]
-        self.assertTrue(automatic_yaxis["autorange"])
-        self.assertNotIn("range", automatic_yaxis)
+        energy_yaxis = updated[1]["layout"]["yaxis"]
+        self.assertEqual(energy_yaxis["range"], [1.0, 109.0])
+        self.assertFalse(energy_yaxis["autorange"])
+
+    def test_grid_zoom_scales_yaxis_to_visible_points(self):
+        figure = {
+            "data": [
+                {
+                    "x": ["2024-01-01T00:00:00", "2024-01-01T00:00:01", "2024-01-01T00:00:02"],
+                    "y": [10.0, 20.0, 100.0],
+                }
+            ],
+            "layout": {
+                "xaxis": {"range": ["2024-01-01T00:00:00", "2024-01-01T00:00:02"], "autorange": False},
+                "yaxis": {"range": [1.0, 109.0], "autorange": False},
+                "meta": {
+                    "is_memory": False,
+                    "axis_defaults": {
+                        "xaxis": {
+                            "range": ["2024-01-01T00:00:00", "2024-01-01T00:00:02"],
+                            "autorange": False,
+                        },
+                        "yaxis": {"range": [1.0, 109.0], "autorange": False},
+                    },
+                },
+            },
+        }
+
+        zoomed = apply_shared_xrange_to_grid_plots(
+            {"mode": "zoom", "x0": "2024-01-01T00:00:00", "x1": "2024-01-01T00:00:01", "revision": 1},
+            [figure],
+        )[0]
+
+        self.assertEqual(
+            zoomed["layout"]["xaxis"]["range"],
+            ["2024-01-01T00:00:00", "2024-01-01T00:00:01"],
+        )
+        y_min, y_max = zoomed["layout"]["yaxis"]["range"]
+        self.assertAlmostEqual(y_min, 9.0)
+        self.assertAlmostEqual(y_max, 21.0)
+        self.assertFalse(zoomed["layout"]["yaxis"]["autorange"])
+
+        reset = apply_shared_xrange_to_grid_plots(
+            {"mode": "reset", "revision": 2},
+            [zoomed],
+        )[0]
+        self.assertEqual(reset["layout"]["yaxis"]["range"], [1.0, 109.0])
+
+    def test_grid_zoom_decodes_plotly_bdata_arrays(self):
+        y = np.array([10.0, 20.0, 100.0], dtype="f8")
+        x = pd.date_range("2024-01-01", periods=3, freq="s")
+        figure = {
+            "data": [
+                {
+                    "x": {
+                        "dtype": "i8",
+                        "bdata": base64.b64encode(x.asi8.tobytes()).decode("ascii"),
+                    },
+                    "y": {
+                        "dtype": "f8",
+                        "bdata": base64.b64encode(y.tobytes()).decode("ascii"),
+                    },
+                }
+            ],
+            "layout": {
+                "xaxis": {"range": ["2024-01-01T00:00:00", "2024-01-01T00:00:02"], "autorange": False},
+                "yaxis": {"range": [1.0, 109.0], "autorange": False},
+                "meta": {"is_memory": False, "axis_defaults": {"yaxis": {"range": [1.0, 109.0], "autorange": False}}},
+            },
+        }
+
+        zoomed = apply_shared_xrange_to_grid_plots(
+            {"mode": "zoom", "x0": "2024-01-01T00:00:00", "x1": "2024-01-01T00:00:01", "revision": 1},
+            [figure],
+        )[0]
+        y_min, y_max = zoomed["layout"]["yaxis"]["range"]
+        self.assertAlmostEqual(y_min, 9.0)
+        self.assertAlmostEqual(y_max, 21.0)
 
 
 if __name__ == "__main__":

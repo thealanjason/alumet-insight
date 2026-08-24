@@ -866,18 +866,14 @@ div.rc-slider-mark-text-active {
 }
 
 #time-series-content,
-#comparative-content {
-    flex: 0 0 auto;
-    min-height: 0;
-    overflow: visible;
-}
-
+#comparative-content,
 #process-specific-content {
     display: flex;
     flex: 1 1 0;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    width: 100%;
 }
 
 .viewport-card,
@@ -885,46 +881,101 @@ div.rc-slider-mark-text-active {
     display: flex;
     flex-direction: column;
     min-height: 0;
-    overflow: visible;
+    overflow: hidden;
 }
 
 .viewport-card-body {
     padding: clamp(14px, 1.5vw, 25px) !important;
 }
 
-.time-series-controls {
+.time-series-controls,
+.comparative-controls {
     flex: 0 0 auto;
-    margin-bottom: clamp(10px, 1.6vh, 20px) !important;
+    margin-bottom: clamp(6px, 1vh, 12px) !important;
+}
+
+.timeseries-process-legend {
+    align-items: center;
+    color: var(--app-text);
+    display: flex;
+    flex: 0 0 auto;
+    font-size: 0.85rem;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: clamp(4px, 0.8vh, 8px);
+}
+
+.timeseries-process-legend-swatch {
+    background: rgba(136, 192, 208, 0.4);
+    border: 1px solid rgba(136, 192, 208, 0.7);
+    border-radius: 2px;
+    display: inline-block;
+    flex: 0 0 auto;
+    height: 12px;
+    width: 16px;
 }
 
 #timeseries-plot-container {
-    height: clamp(320px, calc(100vh - 360px), 900px) !important;
-    min-height: 320px;
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    height: auto !important;
+    min-height: 0;
     overflow-x: hidden;
     overflow-y: auto !important;
     width: 100%;
     padding: clamp(8px, 1vw, 15px) !important;
 }
 
-.comparative-card-body #ps-xy-graph {
-    flex: 1 1 auto;
+.comparative-plot-area {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
     min-height: 0;
+    overflow: hidden;
+    width: 100%;
+}
+
+.comparative-plot-area #ps-xy-graph,
+.comparative-plot-area .js-plotly-plot,
+.comparative-plot-area .plotly,
+.comparative-plot-area .plot-container {
+    flex: 1 1 0;
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    width: 100% !important;
+}
+
+.comparative-download {
+    flex: 0 0 auto;
+    margin-top: 2px;
+    text-align: right;
 }
 
 /* ---- Process-specific 2x2 viewport grid ---- */
-.process-grid-card {
+.process-grid-card,
+.timeseries-card,
+.comparative-card {
     flex: 1 1 0;
     min-height: 0;
     height: 100%;
     max-height: 100%;
+    margin-bottom: 0 !important;
     overflow: hidden;
+    width: 100%;
+}
+
+.process-grid-card-body,
+.timeseries-card .viewport-card-body,
+.comparative-card-body {
+    flex: 1 1 0;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
 }
 
 .process-grid-card-body {
-    flex: 1 1 0;
-    min-height: 0;
-    height: 100%;
-    max-height: 100%;
     padding: clamp(6px, 0.8vw, 10px) !important;
 }
 

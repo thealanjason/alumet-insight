@@ -67,8 +67,8 @@ def create_all_timeseries_plots(
     colors = get_color_palette(n_metrics)
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
 
-    MIN_SUBPLOT_HEIGHT = 240
-    SUBPLOT_GAP_PX = 52
+    MIN_SUBPLOT_HEIGHT = 175
+    SUBPLOT_GAP_PX = 40
     total_height = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
     vertical_spacing = (SUBPLOT_GAP_PX / total_height) if n_metrics > 1 else 0.05
 
@@ -100,20 +100,6 @@ def create_all_timeseries_plots(
                 line=dict(width=0),
                 layer="below",
             )
-        fig.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode="markers",
-                marker=dict(size=10, color="rgba(136, 192, 208, 0.4)", symbol="square"),
-                name="Process Active",
-                showlegend=True,
-                legendgroup="process_active",
-            ),
-            row=1,
-            col=1,
-        )
-
     df_sorted = df_processed.sort_values(["metric_id", "timestamp"])
     grouped = {mid: grp for mid, grp in df_sorted.groupby("metric_id", observed=True, sort=False)}
 
@@ -196,21 +182,14 @@ def create_all_timeseries_plots(
 
     fig.update_layout(
         height=total_height,
-        title=dict(text="<b>📈 Time series of all metrics</b>", x=0.5, font=dict(size=16)),
         paper_bgcolor="rgba(46, 52, 64, 0.95)",
         plot_bgcolor="rgba(59, 66, 82, 0.7)",
         font=dict(color="#d8dee9"),
         hovermode="closest",
-        margin=dict(l=50, r=20, t=60, b=40),
+        margin=dict(l=50, r=20, t=36, b=36),
         autosize=True,
         width=None,
-        showlegend=True,
-        legend=dict(
-            bgcolor="rgba(46, 52, 64, 0.8)",
-            bordercolor="rgba(136, 192, 208, 0.3)",
-            borderwidth=1,
-            font=dict(color="#d8dee9"),
-        ),
+        showlegend=False,
     )
     fig.update_xaxes(type="date", rangeslider=dict(visible=False), row=n_metrics, col=1)
 
