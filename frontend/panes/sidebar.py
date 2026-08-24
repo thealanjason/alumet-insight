@@ -251,7 +251,7 @@ def load_and_visualize(
         return status_msg, None, None, None, *_no_info
 
 
-# Tab visibility and viewport sizing (see assets/tab_panel_layout.js)
+# Tab visibility and viewport sizing (see frontend/assets/tab_panel_layout.js)
 app.clientside_callback(
     ClientsideFunction(namespace="tab_panel", function_name="toggleTabPanels"),
     Output("time-series-content", "style"),
