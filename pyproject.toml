@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "alumet-insight"
+version = "0.1.2"
+description = "Explore and visualize Alumet-agent measurement outputs via dashboard and CLI."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Alumet Insight contributors" },
+]
+keywords = ["alumet", "energy", "visualization", "dashboard", "metrics"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "polars",
+    "pyarrow",
+    "dash",
+    "dash-ag-grid",
+    "dash-bootstrap-components",
+    "toml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+# TestPyPI only for `uv publish --index testpypi`.
+# `explicit = true` keeps normal resolve/build on PyPI (see https://docs.astral.sh/uv/guides/package/#publishing-your-package).
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
+
+[project.urls]
+Homepage = "https://github.com/thealanjason/alumet-insight"
+Documentation = "https://github.com/thealanjason/alumet-insight/blob/main/docs/how-to-use.md"
+Repository = "https://github.com/thealanjason/alumet-insight"
+Issues = "https://github.com/thealanjason/alumet-insight/issues"
+
+[project.scripts]
+alumet-insight = "alumet_insight:main"
+
+[tool.setuptools]
+py-modules = ["alumet_insight", "dashboard", "cli", "cli_branding"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["backend*", "frontend*"]
+exclude = ["tests*", "results*", "docs*", "images*"]
+
+[tool.setuptools.package-data]
+frontend = ["assets/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

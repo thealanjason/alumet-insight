@@ -7,6 +7,48 @@ from dash import dcc, html
 
 from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLOR_LOADING
 
+LOAD_SOURCE_UPLOAD = "upload"
+LOAD_SOURCE_PATH = "path"
+SOURCE_FILE_HINT = ".csv, .log/.txt, and .toml"
+TAB_PANEL_VISIBLE = {
+    "display": "flex",
+    "flexDirection": "column",
+    "marginTop": "4px",
+    "minHeight": 0,
+    "flex": "1 1 0",
+    "overflow": "hidden",
+}
+TAB_PANEL_HIDDEN = {"display": "none", "marginTop": "4px"}
+
+
+def upload_prompt_children():
+    """Compact drop-zone contents to keep the same height as the server-path input."""
+    return html.Div(
+        [
+            html.Div(html.I(className="bi bi-folder2-open"), className="sidebar-upload-icon"),
+            html.Div(
+                [
+                    "Drop / browse a folder with ",
+                    html.Span(SOURCE_FILE_HINT),
+                ],
+                className="sidebar-upload-text",
+            ),
+        ],
+        className="sidebar-upload-inner",
+    )
+
+
+def upload_selected_children(experiment_name: str):
+    """Replace the drop zone with the uploaded folder name only."""
+    return html.Div(
+        [
+            html.Div(html.I(className="bi bi-folder2-open"), className="sidebar-upload-icon"),
+            html.Div(experiment_name, className="sidebar-upload-name"),
+        ],
+        className="sidebar-upload-inner sidebar-upload-inner-selected",
+        title="Click to replace folder",
+    )
+
 
 def empty_time_series_content():
     """Keep time-series callback targets mounted before data is loaded."""
@@ -26,6 +68,7 @@ def empty_time_series_content():
                         id="yaxis-options-container",
                     ),
                     html.Div(id="timeseries-plot-container"),
+                    html.Div(id="timeseries-process-legend", style={"display": "none"}),
                 ],
                 style={"display": "none"},
             ),
@@ -128,7 +171,7 @@ def create_layout(app):
                                         className="sidebar-title",
                                     ),
                                     html.P(
-                                        "Turn Alumet measurements into insight — analyze process-specific energy, power, and resource usage faster.",
+                                        "Turn Alumet measurements into insight: analyze process-specific energy, power, and resource usage faster.",
                                         className="sidebar-description",
                                     ),
                                 ],
@@ -139,21 +182,76 @@ def create_layout(app):
                                     dbc.CardHeader("Configuration Setup"),
                                     dbc.CardBody(
                                         [
-                                            html.Label(
-                                                [
-                                                    "Directory Path ",
-                                                    html.Span("(Required)", className="sidebar-label-required"),
+                                            dbc.RadioItems(
+                                                id="load-source-mode",
+                                                options=[
+                                                    {
+                                                        "label": "Upload folder",
+                                                        "value": LOAD_SOURCE_UPLOAD,
+                                                    },
+                                                    {
+                                                        "label": "Server path",
+                                                        "value": LOAD_SOURCE_PATH,
+                                                    },
                                                 ],
-                                                className="sidebar-label",
+                                                # Default Server path; remember the user's last choice.
+                                                # No hostname guessing — local vs SSH-tunneled remote
+                                                # both look like localhost and cannot be distinguished.
+                                                value=LOAD_SOURCE_PATH,
+                                                persistence=True,
+                                                persistence_type="local",
+                                                inline=True,
+                                                className="sidebar-source-toggle",
                                             ),
-                                            dcc.Input(
-                                                id="directory-path-input",
-                                                type="text",
-                                                placeholder="Path containing .csv, .log/.txt, and .toml files",
-                                                debounce=True,
-                                                className="sidebar-input",
+                                            html.Div(
+                                                id="upload-source-panel",
+                                                className="sidebar-source-panel",
+                                                style={"display": "none"},
+                                                children=[
+                                                    html.Label(
+                                                        [
+                                                            "Experiment folder ",
+                                                            html.Span(
+                                                                "(browser / local files)",
+                                                                className="sidebar-label-optional",
+                                                            ),
+                                                        ],
+                                                        className="sidebar-label",
+                                                    ),
+                                                    dcc.Upload(
+                                                        id="directory-upload",
+                                                        children=upload_prompt_children(),
+                                                        multiple=True,
+                                                        enable_folder_selection=True,
+                                                        accept=".csv,.log,.txt,.toml",
+                                                        className="sidebar-upload",
+                                                    ),
+                                                ],
                                             ),
-                                            html.Hr(className="sidebar-hr"),
+                                            html.Div(
+                                                id="path-source-panel",
+                                                className="sidebar-source-panel",
+                                                style={"display": "block"},
+                                                children=[
+                                                    html.Label(
+                                                        [
+                                                            "Directory path ",
+                                                            html.Span(
+                                                                "(server filesystem)",
+                                                                className="sidebar-label-optional",
+                                                            ),
+                                                        ],
+                                                        className="sidebar-label",
+                                                    ),
+                                                    dcc.Input(
+                                                        id="directory-path-input",
+                                                        type="text",
+                                                        placeholder=f"Path with {SOURCE_FILE_HINT}",
+                                                        debounce=True,
+                                                        className="sidebar-input",
+                                                    ),
+                                                ],
+                                            ),
                                             dbc.Row(
                                                 [
                                                     dbc.Col(
@@ -199,7 +297,6 @@ def create_layout(app):
                                                 ],
                                                 className="g-2 sidebar-action-row",
                                             ),
-                                            html.Hr(className="sidebar-hr"),
                                             html.Div("Status", className="sidebar-section-label"),
                                             dcc.Loading(
                                                 id="loading-status",
@@ -267,19 +364,19 @@ def create_layout(app):
                                             id="time-series-content",
                                             children=empty_time_series_content(),
                                             className="tab-panel-scroll",
-                                            style={"display": "flex", "flexDirection": "column", "marginTop": "10px", "minHeight": 0},
+                                            style=TAB_PANEL_VISIBLE,
                                         ),
                                         html.Div(
                                             id="process-specific-content",
                                             children=empty_process_specific_content(),
                                             className="tab-panel-scroll",
-                                            style={"display": "none", "marginTop": "10px"},
+                                            style=TAB_PANEL_HIDDEN,
                                         ),
                                         html.Div(
                                             id="comparative-content",
                                             children=empty_comparative_content(),
                                             className="tab-panel-scroll",
-                                            style={"display": "none", "marginTop": "10px"},
+                                            style=TAB_PANEL_HIDDEN,
                                         ),
                                     ],
                                     style={
@@ -304,13 +401,14 @@ def create_layout(app):
                 className="g-0",
             ),
             # Hidden stores for data
+            dcc.Store(id="upload-relative-paths", data=None),
             dcc.Store(id="processed-df-store", data=None),
             dcc.Store(id="original-df-store", data=None),
             dcc.Store(id="process-time-range-store", data=None),
             dcc.Store(id="timeseries-filtered-df-store", data=None),
             dcc.Store(id="grid-shared-xrange-store", data=None),
-            # Dummy store: clientside afterGridBuild writes here to re-sync grid height after tab build.
-            dcc.Store(id="process-grid-layout-ts", data=None),
+            # Dummy store: clientside afterTabBuild writes here to re-sync panel height after tab build.
+            dcc.Store(id="tab-panel-layout-ts", data=None),
         ],
         style={
             "backgroundColor": "var(--app-main-bg)",
