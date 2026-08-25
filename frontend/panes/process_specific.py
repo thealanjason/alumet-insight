@@ -25,7 +25,6 @@ from frontend.cache import df_from_store, is_cache_miss
 from frontend.figures import (
     build_metric_trace_config,
     color_for_metric,
-    get_color_palette,
     relayout_requests_reset,
     restore_axis_defaults,
 )

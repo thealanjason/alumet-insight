@@ -279,7 +279,7 @@ class ProcessSpecificTests(unittest.TestCase):
             cid="10",
             la=None,
             use_light_mode=False,
-            original_df_data=df.to_dict("records"),
+            processed_df_data=df.to_dict("records"),
             process_time_range=process_range,
         )
 
