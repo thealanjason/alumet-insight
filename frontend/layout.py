@@ -171,7 +171,16 @@ def create_layout(app):
                                         className="sidebar-title",
                                     ),
                                     html.P(
-                                        "Turn Alumet measurements into insight: analyze process-specific energy, power, and resource usage faster.",
+                                        [
+                                            "Gain insight into process-specific energy and resource usage from ",
+                                            html.A(
+                                                "Alumet",
+                                                href="https://alumet.dev",
+                                                target="_blank",
+                                                rel="noopener noreferrer",
+                                            ),
+                                            " measurements.",
+                                        ],
                                         className="sidebar-description",
                                     ),
                                 ],

@@ -192,8 +192,17 @@ body[data-bs-theme="light"] {
     font-size: 0.92rem;
     line-height: 1.45;
     margin: 12px 0 0;
-    text-align: justify;
     transition: color 200ms ease;
+}
+
+.app-shell .sidebar-description a {
+    color: inherit;
+    text-decoration: underline dashed;
+    text-underline-offset: 2px;
+}
+
+.app-shell .sidebar-description a:hover {
+    color: var(--app-text);
 }
 
 .app-shell .sidebar-label {
