@@ -1,10 +1,12 @@
 """Process-specific grid tab: helpers and callbacks for the 2x2 filter/plot grid."""
 
+import base64
 import copy
-from typing import Optional
+from typing import Any, Optional
 
 import dash
 import dash_bootstrap_components as dbc
+import numpy as np
 import plotly.graph_objects as go
 import pandas as pd
 from dash import Input, Output, State, ctx, dcc, html, MATCH, ALL
@@ -27,16 +29,17 @@ from frontend.style import (
     STYLE_HIDDEN,
     STYLE_VISIBLE,
     apply_figure_theme,
+    set_plotly_rgba,
     status_alert_class,
 )
 from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
 from frontend.helpers import normalize_dropdown_value, triggered_component_type
 from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import get_metric_unit, is_memory_metric
-from backend.transforms import filter_to_time_range
+from backend.transforms import _padded_range, align_xrange_tz, filter_to_time_range
 from backend.utils import safe_filename
 from frontend.figures import (
-    get_color_palette,
+    color_for_metric,
     relayout_requests_reset,
     restore_axis_defaults,
 )
@@ -214,6 +217,98 @@ def grid_message_figure(fig: go.Figure, title: str, use_light_mode: bool) -> go.
     )
     apply_figure_theme(fig, use_light_mode)
     return fig
+
+
+def decode_plotly_array(value: Any) -> list:
+    """Unpack a Plotly/Dash typed array (`{dtype, bdata}`) or a plain list."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        bdata = value.get("bdata")
+        if not bdata:
+            return []
+        try:
+            raw = base64.b64decode(bdata)
+            return np.frombuffer(raw, dtype=str(value.get("dtype") or "f8")).tolist()
+        except (ValueError, TypeError):
+            return []
+    if isinstance(value, (str, bytes)):
+        return []
+    if hasattr(value, "tolist") and not isinstance(value, (list, tuple)):
+        return value.tolist()
+    try:
+        return list(value)
+    except TypeError:
+        return []
+
+
+def as_datetime_index(values: list) -> pd.DatetimeIndex:
+    """Parse trace X values, including numeric Plotly epoch encodings."""
+    if not values:
+        return pd.DatetimeIndex([])
+    first = values[0]
+    if isinstance(first, (int, float, np.integer, np.floating)) and not isinstance(first, bool):
+        mag = abs(float(first))
+        if mag >= 1e17:
+            unit = "ns"
+        elif mag >= 1e14:
+            unit = "us"
+        elif mag >= 1e11:
+            unit = "ms"
+        elif mag >= 1e9:
+            unit = "s"
+        else:
+            unit = None
+        if unit:
+            return pd.to_datetime(values, unit=unit, utc=True)
+    return pd.to_datetime(values, utc=True)
+
+
+def visible_trace_y_values(fig: dict, x0, x1) -> list[float]:
+    """Return Y values whose timestamps fall inside the shared X window."""
+    values: list[float] = []
+    x_min = x_max = None
+    for trace in fig.get("data") or []:
+        xs = decode_plotly_array(trace.get("x"))
+        ys = decode_plotly_array(trace.get("y"))
+        if not xs or not ys:
+            continue
+        x_index = as_datetime_index(xs)
+        if x_index.empty:
+            continue
+        if x_min is None:
+            x_min, x_max = align_xrange_tz(pd.to_datetime(x0), pd.to_datetime(x1), x_index.tz)
+        for x_ts, y_val in zip(x_index, ys):
+            if y_val is None or pd.isna(y_val):
+                continue
+            if x_min <= x_ts <= x_max:
+                values.append(float(y_val))
+    return values
+
+
+def apply_visible_yaxis_range(fig: dict, x0, x1) -> None:
+    """Fit one grid plot's Y-axis to the points inside the shared X window."""
+    layout = fig.get("layout")
+    if not isinstance(layout, dict):
+        return
+    if "yaxis" not in layout:
+        layout["yaxis"] = {}
+
+    values = visible_trace_y_values(fig, x0, x1)
+    if not values:
+        return
+
+    is_memory = bool((layout.get("meta") or {}).get("is_memory"))
+    y_bottom, y_top = _padded_range(min(values), max(values), clamp_zero=is_memory)
+    layout["yaxis"]["range"] = [y_bottom, y_top]
+    layout["yaxis"]["autorange"] = False
+    if is_memory:
+        tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
+        layout["yaxis"]["tickvals"] = list(tickvals)
+        layout["yaxis"]["ticktext"] = list(ticktext)
+    else:
+        layout["yaxis"].pop("tickvals", None)
+        layout["yaxis"].pop("ticktext", None)
 
 def _filter_slot(cell_index: str, label: str, dropdown_type: str, container_type: str) -> html.Div:
     """One inline filter control in the process-specific toolbar."""
@@ -480,20 +575,13 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     if dff.empty:
         return grid_message_figure(fig, "No data during process active period", use_light_mode)
 
-    y_min, y_max = dff["value"].min(), dff["value"].max()
-    y_range = (y_max - y_min) if y_max != y_min else (abs(y_max) if y_max != 0 else 1)
-    y_pad = 0.1 * y_range
-    y_bottom, y_top = y_min - y_pad, y_max + y_pad
+    y_min, y_max = float(dff["value"].min()), float(dff["value"].max())
+    is_memory = is_memory_metric(metric)
+    y_bottom, y_top = _padded_range(y_min, y_max, clamp_zero=is_memory)
 
-    colors = get_color_palette(100)
-    idx_str = my_id.get("index", "0-0")
-    color = colors[abs(hash(idx_str)) % len(colors)]
-
-    rgba_fill = "rgba(136, 192, 208, 0.15)"
-    if isinstance(color, str) and color.startswith("#"):
-        h = color.lstrip("#")
-        r, g, b = (int(h[k:k+2], 16) for k in (0, 2, 4))
-        rgba_fill = f"rgba({r}, {g}, {b}, 0.15)"
+    metric_order = sorted(df["metric"].dropna().astype(str).unique().tolist()) if "metric" in df.columns else []
+    color = color_for_metric(str(metric), use_light_mode, metric_order)
+    rgba_fill = set_plotly_rgba(color)
 
     unit = get_metric_unit(metric)
     y_axis_title = f"Value ({unit})" if unit else "Value"
@@ -510,21 +598,23 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
         hovertemplate=f"<b>{metric}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
     ))
 
-    yaxis_config = dict(gridcolor="rgba(76, 86, 106, 0.2)", title=y_axis_title)
-    yaxis_defaults = {"autorange": True}
+    yaxis_config = dict(
+        gridcolor="rgba(76, 86, 106, 0.2)",
+        title=y_axis_title,
+        range=[y_bottom, y_top],
+        autorange=False,
+    )
+    yaxis_defaults = {
+        "range": [float(y_bottom), float(y_top)],
+        "autorange": False,
+    }
 
-    if is_memory_metric(metric):
+    if is_memory:
         tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
         yaxis_config["tickvals"] = tickvals
         yaxis_config["ticktext"] = ticktext
-        yaxis_config["range"] = [y_bottom, y_top]
-        yaxis_config["autorange"] = False
-        yaxis_defaults = {
-            "range": [float(y_bottom), float(y_top)],
-            "autorange": False,
-            "tickvals": list(tickvals),
-            "ticktext": list(ticktext),
-        }
+        yaxis_defaults["tickvals"] = list(tickvals)
+        yaxis_defaults["ticktext"] = list(ticktext)
 
     default_x_start = proc_start if proc_start is not None else dff["timestamp"].min()
     default_x_end = proc_end if proc_end is not None else dff["timestamp"].max()
@@ -545,7 +635,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
             autorange=False,
         ),
         yaxis=yaxis_config,
-        meta={"axis_defaults": {"xaxis": xaxis_defaults, "yaxis": yaxis_defaults}},
+        meta={"axis_defaults": {"xaxis": xaxis_defaults, "yaxis": yaxis_defaults}, "is_memory": is_memory},
         showlegend=False,
         autosize=True,
     )
@@ -644,6 +734,7 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
         else:
             new_fig["layout"]["xaxis"]["range"] = [shared_range["x0"], shared_range["x1"]]
             new_fig["layout"]["xaxis"]["autorange"] = False
+            apply_visible_yaxis_range(new_fig, shared_range["x0"], shared_range["x1"])
 
         updated_figures.append(new_fig)
 

@@ -9,7 +9,7 @@ from dash import Input, Output, State, dcc, html
 
 from frontend.app import app
 from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe
-from frontend.style import status_alert_class, apply_figure_theme, DROPDOWN_STYLE
+from frontend.style import status_alert_class, apply_figure_theme, CARD_STYLE, DROPDOWN_STYLE
 from frontend.layout import empty_time_series_content
 from frontend.helpers import available_category_options, parse_process_time_range_store, ensure_timestamp_datetime
 from frontend.figures import (
@@ -118,23 +118,26 @@ def build_time_series_tab(processed_df_data, process_time_range):
                                 style={"display": "flex", "flexDirection": "column", "justifyContent": "center"},
                             ),
                         ],
-                        className="time-series-controls mb-4",
+                        className="time-series-controls",
+                    ),
+                    html.Div(
+                        [
+                            html.Span(className="timeseries-process-legend-swatch"),
+                            html.Span("Process Active"),
+                        ],
+                        id="timeseries-process-legend",
+                        className="timeseries-process-legend",
+                        style={"display": "none"},
                     ),
                     html.Div(
                         id="timeseries-plot-container",
-                        style={
-                            "overflowY": "auto",
-                            "overflowX": "hidden",
-                            "padding": "15px",
-                            "width": "100%",
-                        },
                     ),
                 ],
-                style={"padding": "25px", "backgroundColor": "var(--app-card-bg)"},
+                style={"backgroundColor": "var(--app-card-bg)"},
                 className="viewport-card-body",
             ),
         ],
-        style={"backgroundColor": "var(--app-card-bg)", "border": "1px solid var(--app-border)"},
+        style=CARD_STYLE,
         className="viewport-card timeseries-card",
     )
 
@@ -196,6 +199,7 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
 @app.callback(
     Output("timeseries-plot-container", "children"),
     Output("timeseries-filtered-df-store", "data"),
+    Output("timeseries-process-legend", "style"),
     Input("metric-category-dropdown", "value"),
     Input("cpu-core-dropdown", "value"),
     Input("theme-switch", "value"),
@@ -205,11 +209,14 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
     prevent_initial_call=True,
 )
 def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode, shared_yaxis_toggle, processed_df_data, process_time_range):
+    legend_hidden = {"display": "none"}
+    legend_visible = {"display": "flex"}
+
     if not processed_df_data:
-        return dbc.Alert("No data available.", color="warning", className=status_alert_class("warning")), None
+        return dbc.Alert("No data available.", color="warning", className=status_alert_class("warning")), None, legend_hidden
 
     if not selected_category:
-        return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None
+        return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None, legend_hidden
 
     df_processed = df_from_store(processed_df_data)
     ensure_timestamp_datetime(df_processed)
@@ -225,6 +232,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
                     className=status_alert_class("warning"),
                 ),
                 None,
+                legend_hidden,
             )
 
     df_filtered = filter_time_series_category(
@@ -234,7 +242,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     )
 
     if df_filtered.empty:
-        return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None
+        return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None, legend_hidden
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
@@ -245,7 +253,15 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
         and shared_yaxis_toggle
         and "shared" in shared_yaxis_toggle
     )
-    fig = create_all_timeseries_plots(df_filtered, proc_start, proc_end, full_time_range, category=selected_category, share_yaxis=share_yaxis)
+    fig = create_all_timeseries_plots(
+        df_filtered,
+        proc_start,
+        proc_end,
+        full_time_range,
+        category=selected_category,
+        share_yaxis=share_yaxis,
+        use_light_mode=use_light_mode,
+    )
     apply_figure_theme(fig, use_light_mode)
 
     df_for_store = df_filtered[["metric_id", "timestamp", "value"]].copy()
@@ -291,7 +307,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
         },
     )
 
-    return graph_component, filtered_df_json
+    return graph_component, filtered_df_json, legend_visible
 
 
 

@@ -2,38 +2,50 @@
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.colors as pc
 from plotly.subplots import make_subplots
 from typing import List, Optional
 
 from backend.categories import category_yaxis_label
 from backend.formatting import format_metric_title
 from backend.transforms import compute_yaxis_ranges, get_time_range_from_df
-from frontend.style import set_plotly_rgba
+from frontend.style import plot_color_palette, process_active_fill, set_plotly_rgba
 
 
-def get_color_palette(n_colors: int) -> List[str]:
-    """Get a color palette for n_colors time series."""
-    palettes = [
-        pc.qualitative.Plotly,
-        pc.qualitative.Set2,
-        pc.qualitative.Set3,
-        pc.qualitative.Pastel,
-        pc.qualitative.Dark2,
-        pc.qualitative.Pastel1,
-        pc.qualitative.Pastel2,
-    ]
-
-    colors = []
-    for palette in palettes:
-        colors.extend(palette)
-        if len(colors) >= n_colors:
-            break
-
+def get_color_palette(n_colors: int, use_light_mode: bool = False) -> List[str]:
+    """Get a theme-aware color palette for n_colors time series."""
+    base = list(plot_color_palette(use_light_mode))
+    if n_colors <= 0 or not base:
+        return []
+    colors: List[str] = []
     while len(colors) < n_colors:
-        colors.extend(colors[: min(len(colors), n_colors - len(colors))])
-
+        colors.extend(base)
     return colors[:n_colors]
+
+
+def color_for_metric(
+    metric: str,
+    use_light_mode: bool = False,
+    metric_order: Optional[List[str]] = None,
+) -> str:
+    """
+    Pick a color for a metric name.
+
+    When metric_order is given (typically sorted unique names), colors are
+    assigned in that order so the first N metrics are unique for a palette
+    of size N. After that the palette wraps. The same metric always maps
+    to the same swatch.
+    """
+    palette = list(plot_color_palette(use_light_mode))
+    if not palette:
+        return "#636EFA"
+    if metric_order:
+        try:
+            return palette[list(metric_order).index(metric) % len(palette)]
+        except ValueError:
+            pass
+    # Fallback: stable, process-independent index from the metric name.
+    idx = sum((i + 1) * ord(ch) for i, ch in enumerate(str(metric)))
+    return palette[idx % len(palette)]
 
 
 def create_all_timeseries_plots(
@@ -43,6 +55,7 @@ def create_all_timeseries_plots(
     full_time_range: Optional[tuple] = None,
     category: Optional[str] = None,
     share_yaxis: bool = False,
+    use_light_mode: bool = False,
 ) -> go.Figure:
     """Create all time series as scrollable subplots."""
     if df_processed.empty:
@@ -64,11 +77,11 @@ def create_all_timeseries_plots(
     x_min = pd.Timestamp(x_min)
     x_max = pd.Timestamp(x_max)
 
-    colors = get_color_palette(n_metrics)
+    colors = get_color_palette(n_metrics, use_light_mode)
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
 
-    MIN_SUBPLOT_HEIGHT = 240
-    SUBPLOT_GAP_PX = 52
+    MIN_SUBPLOT_HEIGHT = 175
+    SUBPLOT_GAP_PX = 40
     total_height = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
     vertical_spacing = (SUBPLOT_GAP_PX / total_height) if n_metrics > 1 else 0.05
 
@@ -96,24 +109,10 @@ def create_all_timeseries_plots(
                 y1=1,
                 xref=xref,
                 yref=yref,
-                fillcolor="rgba(136, 192, 208, 0.12)",
+                fillcolor=process_active_fill(use_light_mode),
                 line=dict(width=0),
                 layer="below",
             )
-        fig.add_trace(
-            go.Scatter(
-                x=[None],
-                y=[None],
-                mode="markers",
-                marker=dict(size=10, color="rgba(136, 192, 208, 0.4)", symbol="square"),
-                name="Process Active",
-                showlegend=True,
-                legendgroup="process_active",
-            ),
-            row=1,
-            col=1,
-        )
-
     df_sorted = df_processed.sort_values(["metric_id", "timestamp"])
     grouped = {mid: grp for mid, grp in df_sorted.groupby("metric_id", observed=True, sort=False)}
 
@@ -149,7 +148,10 @@ def create_all_timeseries_plots(
                 color=color,
                 size=6,
                 symbol="circle",
-                line=dict(width=1, color="rgba(255, 255, 255, 0.5)"),
+                line=dict(
+                    width=1,
+                    color="rgba(31, 41, 55, 0.35)" if use_light_mode else "rgba(255, 255, 255, 0.5)",
+                ),
             )
 
         if not use_webgl:
@@ -167,7 +169,7 @@ def create_all_timeseries_plots(
             spikemode="across",
             spikesnap="data",
             spikethickness=1,
-            spikecolor="white",
+            spikecolor="#1f2937" if use_light_mode else "white",
             spikedash="dot",
             row=idx,
             col=1,
@@ -196,21 +198,14 @@ def create_all_timeseries_plots(
 
     fig.update_layout(
         height=total_height,
-        title=dict(text="<b>📈 Time series of all metrics</b>", x=0.5, font=dict(size=16)),
         paper_bgcolor="rgba(46, 52, 64, 0.95)",
         plot_bgcolor="rgba(59, 66, 82, 0.7)",
         font=dict(color="#d8dee9"),
         hovermode="closest",
-        margin=dict(l=50, r=20, t=60, b=40),
+        margin=dict(l=50, r=20, t=36, b=36),
         autosize=True,
         width=None,
-        showlegend=True,
-        legend=dict(
-            bgcolor="rgba(46, 52, 64, 0.8)",
-            bordercolor="rgba(136, 192, 208, 0.3)",
-            borderwidth=1,
-            font=dict(color="#d8dee9"),
-        ),
+        showlegend=False,
     )
     fig.update_xaxes(type="date", rangeslider=dict(visible=False), row=n_metrics, col=1)
 
