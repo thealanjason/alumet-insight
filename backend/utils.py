@@ -50,8 +50,12 @@ def prefer_relative_upload_paths(
     """
     Attach folder prefixes from webkitRelativePath onto Dash's accepted files.
 
-    The browser FileList can include every file in the folder; Dash ``contents``
-    only keeps accepted suffixes. Never return a longer list than ``filenames``.
+    ``filenames`` and Dash's ``contents`` are paired positionally by Dash itself
+    (both reflect FileReader completion order), so this must preserve that order
+    and only annotate each name with its relative-path prefix. ``relative_paths``
+    comes from a separate JS listener in FileList enumeration order, which need
+    not match — never substitute it in wholesale, even when the lengths happen
+    to be equal, or contents and names silently pair up with the wrong files.
     """
     dash_names = normalize_upload_filenames(filenames)
     rel_names = normalize_upload_filenames(relative_paths)
@@ -59,8 +63,6 @@ def prefer_relative_upload_paths(
         return []
     if not folder_from_upload_paths(rel_names):
         return dash_names
-    if len(rel_names) == len(dash_names):
-        return rel_names
 
     rel_by_basename: dict[str, str] = {}
     for rel in rel_names:

@@ -154,6 +154,18 @@ class UtilsTests(unittest.TestCase):
             "runA",
         )
 
+    def test_prefer_relative_upload_paths_out_of_order(self):
+        # dash's filename/contents order (FileReader completion order) need not
+        # match the JS store's order (FileList enumeration order); matching must
+        # be by basename, not position, or content/filename pairing scrambles.
+        self.assertEqual(
+            prefer_relative_upload_paths(
+                ["alumet-output-runA.csv", "alumet-agent-runA.log"],
+                ["runA/alumet-agent-runA.log", "runA/alumet-output-runA.csv"],
+            ),
+            ["runA/alumet-output-runA.csv", "runA/alumet-agent-runA.log"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
