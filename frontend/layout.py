@@ -9,7 +9,7 @@ from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLO
 
 LOAD_SOURCE_UPLOAD = "upload"
 LOAD_SOURCE_PATH = "path"
-SOURCE_FILE_HINT = ".csv, .log/.txt, and .toml"
+SOURCE_FILE_HINT = ".csv, .log, and .toml"
 TAB_PANEL_VISIBLE = {
     "display": "flex",
     "flexDirection": "column",
@@ -28,7 +28,7 @@ def upload_prompt_children():
             html.Div(html.I(className="bi bi-folder2-open"), className="sidebar-upload-icon"),
             html.Div(
                 [
-                    "Drop / browse a folder with ",
+                    "Drop / Browse folder with ",
                     html.Span(SOURCE_FILE_HINT),
                 ],
                 className="sidebar-upload-text",
@@ -188,7 +188,7 @@ def create_layout(app):
                             ),
                             dbc.Card(
                                 [
-                                    dbc.CardHeader("Configuration Setup"),
+                                    dbc.CardHeader("Load Experiment"),
                                     dbc.CardBody(
                                         [
                                             dbc.RadioItems(
@@ -199,11 +199,11 @@ def create_layout(app):
                                                         "value": LOAD_SOURCE_UPLOAD,
                                                     },
                                                     {
-                                                        "label": "Server path",
+                                                        "label": "Enter path",
                                                         "value": LOAD_SOURCE_PATH,
                                                     },
                                                 ],
-                                                # Default Server path; remember the user's last choice.
+                                                # Default Enter path; remember the user's last choice.
                                                 # No hostname guessing — local vs SSH-tunneled remote
                                                 # both look like localhost and cannot be distinguished.
                                                 value=LOAD_SOURCE_PATH,
@@ -217,16 +217,6 @@ def create_layout(app):
                                                 className="sidebar-source-panel",
                                                 style={"display": "none"},
                                                 children=[
-                                                    html.Label(
-                                                        [
-                                                            "Experiment folder ",
-                                                            html.Span(
-                                                                "(browser / local files)",
-                                                                className="sidebar-label-optional",
-                                                            ),
-                                                        ],
-                                                        className="sidebar-label",
-                                                    ),
                                                     dcc.Upload(
                                                         id="directory-upload",
                                                         children=upload_prompt_children(),
@@ -242,16 +232,6 @@ def create_layout(app):
                                                 className="sidebar-source-panel",
                                                 style={"display": "block"},
                                                 children=[
-                                                    html.Label(
-                                                        [
-                                                            "Directory path ",
-                                                            html.Span(
-                                                                "(server filesystem)",
-                                                                className="sidebar-label-optional",
-                                                            ),
-                                                        ],
-                                                        className="sidebar-label",
-                                                    ),
                                                     dcc.Input(
                                                         id="directory-path-input",
                                                         type="text",

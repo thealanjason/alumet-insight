@@ -6,8 +6,8 @@
 
 As shown in the screenshot, the procedure to setup an experiment for exploration and analysis is as follows:
 
-1. In **Configuration Setup**, choose how to load the experiment with the segmented control:
-   - **Server path** (default) — enter a directory path on the machine running the dashboard.
+1. In **Load Experiment**, choose how to load the experiment with the segmented control:
+   - **Enter path** (default) — enter a directory path on the machine running the dashboard.
    - **Upload folder** — drag-and-drop or browse an experiment folder from your local machine.
    
 > [!IMPORTANT] 

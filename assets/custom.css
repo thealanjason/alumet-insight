@@ -205,27 +205,7 @@ body[data-bs-theme="light"] {
     color: var(--app-text);
 }
 
-.app-shell .sidebar-label {
-    color: var(--app-text);
-    font-size: 0.95rem;
-    font-weight: 500;
-    margin-bottom: 8px;
-    transition: color 200ms ease;
-}
-
-.app-shell .sidebar-label-required {
-    color: var(--app-danger);
-    font-size: 0.8rem;
-    font-weight: 400;
-}
-
-.app-shell .sidebar-label-optional {
-    color: var(--app-text-muted);
-    font-size: 0.8rem;
-    font-weight: 400;
-}
-
-/* Compact segmented control: Upload folder | Server path */
+/* Compact segmented control: Upload folder | Enter path */
 .app-shell .sidebar-source-toggle {
     background-color: var(--app-control-bg);
     border: 1px solid var(--app-border);
