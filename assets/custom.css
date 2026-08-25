@@ -403,7 +403,9 @@ body[data-bs-theme="light"] {
 .app-shell .sidebar-card {
     background-color: var(--app-card-bg) !important;
     border: 1px solid var(--app-border) !important;
+    border-radius: 8px !important;
     margin-bottom: 14px;
+    overflow: hidden;
     transition: background-color 200ms ease, border-color 200ms ease;
 }
 
@@ -424,6 +426,14 @@ body[data-bs-theme="light"] {
 }
 
 /* Process summary card gradient adapts to theme */
+.app-shell .process-summary-card {
+    overflow: hidden;
+}
+
+.app-shell .process-summary-card .card-body {
+    background-color: transparent !important;
+}
+
 .app-shell.theme-dark .process-summary-card {
     background: linear-gradient(135deg, #2e3650 0%, #252c3e 100%) !important;
     border: 1px solid var(--app-accent) !important;
