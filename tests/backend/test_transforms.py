@@ -10,6 +10,8 @@ from backend.transforms import (
     filter_to_time_range,
     get_process_time_range_from_df,
     normalize_to_si,
+    align_running_total_xy,
+    comparative_cumulative_xy,
     xy_running_totals,
 )
 
@@ -246,6 +248,35 @@ class TransformsTests(unittest.TestCase):
             end,
         )
         self.assertTrue(empty.empty)
+
+    def test_comparative_cumulative_xy_prefers_precomputed_siblings(self):
+        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
+        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
+        x_cum = "attributed_energy_cpu_cumulative_J_R_pkg_C_process_1_A_"
+        y_cum = "attributed_energy_gpu_cumulative_J_R_gpu_C_process_1_A_"
+        start = pd.Timestamp("2024-01-01")
+        x_times = pd.date_range(start, periods=3, freq="50ms")
+        y_times = pd.date_range(start + pd.Timedelta("100ms"), periods=2, freq="100ms")
+        df = pd.DataFrame(
+            {
+                "timestamp": list(x_times) + list(y_times) + list(x_times) + list(y_times),
+                "metric_id": (
+                    [x_id] * len(x_times)
+                    + [y_id] * len(y_times)
+                    + [x_cum] * len(x_times)
+                    + [y_cum] * len(y_times)
+                ),
+                "value": [2.0, 2.0, 2.0, 10.0, 10.0, 2.0, 4.0, 6.0, 10.0, 20.0],
+                "point_role": ["observed"] * 10,
+            }
+        )
+        end = y_times[-1]
+        from_siblings = align_running_total_xy(df, x_cum, y_cum, start, end)
+        from_helper = comparative_cumulative_xy(df, x_id, y_id, start, end)
+        self.assertEqual(from_siblings["x"].tolist(), from_helper["x"].tolist())
+        self.assertEqual(from_siblings["y"].tolist(), from_helper["y"].tolist())
+        self.assertAlmostEqual(float(from_helper["x"].iloc[-1]), 6.0)
+        self.assertAlmostEqual(float(from_helper["y"].iloc[-1]), 20.0)
 
 
 if __name__ == "__main__":

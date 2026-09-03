@@ -12,9 +12,10 @@ import plotly.graph_objects as go
 from dash import ALL, MATCH, Input, Output, State, ctx, dcc, html
 
 from backend.counterdiff import export_observed_measurements
-from backend.formatting import get_bytes_tickvals_ticktext
+from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
 from backend.metrics import (
     attach_unit_column,
+    derived_base_metrics,
     get_metric_unit,
     is_memory_metric,
     is_spike_metric,
@@ -387,9 +388,14 @@ def _filter_slot(cell_index: str, label: str, dropdown_type: str, container_type
     )
 
 
-def _build_grid_cell(i: int, j: int, unique_metrics: list[str]) -> html.Div:
+def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> html.Div:
     """Build one viewport-fitted cell for the 2x2 process-specific grid."""
     cell_index = f"{i}-{j}"
+    derived_metrics = derived_metrics or set()
+    metric_options = [
+        {"label": format_metric_choice_label(metric, derived=metric in derived_metrics), "value": metric}
+        for metric in unique_metrics
+    ]
 
     return html.Div(
         dbc.Card(
@@ -403,7 +409,7 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str]) -> html.Div:
                                         html.Label("Metric:", className="process-grid-metric-label"),
                                         dcc.Dropdown(
                                             id={"type": "metric-dropdown", "index": cell_index},
-                                            options=[{"label": metric, "value": metric} for metric in unique_metrics],
+                                            options=metric_options,
                                             placeholder="Select metric",
                                             style=DROPDOWN_STYLE,
                                             className="dark-dropdown process-grid-metric-dropdown",
@@ -459,9 +465,13 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str]) -> html.Div:
     )
 
 
-def build_process_grid_card(unique_metrics: list[str]) -> dbc.Card:
+def build_process_grid_card(unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> dbc.Card:
     """Build the viewport-fitted 2x2 process-specific comparison card."""
-    grid_cells = [_build_grid_cell(i, j, unique_metrics) for i in range(GRID_SIZE) for j in range(GRID_SIZE)]
+    grid_cells = [
+        _build_grid_cell(i, j, unique_metrics, derived_metrics)
+        for i in range(GRID_SIZE)
+        for j in range(GRID_SIZE)
+    ]
     return dbc.Card(
         [
             dbc.CardBody(
@@ -522,7 +532,7 @@ def build_process_specific_tab(tab_value, processed_df_data, process_time_range,
 
     metric_col = _metric_column(df_processed)
     unique_metrics = sorted(df_processed[metric_col].dropna().astype(str).unique().tolist())
-    return build_process_grid_card(unique_metrics)
+    return build_process_grid_card(unique_metrics, derived_base_metrics(df_processed))
 
 
 # MATCH callback: update filter dropdowns

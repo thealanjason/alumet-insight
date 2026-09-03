@@ -16,9 +16,9 @@ from backend.counterdiff import (
     sort_for_plotting,
 )
 from backend.formatting import format_metric_title
-from backend.metrics import is_spike_metric, is_step_power_metric
+from backend.metrics import MetricOrigin, is_spike_metric, is_step_power_metric
 from backend.transforms import compute_yaxis_ranges, get_time_range_from_df
-from frontend.style import plot_color_palette, process_active_fill, set_plotly_rgba
+from frontend.style import derived_title_color, plot_color_palette, process_active_fill, set_plotly_rgba
 
 
 def get_color_palette(n_colors: int, use_light_mode: bool = False) -> List[str]:
@@ -197,17 +197,32 @@ def create_all_timeseries_plots(
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
 
     MIN_SUBPLOT_HEIGHT = 175
-    SUBPLOT_GAP_PX = 40
-    total_height = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
-    vertical_spacing = (SUBPLOT_GAP_PX / total_height) if n_metrics > 1 else 0.05
+    # Room for two-line date ticks on the plot above plus the next subplot title.
+    SUBPLOT_GAP_PX = 64
+    MARGIN_T = 36
+    MARGIN_B = 36
+    plot_area = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
+    total_height = plot_area + MARGIN_T + MARGIN_B
+    vertical_spacing = (SUBPLOT_GAP_PX / plot_area) if n_metrics > 1 else 0.05
 
-    formatted_titles = [format_metric_title(metric_id) for metric_id in unique_metrics]
+    formatted_titles = []
+    for metric_id in unique_metrics:
+        metric_rows = df_processed.loc[df_processed["metric_id"].astype(str) == str(metric_id)]
+        derived = False
+        if not metric_rows.empty and "metric_origin" in metric_rows.columns:
+            derived = (metric_rows["metric_origin"].astype(str) == MetricOrigin.DERIVED.value).any()
+        title = format_metric_title(str(metric_id), derived=derived)
+        if derived:
+            color = derived_title_color(use_light_mode)
+            formatted_titles.append(f'<b><span style="color:{color}">{title}</span></b>')
+        else:
+            formatted_titles.append(f"<b>{title}</b>")
     fig = make_subplots(
         rows=n_metrics,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=vertical_spacing,
-        subplot_titles=[f"<b>{title}</b>" for title in formatted_titles],
+        subplot_titles=formatted_titles,
     )
 
     is_memory_category = category == "memory"
@@ -321,7 +336,7 @@ def create_all_timeseries_plots(
         plot_bgcolor="rgba(59, 66, 82, 0.7)",
         font=dict(color="#d8dee9"),
         hovermode="closest",
-        margin=dict(l=50, r=20, t=36, b=36),
+        margin=dict(l=50, r=20, t=MARGIN_T, b=MARGIN_B),
         autosize=True,
         width=None,
         showlegend=False,

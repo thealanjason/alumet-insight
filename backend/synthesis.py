@@ -7,6 +7,7 @@ import re
 import pandas as pd
 
 from backend.counterdiff import (
+    _counterdiff_mask,
     derive_interval_average_power,
     ensure_point_metadata,
     expand_counterdiff_rows,
@@ -17,7 +18,9 @@ from backend.counterdiff import (
 from backend.metrics import (
     MetricId,
     classification_stem,
+    is_running_total_base_metric,
     mark_as_derived,
+    running_total_base_metric,
     should_derive_power_from_energy,
 )
 
@@ -323,6 +326,77 @@ def _step_power_at(power_df: pd.DataFrame, query_ts: pd.DatetimeIndex) -> pd.Ser
     return out
 
 
+def synthesize_attributed_power_gpu_total(df_processed: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build process-scoped ``attributed_power_gpu_total_W`` from per-GPU power steps.
+
+    Do not derive this series from union-summed ``attributed_energy_gpu_total_J``.
+    Idle and active GPUs keep independent clocks; ``J / Δt`` on that mixed
+    grid divides a full sample by a few microseconds and spikes to hundreds
+    of kilowatts.
+    """
+    observed = observed_only(df_processed)
+    if observed.empty or "base_metric" not in observed.columns:
+        return pd.DataFrame(columns=list(df_processed.columns))
+
+    stems = observed["base_metric"].map(classification_stem)
+    gpu = observed.loc[stems == "attributed_power_gpu"].copy()
+    if gpu.empty:
+        return pd.DataFrame(columns=observed.columns)
+
+    gpu["consumer"] = gpu["metric_id"].map(_process_consumer)
+    gpu = gpu.dropna(subset=["consumer"])
+    if gpu.empty:
+        return pd.DataFrame(columns=observed.columns)
+
+    frames: list[pd.DataFrame] = []
+    for consumer in sorted(gpu["consumer"].unique()):
+        gpu_pid = gpu.loc[gpu["consumer"] == consumer]
+        timeline = pd.DatetimeIndex(pd.to_datetime(gpu_pid["timestamp"]).unique()).sort_values()
+        if timeline.empty:
+            continue
+
+        total_vals = _step_power_at(gpu_pid, timeline)
+        interval_start = pd.Series(timeline, index=timeline).shift(1)
+        covering_starts = pd.to_datetime(gpu_pid["interval_start"])
+        if interval_start.isna().iloc[0] and covering_starts.notna().any():
+            interval_start.iloc[0] = covering_starts.min()
+
+        consumer_kind, consumer_id = _split_kind_id(consumer, "process")
+        late_attributes = ""
+        rows = pd.DataFrame(
+            {
+                "timestamp": timeline,
+                "value": total_vals.to_numpy(),
+                "interval_start": interval_start.to_numpy(),
+                "metric_id": MetricId(
+                    base_metric="attributed_power_gpu_total_W",
+                    resource="gpu_all_",
+                    consumer=consumer,
+                    late_attributes=late_attributes,
+                ).serialized,
+                "base_metric": "attributed_power_gpu_total_W",
+                "metric": "attributed_power_gpu_total_W",
+                "resource_kind": "gpu",
+                "resource_id": "all",
+                "consumer_kind": consumer_kind,
+                "consumer_id": consumer_id,
+                "__late_attributes": late_attributes,
+            }
+        )
+        valid = rows["interval_start"].notna() & (
+            pd.to_datetime(rows["interval_start"]) < pd.to_datetime(rows["timestamp"])
+        )
+        rows = rows.loc[valid]
+        if not rows.empty:
+            frames.append(rows)
+
+    if not frames:
+        return pd.DataFrame(columns=observed.columns)
+
+    return ensure_point_metadata(mark_as_derived(pd.concat(frames, ignore_index=True)))
+
+
 def synthesize_attributed_power_total(df_processed: pd.DataFrame) -> pd.DataFrame:
     """
     Build process-scoped ``attributed_power_total_W`` from component power steps.
@@ -435,8 +509,70 @@ def synthesize_derived_power(df_processed: pd.DataFrame) -> pd.DataFrame:
     return ensure_point_metadata(mark_as_derived(out))
 
 
+def _running_total_id_maps(metric_ids: pd.Series, base_metrics: pd.Series) -> tuple[dict[str, str], dict[str, str]]:
+    """Map each CounterDiff id to its running-total sibling id and base name."""
+    unique = pd.DataFrame({"metric_id": metric_ids, "base_metric": base_metrics}).drop_duplicates()
+    new_base_by_old: dict[str, str] = {}
+    new_id_by_old: dict[str, str] = {}
+    for old_id, old_base in zip(unique["metric_id"].astype(str), unique["base_metric"].astype(str)):
+        new_base = running_total_base_metric(old_base)
+        new_base_by_old[old_id] = new_base
+        new_id_by_old[old_id] = MetricId.parse(old_id).with_base_metric(new_base).serialized
+    return new_id_by_old, new_base_by_old
+
+
+def synthesize_running_totals(df_processed: pd.DataFrame) -> pd.DataFrame:
+    """
+    Per-series running totals of CounterDiff interval deltas.
+
+    Vectorized `groupby(metric_id).cumsum` so preprocessing compute does not walk
+    every series with a Python filter. Each observed sample is counted
+    once. The result is a gauge (not CounterDiff), so it is not expanded
+    into spike pairs.
+    """
+    observed = observed_only(df_processed)
+    if observed.empty or "metric_id" not in observed.columns:
+        return pd.DataFrame(columns=list(df_processed.columns))
+
+    keep = _counterdiff_mask(observed["metric_id"])
+    origin_col = "base_metric" if "base_metric" in observed.columns else "metric_id"
+    already_map = {
+        name: is_running_total_base_metric(str(name)) for name in observed[origin_col].dropna().unique()
+    }
+    already = observed[origin_col].map(already_map).fillna(False)
+    subset = observed.loc[keep & ~already]
+    if subset.empty:
+        return pd.DataFrame(columns=observed.columns)
+
+    subset = subset.copy()
+    dup_mask = subset.duplicated(subset=["metric_id", "timestamp"], keep=False)
+    if dup_mask.any():
+        dups = subset.loc[dup_mask, ["metric_id", "timestamp"]]
+        raise ValueError(
+            "Duplicate observed timestamps for running-total synthesis; "
+            "refusing silent drop_duplicates. "
+            f"timestamps={dups.groupby(dups['metric_id'].astype(str))['timestamp'].apply(list).to_dict()}"
+        )
+
+    if "base_metric" not in subset.columns:
+        subset["base_metric"] = subset["metric_id"].map(lambda metric_id: MetricId.parse(metric_id).base_metric)
+
+    subset = subset.sort_values(["metric_id", "timestamp"], kind="mergesort")
+    subset["value"] = subset.groupby("metric_id", sort=False)["value"].cumsum()
+
+    new_id_by_old, new_base_by_old = _running_total_id_maps(subset["metric_id"], subset["base_metric"])
+    subset["base_metric"] = subset["metric_id"].map(new_base_by_old)
+    if "metric" in subset.columns:
+        subset["metric"] = subset["base_metric"]
+    subset["metric_id"] = subset["metric_id"].map(new_id_by_old)
+    if "interval_start" in subset.columns:
+        subset = subset.drop(columns=["interval_start"])
+
+    return ensure_point_metadata(mark_as_derived(subset.reset_index(drop=True)))
+
+
 def synthesize_derived_metrics(df_processed: pd.DataFrame) -> pd.DataFrame:
-    """Append attributed energy totals and derived power series to a processed frame."""
+    """Append attributed totals, derived power, and running-total gauges."""
     if df_processed.empty:
         return df_processed.copy()
 
@@ -451,9 +587,16 @@ def synthesize_derived_metrics(df_processed: pd.DataFrame) -> pd.DataFrame:
     power = synthesize_derived_power(combined)
     if not power.empty:
         combined = pd.concat([combined, power], ignore_index=True)
+    gpu_power_total = synthesize_attributed_power_gpu_total(combined)
+    if not gpu_power_total.empty:
+        combined = pd.concat([combined, gpu_power_total], ignore_index=True)
     power_total = synthesize_attributed_power_total(combined)
     if not power_total.empty:
         combined = pd.concat([combined, power_total], ignore_index=True)
+    running = synthesize_running_totals(combined)
+    if not running.empty:
+        combined = pd.concat([combined, running], ignore_index=True)
     # Rebuild CounterDiff pairs once at the schema boundary. This also assigns
     # globally unique sample ids across original, synthesized, and power rows.
+    # Running-total gauges are not CounterDiff and stay as single observed rows.
     return expand_counterdiff_rows(combined, already_normalized=True)

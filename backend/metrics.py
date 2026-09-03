@@ -289,12 +289,44 @@ def filter_process_metric_ids(
 # 4. Classification API: predicates used by synthesis and UI
 # ---------------------------------------------------------------------------
 
+_RUNNING_TOTAL_STEM_SUFFIX = "_cumulative"
+
+
+def running_total_base_metric(base_metric: str) -> str:
+    """Insert ``_cumulative`` before the unit suffix of a CounterDiff base metric."""
+    name = str(base_metric)
+    if is_running_total_base_metric(name):
+        return name
+    for suffix in _CLASSIFICATION_UNIT_SUFFIXES:
+        if name.endswith(suffix) and len(name) > len(suffix):
+            return f"{name[: -len(suffix)]}{_RUNNING_TOTAL_STEM_SUFFIX}{suffix}"
+    return f"{name}{_RUNNING_TOTAL_STEM_SUFFIX}"
+
+
+def running_total_metric_id(source_metric_id: str) -> str:
+    """Return the load-time running-total sibling of a CounterDiff metric id."""
+    identity = MetricId.parse(source_metric_id)
+    return identity.with_base_metric(running_total_base_metric(identity.base_metric)).serialized
+
+
+def is_running_total_base_metric(base_metric: str | None) -> bool:
+    """Return whether this base metric is a synthesized running-total gauge."""
+    return classification_stem(base_metric).endswith(_RUNNING_TOTAL_STEM_SUFFIX)
+
+
+def is_running_total_metric(metric_id: str) -> bool:
+    """Return whether this series is a synthesized running-total gauge."""
+    return is_running_total_base_metric(base_metric_from_id(metric_id))
+
+
 def classify_base_metric(base_metric: str | None) -> MetricKindInfo:
     """Classify a metric; unknown names render as Gauge by default."""
     stem = classification_stem(base_metric)
     if not stem:
         return _DEFAULT_METRIC_KIND
 
+    if stem.endswith(_RUNNING_TOTAL_STEM_SUFFIX):
+        return _DEFAULT_METRIC_KIND
     if stem in EXACT_DERIVED_POWER_STEMS:
         return MetricKindInfo(
             metric_type=MetricType.GAUGE,
@@ -356,6 +388,13 @@ def is_cumulative_metric(metric_id: str) -> bool:
     return is_counterdiff_metric(metric_id)
 
 
+def is_cumulative_xy_pair(x_metric_id: str, y_metric_id: str) -> bool:
+    """True when Comparative should draw running-total X-Y instead of dual time series."""
+    if is_cumulative_metric(x_metric_id) and is_cumulative_metric(y_metric_id):
+        return True
+    return is_running_total_metric(x_metric_id) and is_running_total_metric(y_metric_id)
+
+
 def is_spike_metric(metric_id: str) -> bool:
     """True when a metric should render as isolated CounterDiff spikes."""
     return is_counterdiff_metric(metric_id)
@@ -410,9 +449,12 @@ def should_derive_power_from_energy(
     energy_lower = energy_base.lower()
     if "energy" not in energy_lower and "rapl" not in energy_lower:
         return False
-    # Do not derive attributed_power_total_W from union energy.
-    # Instead, P_total(t) = P_cpu(t) + P_gpu_total(t)
-    if classification_stem(energy_base) == "attributed_energy_total":
+    # Union energy totals mix device clocks. Power for those series is a
+    # step-sum of component powers, not J / Δt on the merged grid.
+    if is_running_total_metric(energy_metric_id):
+        return False
+    stem = classification_stem(energy_base)
+    if stem.startswith("attributed_energy") and stem.endswith("_total"):
         return False
 
     available = {str(metric_id) for metric_id in available_metric_ids}
@@ -505,6 +547,22 @@ def mark_as_derived(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["metric_origin"] = MetricOrigin.DERIVED.value
     return out
+
+
+def derived_metric_ids(df: pd.DataFrame) -> set[str]:
+    """Metric ids whose rows are marked post-processed."""
+    if df.empty or "metric_origin" not in df.columns or "metric_id" not in df.columns:
+        return set()
+    mask = df["metric_origin"].astype(str) == MetricOrigin.DERIVED.value
+    return set(df.loc[mask, "metric_id"].dropna().astype(str))
+
+
+def derived_base_metrics(df: pd.DataFrame) -> set[str]:
+    """Base metric names that have at least one derived series."""
+    if df.empty or "metric_origin" not in df.columns or "base_metric" not in df.columns:
+        return set()
+    mask = df["metric_origin"].astype(str) == MetricOrigin.DERIVED.value
+    return set(df.loc[mask, "base_metric"].dropna().astype(str))
 
 
 # ---------------------------------------------------------------------------

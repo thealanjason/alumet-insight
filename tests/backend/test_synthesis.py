@@ -7,6 +7,7 @@ from backend.synthesis import (
     synthesize_attributed_energy_total,
     synthesize_derived_metrics,
     synthesize_derived_power,
+    synthesize_running_totals,
 )
 from tests.fixtures import attributed_energy_source_rows
 
@@ -386,6 +387,87 @@ class SynthesisTests(unittest.TestCase):
         self.assertFalse(power.empty)
         self.assertLessEqual(float(power.max()), float(cpu_power.max() + gpu_power.max()) + 1e-9)
         self.assertLess(float(power.max()), 10.0)
+
+    def test_gpu_total_power_does_not_spike_on_offset_gpu_clocks(self):
+        """Idle/active GPUs on offset clocks must not turn joules into kilowatt spikes."""
+        gpu0 = pd.to_datetime(
+            [
+                "2024-01-01 00:00:00.000000",
+                "2024-01-01 00:00:00.200000",
+                "2024-01-01 00:00:00.400000",
+            ]
+        )
+        gpu1 = pd.to_datetime(
+            [
+                "2024-01-01 00:00:00.000030",
+                "2024-01-01 00:00:00.200030",
+                "2024-01-01 00:00:00.400030",
+            ]
+        )
+        df = pd.DataFrame(
+            {
+                "metric_id": (
+                    ["attributed_energy_gpu_J_R_gpu_0_C_process_5_A_"] * 3
+                    + ["attributed_energy_gpu_J_R_gpu_1_C_process_5_A_"] * 3
+                    + ["attributed_energy_cpu_J_R_local_machine__C_process_5_A_domain=package_total"] * 3
+                ),
+                "base_metric": (
+                    ["attributed_energy_gpu_J"] * 3
+                    + ["attributed_energy_gpu_J"] * 3
+                    + ["attributed_energy_cpu_J"] * 3
+                ),
+                "timestamp": list(gpu0) + list(gpu1) + list(gpu0),
+                "value": [0.0, 8.0, 8.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.1],
+            }
+        )
+
+        processed = observed_only(synthesize_derived_metrics(df))
+        gpu_total = processed.loc[
+            processed["base_metric"] == "attributed_power_gpu_total_W",
+            "value",
+        ].astype(float)
+        per_gpu = processed.loc[
+            processed["base_metric"] == "attributed_power_gpu_W",
+            "value",
+        ].astype(float)
+
+        self.assertFalse(gpu_total.empty)
+        self.assertLessEqual(float(gpu_total.max()), float(per_gpu.max()) + 1e-9)
+        self.assertLess(float(gpu_total.max()), 100.0)
+
+    def test_running_totals_are_per_series_cumsum_gauges(self):
+        timestamps = pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:01", "2024-01-01 00:00:02"])
+        df = pd.DataFrame(
+            {
+                "metric_id": ["attributed_energy_cpu_J_R_cpu_0_C_process_1_A_"] * 3,
+                "base_metric": ["attributed_energy_cpu_J"] * 3,
+                "metric": ["attributed_energy_cpu_J"] * 3,
+                "timestamp": timestamps,
+                "value": [2.0, 3.0, 5.0],
+                "resource_kind": ["cpu"] * 3,
+                "resource_id": ["0"] * 3,
+                "consumer_kind": ["process"] * 3,
+                "consumer_id": ["1"] * 3,
+                "__late_attributes": [""] * 3,
+            }
+        )
+        running = synthesize_running_totals(df)
+        self.assertEqual(set(running["base_metric"]), {"attributed_energy_cpu_cumulative_J"})
+        self.assertEqual(running["value"].tolist(), [2.0, 5.0, 10.0])
+        self.assertTrue((running["metric_origin"] == "derived").all())
+        self.assertEqual(
+            running["metric_id"].iloc[0],
+            "attributed_energy_cpu_cumulative_J_R_cpu_0_C_process_1_A_",
+        )
+
+        processed = synthesize_derived_metrics(df)
+        cumulative = processed.loc[
+            processed["base_metric"] == "attributed_energy_cpu_cumulative_J"
+        ]
+        # Gauges are not CounterDiff-expanded into synthetic zeros.
+        self.assertEqual(len(cumulative), 3)
+        self.assertEqual(set(cumulative["point_role"]), {"observed"})
+        self.assertEqual(cumulative.sort_values("timestamp")["value"].tolist(), [2.0, 5.0, 10.0])
 
 
 if __name__ == "__main__":

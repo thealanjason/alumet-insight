@@ -305,6 +305,24 @@ class CounterDiffTests(unittest.TestCase):
                 available,
             )
         )
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_gpu_total_J_R_gpu_all__C_process_1_A_",
+                available,
+            )
+        )
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_total_J_R_cpu_all__C_process_1_A_",
+                available,
+            )
+        )
+        self.assertTrue(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_J_R_local_machine__C_process_1_A_domain=package_total",
+                available,
+            )
+        )
 
     def test_export_observed_measurements_removes_internal_columns(self):
         df = expand_counterdiff_rows(

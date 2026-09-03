@@ -90,6 +90,40 @@ class TimeseriesFigureTests(unittest.TestCase):
         self.assertEqual(list(trace.x), [interval_start, interval_end])
         self.assertEqual(list(trace.y), [4.0, 4.0])
 
+    def test_running_total_plots_as_line_with_derived_title(self):
+        timestamps = pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:01"])
+        df = pd.DataFrame(
+            {
+                "metric_id": ["attributed_energy_cpu_cumulative_J_R_cpu_0_C_process_1_A_"] * 2,
+                "base_metric": ["attributed_energy_cpu_cumulative_J"] * 2,
+                "timestamp": timestamps,
+                "value": [2.0, 5.0],
+                "metric_origin": ["derived", "derived"],
+                "point_role": ["observed", "observed"],
+            }
+        )
+        figure = create_all_timeseries_plots(df, category="energy")
+        trace = figure.data[0]
+        self.assertEqual(list(trace.y), [2.0, 5.0])
+        self.assertIn("lines", trace.mode)
+        title = figure.layout.annotations[0].text
+        self.assertIn("(derived)", title)
+        self.assertIn("color:", title)
+
+    def test_stacked_subplots_keep_a_readable_title_gap(self):
+        timestamps = pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:01"])
+        df = pd.DataFrame(
+            {
+                "metric_id": ["a_R_x_C__A_"] * 2 + ["b_R_x_C__A_"] * 2,
+                "base_metric": ["a"] * 2 + ["b"] * 2,
+                "timestamp": list(timestamps) * 2,
+                "value": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
+        figure = create_all_timeseries_plots(df, category="energy")
+        # 175px per plot + 64px title/tick gap + 36+36 margins
+        self.assertEqual(figure.layout.height, 175 * 2 + 64 + 72)
+
 
 if __name__ == "__main__":
     unittest.main()

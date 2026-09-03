@@ -20,12 +20,16 @@ from backend.metrics import (
     is_power_metric,
     is_raw_counter_base_metric,
     is_raw_counter_metric,
+    is_running_total_metric,
     is_spike_metric,
     is_step_power_metric,
     memory_kind,
     metric_id_is_process_consumer,
     metric_type,
     power_kind,
+    running_total_base_metric,
+    running_total_metric_id,
+    should_derive_power_from_energy,
 )
 
 
@@ -161,6 +165,31 @@ class MetricKindTests(unittest.TestCase):
         self.assertFalse(is_cumulative_metric("nvml_instant_power_mW"))
         self.assertFalse(is_cumulative_metric("mem_total_B"))
         self.assertFalse(is_cumulative_metric("mem_total_kB"))
+        self.assertFalse(is_cumulative_metric("attributed_energy_cpu_cumulative_J"))
+
+    def test_running_total_naming_and_classification(self):
+        self.assertEqual(
+            running_total_base_metric("attributed_energy_cpu_J"),
+            "attributed_energy_cpu_cumulative_J",
+        )
+        self.assertEqual(
+            running_total_base_metric("kernel_cpu_time_ms"),
+            "kernel_cpu_time_cumulative_ms",
+        )
+        self.assertEqual(
+            running_total_metric_id("attributed_energy_cpu_J_R_pkg_C_process_1_A_"),
+            "attributed_energy_cpu_cumulative_J_R_pkg_C_process_1_A_",
+        )
+        self.assertTrue(is_running_total_metric("attributed_energy_cpu_cumulative_J"))
+        self.assertFalse(is_counterdiff_metric("attributed_energy_cpu_cumulative_J"))
+        self.assertFalse(is_spike_metric("attributed_energy_cpu_cumulative_J"))
+        self.assertEqual(metric_type("attributed_energy_cpu_cumulative_J"), MetricType.GAUGE)
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_cumulative_J_R_pkg_C_process_1_A_",
+                [],
+            )
+        )
 
     def test_is_power_metric_only_accepts_supported_power_series(self):
         self.assertTrue(is_power_metric("nvml_instant_power_W"))

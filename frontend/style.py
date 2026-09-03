@@ -166,6 +166,11 @@ def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
     }
 
 
+def derived_title_color(use_light_mode: bool = False) -> str:
+    """Title color that marks post-processed series versus native Alumet metrics."""
+    return "#7E5693" if use_light_mode else "#B48EAD"
+
+
 def process_active_fill(use_light_mode: bool = False) -> str:
     """Shaded process-window fill that stays visible on both backgrounds."""
     return "rgba(62, 107, 143, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"

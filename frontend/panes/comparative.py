@@ -8,19 +8,20 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 
-from backend.formatting import get_bytes_tickvals_ticktext
+from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
 from backend.metrics import (
     base_metric_from_id,
+    derived_metric_ids,
     filter_process_metric_ids,
     get_metric_unit,
-    is_cumulative_metric,
+    is_cumulative_xy_pair,
     is_memory_metric,
 )
 from backend.transforms import (
     align_xy_metrics,
+    comparative_cumulative_xy,
     comparative_metric_ids,
     filter_to_time_range,
-    xy_running_totals,
 )
 from backend.utils import safe_filename
 from frontend.app import app
@@ -262,10 +263,7 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
     if not x_metric_id or not y_metric_id:
         return html.Span("")
 
-    x_cumulative = is_cumulative_metric(x_metric_id)
-    y_cumulative = is_cumulative_metric(y_metric_id)
-
-    if x_cumulative and y_cumulative:
+    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
         return html.Div(
             [
                 html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
@@ -310,7 +308,12 @@ def update_comparative_metric_dropdowns(
     process_only = bool(process_only_toggle and "process_only" in process_only_toggle)
     filtered = filter_process_metric_ids(all_ids, process_only)
 
-    opts = [{"label": m, "value": m} for m in filtered]
+    dfp = df_from_store(processed_df_data)
+    derived_ids = derived_metric_ids(dfp)
+    opts = [
+        {"label": format_metric_choice_label(m, derived=m in derived_ids), "value": m}
+        for m in filtered
+    ]
     x_val, y_val = pick_xy_values(filtered, cur_x, cur_y)
     return opts, x_val, opts, y_val
 
@@ -353,9 +356,7 @@ def update_process_xy_plot(
     x_label = f"{x_abbrev} ({x_unit})" if x_unit else x_abbrev
     y_label = f"{y_abbrev} ({y_unit})" if y_unit else y_abbrev
 
-    x_cumulative = is_cumulative_metric(x_metric_id)
-    y_cumulative = is_cumulative_metric(y_metric_id)
-    both_cumulative = x_cumulative and y_cumulative
+    both_cumulative = is_cumulative_xy_pair(x_metric_id, y_metric_id)
 
     show_scatter = scatter_toggle and "scatter" in scatter_toggle
 
@@ -421,7 +422,7 @@ def update_process_xy_plot(
         )
 
     elif both_cumulative:
-        dfxy = xy_running_totals(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+        dfxy = comparative_cumulative_xy(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
         if dfxy.empty:
             fig.update_layout(
                 title=dict(text="Could not compute running totals (one or both series empty)", x=0.5)
@@ -573,8 +574,8 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     if proc_start is None or proc_end is None:
         return None
 
-    if is_cumulative_metric(x_metric_id) and is_cumulative_metric(y_metric_id):
-        dfxy = xy_running_totals(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
+        dfxy = comparative_cumulative_xy(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
     else:
         dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
     if dfxy.empty:

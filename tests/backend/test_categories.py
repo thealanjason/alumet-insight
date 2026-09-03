@@ -31,6 +31,19 @@ class CategoryTests(unittest.TestCase):
         energy = filter_time_series_category(df, "energy")
         self.assertTrue((energy["base_metric"] == "attributed_energy_J").any())
 
+    def test_running_total_energy_stays_in_energy_category(self):
+        df = pd.DataFrame(
+            {
+                "metric_id": ["attributed_energy_cpu_cumulative_J_R_cpu_0_C_process_1_A_"],
+                "base_metric": ["attributed_energy_cpu_cumulative_J"],
+                "timestamp": [pd.Timestamp("2024-01-01")],
+                "value": [12.0],
+            }
+        )
+        energy = filter_time_series_category(df, "energy")
+        self.assertEqual(len(energy), 1)
+        self.assertEqual(available_category_values(df), ["energy"])
+
     def test_filter_time_series_category_keeps_counterdiff_padding_rows(self):
         df = pd.DataFrame(
             {

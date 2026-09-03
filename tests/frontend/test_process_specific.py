@@ -502,6 +502,24 @@ class ProcessSpecificTests(unittest.TestCase):
         metrics = sorted(processed["base_metric"].dropna().unique().tolist())
         self.assertIn("attributed_energy_total_J", metrics)
         self.assertIn("attributed_power_total_W", metrics)
+        self.assertIn("attributed_energy_cpu_cumulative_J", metrics)
+        self.assertIn("attributed_energy_gpu_cumulative_J", metrics)
+
+        cumulative = processed[processed["base_metric"] == "attributed_energy_cpu_cumulative_J"]
+        observed_cumulative = (
+            cumulative[cumulative["point_role"] == "observed"]
+            if "point_role" in cumulative.columns
+            else cumulative
+        )
+        cum_trace = grid_trace_config(
+            "attributed_energy_cpu_cumulative_J",
+            observed_cumulative,
+            "green",
+            "transparent",
+        )
+        self.assertEqual(cum_trace["mode"], "lines+markers")
+        self.assertIn("fill", cum_trace)
+        self.assertEqual(list(cum_trace["y"]), list(observed_cumulative.sort_values("timestamp")["value"]))
 
         total = processed[processed["base_metric"] == "attributed_energy_total_J"]
         cascade = cascade_filter_options(

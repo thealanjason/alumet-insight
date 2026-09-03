@@ -151,6 +151,13 @@ class DataTests(unittest.TestCase):
         totals = observed.loc[observed["base_metric"] == "attributed_energy_total_J"]
         self.assertTrue((totals["metric_origin"] == "derived").all())
 
+        cumulative = observed.loc[observed["base_metric"] == "attributed_energy_cpu_cumulative_J"]
+        self.assertFalse(cumulative.empty)
+        self.assertTrue((cumulative["metric_origin"] == "derived").all())
+        self.assertAlmostEqual(float(cumulative["value"].iloc[-1]), float(observed.loc[
+            observed["metric_id"] == "attributed_energy_cpu_J_R_cpu_0_C_process_1_A_", "value"
+        ].sum()))
+
     def test_load_csv_from_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             csv_path = Path(tmp) / "run.csv"
