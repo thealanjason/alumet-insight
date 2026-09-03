@@ -161,7 +161,30 @@ class ProcessSpecificTests(unittest.TestCase):
 
         self.assertEqual(out["value"].tolist(), [2])
         self.assertNotIn("point_role", out.columns)
+        self.assertEqual(out["unit"].tolist(), ["%"])
         self.assertTrue(prepare_download_df(df, "missing", None, None, None, None, None).empty)
+
+    def test_prepare_download_df_memory_includes_byte_unit(self):
+        df = expand_counterdiff_rows(
+            pd.DataFrame(
+                {
+                    "metric_id": ["mem_available_B_R_local_machine__C_process_10_A_"],
+                    "base_metric": ["mem_available_B"],
+                    "metric": ["mem_available_B"],
+                    "timestamp": [pd.Timestamp("2024-01-01")],
+                    "value": [1024.0],
+                    "resource_kind": ["local_machine"],
+                    "resource_id": [""],
+                    "consumer_kind": ["process"],
+                    "consumer_id": ["10"],
+                    "__late_attributes": [""],
+                }
+            )
+        )
+        out = prepare_download_df(df, "mem_available_B", "local_machine", "", "process", "10", None)
+        self.assertEqual(out["metric"].tolist(), ["mem_available_B"])
+        self.assertEqual(out["value"].tolist(), [1024.0])
+        self.assertEqual(out["unit"].tolist(), ["B"])
 
     def test_cascade_resets_dependent_filters_on_consumer_kind_change(self):
         df = pd.DataFrame(

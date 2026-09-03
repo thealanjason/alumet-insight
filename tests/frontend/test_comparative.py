@@ -33,6 +33,8 @@ class ComparativeTests(unittest.TestCase):
         self.assertEqual(aligned[["x", "y"]].values.tolist(), [[1, 10], [2, 20], [3, 30]])
         exported, filename = prepare_xy_download(aligned, ids[0], ids[1])
         self.assertIn(ids[0], exported.columns)
+        self.assertIn("x_unit", exported.columns)
+        self.assertIn("y_unit", exported.columns)
         self.assertTrue(filename.startswith("xy_"))
 
     def test_comparative_helpers_handle_empty_and_filtered_inputs(self):
@@ -151,7 +153,7 @@ class ComparativeTests(unittest.TestCase):
 
     def test_dual_timeseries_keeps_independent_raw_timestamps(self):
         x_metric = "cpu_percent_R_local_machine__C_process_4_A_"
-        y_metric = "mem_total_kB_R_local_machine__C_process_4_A_"
+        y_metric = "mem_total_B_R_local_machine__C_process_4_A_"
         x_time = pd.Timestamp("2024-01-01 00:00:00")
         y_time = pd.Timestamp("2024-01-01 00:00:10")
         records = [

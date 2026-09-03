@@ -1,9 +1,12 @@
 import unittest
 
+import pandas as pd
+
 from backend.metrics import (
     MetricId,
     MetricType,
     PowerKind,
+    attach_unit_column,
     classification_stem,
     classify_base_metric,
     filter_process_metric_ids,
@@ -19,6 +22,7 @@ from backend.metrics import (
     is_raw_counter_metric,
     is_spike_metric,
     is_step_power_metric,
+    memory_kind,
     metric_id_is_process_consumer,
     metric_type,
     power_kind,
@@ -155,6 +159,7 @@ class MetricKindTests(unittest.TestCase):
         self.assertFalse(is_cumulative_metric("perf_hardware_INSTRUCTIONS"))
         self.assertFalse(is_cumulative_metric("cpu_percent"))
         self.assertFalse(is_cumulative_metric("nvml_instant_power_mW"))
+        self.assertFalse(is_cumulative_metric("mem_total_B"))
         self.assertFalse(is_cumulative_metric("mem_total_kB"))
 
     def test_is_power_metric_only_accepts_supported_power_series(self):
@@ -195,6 +200,9 @@ class MetricUnitTests(unittest.TestCase):
         self.assertEqual(get_metric_unit("rapl_average_power_W"), "W")
         self.assertEqual(get_metric_unit("attributed_power_total_W"), "W")
         self.assertEqual(get_metric_unit("mem_total_kB"), "B")
+        self.assertEqual(get_metric_unit("mem_total_B"), "B")
+        self.assertEqual(get_metric_unit("active_B"), "B")
+        self.assertEqual(get_metric_unit("nvml_gpu_memory_info_B"), "B")
         self.assertEqual(get_metric_unit("kernel_cpu_time_ms"), "ms")
         self.assertEqual(get_metric_unit("cpu_percent"), "%")
         self.assertEqual(get_metric_unit("kernel_n_procs_running"), "")
@@ -205,7 +213,29 @@ class MetricUnitTests(unittest.TestCase):
 
     def test_is_memory_metric(self):
         self.assertTrue(is_memory_metric("mem_total_kB"))
+        self.assertTrue(is_memory_metric("mem_total_B"))
+        self.assertTrue(is_memory_metric("active_B"))
+        self.assertTrue(is_memory_metric("inactive_B"))
+        self.assertTrue(is_memory_metric("cached_B"))
+        self.assertTrue(is_memory_metric("mapped_B"))
+        self.assertTrue(is_memory_metric("swap_cached_B"))
+        self.assertTrue(is_memory_metric("memory_usage_B"))
+        self.assertTrue(is_memory_metric("nvml_gpu_memory_info_B"))
         self.assertFalse(is_memory_metric("nvml_memory_utilization_%"))
+        self.assertFalse(is_memory_metric("cpu_percent"))
+
+    def test_memory_kind_distinguishes_system_process_and_gpu(self):
+        self.assertEqual(memory_kind("active_kB"), "system")
+        self.assertEqual(memory_kind("active_B"), "system")
+        self.assertEqual(memory_kind("memory_usage_B"), "process")
+        self.assertEqual(memory_kind("nvml_gpu_memory_info_B"), "gpu")
+        self.assertIsNone(memory_kind("nvml_memory_utilization_%"))
+
+    def test_attach_unit_column_inserts_after_value(self):
+        df = pd.DataFrame({"metric": ["mem_available_kB", "cpu_percent"], "value": [1024.0, 50.0]})
+        out = attach_unit_column(df)
+        self.assertEqual(out["unit"].tolist(), ["B", "%"])
+        self.assertEqual(list(out.columns), ["metric", "value", "unit"])
 
 
 if __name__ == "__main__":

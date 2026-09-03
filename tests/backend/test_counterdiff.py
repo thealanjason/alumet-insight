@@ -299,7 +299,7 @@ class CounterDiffTests(unittest.TestCase):
         }
         self.assertFalse(should_derive_power_from_energy("nvml_energy_consumption_J_R_gpu_0_C__A_", available))
         self.assertTrue(should_derive_power_from_energy("rapl_consumed_energy_J_R_pkg_0_C__A_", available))
-        self.assertTrue(
+        self.assertFalse(
             should_derive_power_from_energy(
                 "attributed_energy_total_J_R_total__C_process_1_A_",
                 available,

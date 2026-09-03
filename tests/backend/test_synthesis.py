@@ -342,6 +342,51 @@ class SynthesisTests(unittest.TestCase):
         # t0: CPU-only (GPU not started → 0), t1/t2: both, t3: CPU-only (GPU ended → 0)
         self.assertEqual(combined["value"].tolist(), [1.0, 13.0, 25.0, 7.0])
 
+    def test_attributed_power_total_does_not_spike_on_offset_cpu_gpu_clocks(self):
+        """CPU+GPU union gaps must not turn a few joules into kilowatt spikes."""
+        cpu_ts = pd.to_datetime(
+            [
+                "2024-01-01 00:00:00.000000",
+                "2024-01-01 00:00:00.050000",
+                "2024-01-01 00:00:00.100000",
+            ]
+        )
+        gpu_ts = pd.to_datetime(
+            [
+                "2024-01-01 00:00:00.000060",
+                "2024-01-01 00:00:00.100060",
+            ]
+        )
+        df = pd.DataFrame(
+            {
+                "metric_id": (
+                    ["attributed_energy_cpu_J_R_local_machine__C_process_9_A_domain=package_total"] * 3
+                    + ["attributed_energy_gpu_J_R_gpu_0_C_process_9_A_"] * 2
+                ),
+                "base_metric": ["attributed_energy_cpu_J"] * 3 + ["attributed_energy_gpu_J"] * 2,
+                "timestamp": list(cpu_ts) + list(gpu_ts),
+                "value": [0.0, 0.1, 0.1, 0.2, 0.2],
+            }
+        )
+
+        processed = observed_only(synthesize_derived_metrics(df))
+        power = processed.loc[
+            processed["base_metric"] == "attributed_power_total_W",
+            "value",
+        ].astype(float)
+        cpu_power = processed.loc[
+            processed["base_metric"] == "attributed_power_cpu_W",
+            "value",
+        ].astype(float)
+        gpu_power = processed.loc[
+            processed["base_metric"] == "attributed_power_gpu_total_W",
+            "value",
+        ].astype(float)
+
+        self.assertFalse(power.empty)
+        self.assertLessEqual(float(power.max()), float(cpu_power.max() + gpu_power.max()) + 1e-9)
+        self.assertLess(float(power.max()), 10.0)
+
 
 if __name__ == "__main__":
     unittest.main()

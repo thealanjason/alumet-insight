@@ -63,6 +63,8 @@ def prepare_xy_download(
 ) -> tuple[pd.DataFrame, str]:
     """Rename columns for CSV export and compute a safe filename."""
     df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
+    df_out["x_unit"] = get_metric_unit(x_metric_id)
+    df_out["y_unit"] = get_metric_unit(y_metric_id)
     filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
     return df_out, filename
 

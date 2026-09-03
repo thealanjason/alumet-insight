@@ -143,7 +143,48 @@ class CategoryTests(unittest.TestCase):
         self.assertEqual(category_yaxis_label("kernel_cpu_time"), "Value (ms)")
         self.assertEqual(category_yaxis_label("temperature"), "Value (°C)")
         self.assertEqual(category_yaxis_label("perf_counters"), "Value (count)")
+        self.assertEqual(category_yaxis_label("memory"), "Value (B)")
         self.assertEqual(category_yaxis_label("unknown"), "Value")
+
+    def test_memory_category_includes_generic_and_gpu_byte_metrics(self):
+        df = pd.DataFrame(
+            {
+                "metric_id": [
+                    "active_B_R_local_machine__C__A_",
+                    "inactive_B_R_local_machine__C__A_",
+                    "cached_B_R_local_machine__C__A_",
+                    "mapped_kB_R_local_machine__C__A_",
+                    "nvml_gpu_memory_info_B_R_gpu_0_C__A_",
+                    "nvml_memory_utilization_%_R_gpu_0_C__A_",
+                    "custom_counter_R_host__C__A_",
+                ],
+                "base_metric": [
+                    "active_B",
+                    "inactive_B",
+                    "cached_B",
+                    "mapped_kB",
+                    "nvml_gpu_memory_info_B",
+                    "nvml_memory_utilization_%",
+                    "custom_counter",
+                ],
+                "timestamp": pd.date_range("2024-01-01", periods=7, freq="s"),
+                "value": [1.0] * 7,
+            }
+        )
+
+        self.assertEqual(
+            set(filter_time_series_category(df, "memory")["base_metric"]),
+            {"active_B", "inactive_B", "cached_B", "mapped_kB", "nvml_gpu_memory_info_B"},
+        )
+        self.assertEqual(
+            filter_time_series_category(df, "utilization")["base_metric"].tolist(),
+            ["nvml_memory_utilization_%"],
+        )
+        self.assertEqual(
+            filter_time_series_category(df, "miscellaneous")["base_metric"].tolist(),
+            ["custom_counter"],
+        )
+        self.assertIn("memory", available_category_values(df))
 
 
 if __name__ == "__main__":

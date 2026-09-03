@@ -9,6 +9,7 @@ import pandas as pd
 
 from backend.metrics import (
     MetricId,
+    is_memory_metric,
     is_power_metric,
     is_raw_counter_base_metric,
     metric_ids_from_df,
@@ -49,7 +50,7 @@ TIME_SERIES_CATEGORIES: tuple[TimeSeriesCategory, ...] = (
     TimeSeriesCategory("power", "Power (W)"),
     TimeSeriesCategory("utilization", "Utilization"),
     TimeSeriesCategory("temperature", "Temperature"),
-    TimeSeriesCategory("memory", "Memory"),
+    TimeSeriesCategory("memory", "Memory (B)"),
     TimeSeriesCategory("perf_counters", "Perf Counters"),
     TimeSeriesCategory("kernel_cpu_time", "Kernel CPU Time"),
     TimeSeriesCategory("kernel_system", "Kernel/System"),
@@ -107,7 +108,7 @@ def available_category_values(df_processed: pd.DataFrame) -> list[str]:
         elif "temperature" in metric_lower:
             buckets["temperature"].add(metric)
             all_categorized.add(metric)
-        elif ("mem" in metric_lower or "memory" in metric_lower or "kb" in metric_lower) and "nvml" not in metric_lower:
+        elif is_memory_metric(str(metric)):
             buckets["memory"].add(metric)
             all_categorized.add(metric)
         elif is_raw_counter_base_metric(str(metric)):
@@ -177,9 +178,7 @@ def filter_time_series_category(
         return df[df["base_metric"].str.contains("temperature", case=False, na=False)].copy()
 
     if category == "memory":
-        mem_mask = df["base_metric"].str.contains("mem|memory|kb", case=False, na=False)
-        nvml_mask = df["base_metric"].str.contains("nvml", case=False, na=False)
-        return df[mem_mask & ~nvml_mask].copy()
+        return df[df["base_metric"].map(is_memory_metric)].copy()
 
     if category == "perf_counters":
         return df[df["base_metric"].map(is_raw_counter_base_metric)].copy()
@@ -204,7 +203,6 @@ def filter_time_series_category(
         energy_pat = "energy|rapl|attributed_energy"
         util_pat = "cpu_percent|nvml_gpu_utilization|nvml_sm_utilization|nvml_encoder_utilization|nvml_decoder_utilization|nvml_memory_utilization"
         temp_pat = "temperature"
-        mem_pat = "mem|memory|kb"
         perf_pat = "^perf_hardware|^perf_software"
         kernel_pat = "^kernel_"
         network_pat = "^network_"
@@ -220,9 +218,7 @@ def filter_time_series_category(
         )
         is_util = df["base_metric"].str.contains(util_pat, case=False, na=False)
         is_temp = df["base_metric"].str.contains(temp_pat, case=False, na=False)
-        is_mem = df["base_metric"].str.contains(mem_pat, case=False, na=False) & ~df["base_metric"].str.contains(
-            "nvml", case=False, na=False
-        )
+        is_mem = df["base_metric"].map(is_memory_metric)
         is_perf = df["base_metric"].str.contains(perf_pat, case=False, na=False, regex=True)
         is_kernel = df["base_metric"].str.contains(kernel_pat, case=False, na=False, regex=True)
         is_network = df["base_metric"].str.contains(network_pat, case=False, na=False, regex=True)

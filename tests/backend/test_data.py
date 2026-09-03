@@ -18,6 +18,7 @@ from tests.fixtures import (
     make_alumetdata_stub,
     processed_rows,
     sample_csv_body,
+    write_measurement_directory,
 )
 
 
@@ -219,7 +220,7 @@ class DataTests(unittest.TestCase):
         self.assertEqual(data.pid, 99)
         self.assertEqual(data.device, "CPU")
         self.assertEqual(data.metrics, sorted(processed_rows()["base_metric"].unique().tolist()))
-        self.assertEqual(len(filter_by_base_metric(data.processed_df, "mem_total_kB")), 1)
+        self.assertEqual(len(filter_by_base_metric(data.processed_df, "mem_total_B")), 1)
         self.assertEqual(data.processed_df["metric_id"].apply(metric_id_is_process_consumer).sum(), 3)
         self.assertEqual(len(filter_time_series_category(data.processed_df, "memory")), 1)
 
@@ -266,6 +267,34 @@ class DataTests(unittest.TestCase):
         metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
         self.assertEqual(category_for_metric_id(data.processed_df, metric_id), "power")
         self.assertEqual(category_for_metric_id(data.processed_df, metric_id, category="power"), "power")
+
+    def test_alumetdata_canonicalizes_legacy_and_current_memory_names(self):
+        csv_body = (
+            "metric;resource_kind;resource_id;consumer_kind;consumer_id;__late_attributes;timestamp;value\n"
+            "active_kB;local_machine;;;;;2024-01-01T00:00:00;1024.0\n"
+            "mem_total_kB;local_machine;;;;;2024-01-01T00:00:00;2048.0\n"
+            "cached_B;local_machine;;;;;2024-01-01T00:00:00;512.0\n"
+            "memory_usage_B;local_machine;;process;9;;2024-01-01T00:00:00;256.0\n"
+            "nvml_gpu_memory_info_B;gpu;0;;;;2024-01-01T00:00:00;4096.0\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_measurement_directory(root, csv_body=csv_body)
+            data = AlumetData(root)
+
+        self.assertEqual(
+            set(data.source_df["metric"]),
+            {"active_B", "mem_total_B", "cached_B", "memory_usage_B", "nvml_gpu_memory_info_B"},
+        )
+        self.assertEqual(
+            data.source_df.loc[data.source_df["metric"] == "active_B", "value"].iloc[0],
+            1024.0,
+        )
+        memory = filter_time_series_category(data.processed_df, "memory")
+        self.assertEqual(
+            set(memory["base_metric"]),
+            {"active_B", "mem_total_B", "cached_B", "memory_usage_B", "nvml_gpu_memory_info_B"},
+        )
 
     def test_parse_timestamp_invalid(self):
         with self.assertRaisesRegex(ValueError, "Invalid --start-time"):

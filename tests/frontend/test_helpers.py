@@ -28,6 +28,7 @@ class HelpersTests(unittest.TestCase):
         )
         self.assertEqual(options[0]["label"], "Energy (J)")
         self.assertEqual(options[1]["label"], "Power (W)")
+        self.assertEqual(options[2]["label"], "Memory (B)")
 
     def test_available_category_options_empty_dataframe(self):
         empty = pd.DataFrame(columns=["metric_id", "base_metric", "timestamp", "value"])

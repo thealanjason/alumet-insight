@@ -60,6 +60,7 @@ class CliExportTests(unittest.TestCase):
             self.assertEqual(created[0].parent.name, "csv")
             exported = pd.read_csv(created[0])
             self.assertEqual(exported["metric_id"].unique().tolist(), [metric_id])
+            self.assertEqual(exported["unit"].unique().tolist(), ["W"])
 
     def test_export_csvs_single_metric_id_under_matching_category(self):
         data = make_alumetdata_stub()

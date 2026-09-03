@@ -67,6 +67,20 @@ class TransformsTests(unittest.TestCase):
         self.assertAlmostEqual(out.loc[out["metric"] == "nvml_energy_consumption_J", "value"].iloc[0], 0.5)
         self.assertIn("cpu_percent", out["metric"].values)
 
+    def test_normalize_to_si_relabels_legacy_memory_kb_without_rescaling(self):
+        df = pd.DataFrame(
+            {
+                "metric": ["active_kB", "mem_total_kB", "memory_usage_B", "active_B", "unknown_kB"],
+                "value": [1024.0, 2048.0, 512.0, 1024.0, 99.0],
+            }
+        )
+        out = normalize_to_si(df, col="metric")
+        self.assertEqual(
+            out["metric"].tolist(),
+            ["active_B", "mem_total_B", "memory_usage_B", "active_B", "unknown_kB"],
+        )
+        self.assertEqual(out["value"].tolist(), [1024.0, 2048.0, 512.0, 1024.0, 99.0])
+
     def test_align_xrange_tz_handles_aware_and_naive(self):
         tz = pd.Timestamp("2024-01-01", tz="UTC").tz
         x_min, x_max = align_xrange_tz(pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02"), tz)

@@ -8,6 +8,7 @@ import pandas as pd
 
 from backend.counterdiff import observed_only
 from backend.formatting import get_bytes_tickvals_ticktext
+from backend.metrics import MEMORY_BYTE_STEMS, classification_stem
 
 
 # Maps metric name suffix → (scale factor, SI replacement suffix).
@@ -17,9 +18,18 @@ _SI_RESCALE: dict[str, tuple[float, str]] = {
     "_mW": (1e-3, "_W"),
 }
 
+# Alumet ≤0.9.3 declared procfs meminfo as kB while already emitting bytes
+# (alumet#348 / #352). CSV then appended _kB. Relabel without scaling to fix the bug manually here so that older Alumet versions can show the correct scale.
+_LEGACY_MEMORY_SUFFIX = "_kB"
+_CANONICAL_MEMORY_SUFFIX = "_B"
+
 
 def normalize_to_si(df: pd.DataFrame, col: str = "metric") -> pd.DataFrame:
-    """Rescale values and rename metric suffixes to SI units (e.g. _mW→_W, _mJ→_J)."""
+    """
+    Rescale non-SI values and rename metric suffixes to SI units (e.g. _mW→_W, _mJ→_J).
+    Canonicalize legacy memory metric suffixes (_kB→_B) in names. 
+    This is a manual fix to fix the bug manually here so that older Alumet versions can show the correct scale.
+    """
     df = df.copy()
     # Cast to object so renamed values can be assigned without category constraints
     if isinstance(df[col].dtype, pd.CategoricalDtype):
@@ -30,6 +40,13 @@ def normalize_to_si(df: pd.DataFrame, col: str = "metric") -> pd.DataFrame:
         if mask.any():
             df.loc[mask, "value"] = df.loc[mask, "value"] * factor
             df.loc[mask, col] = df.loc[mask, col].astype(str).str[: -len(from_suffix)] + to_suffix
+
+    kb_mask = df[col].astype(str).str.endswith(_LEGACY_MEMORY_SUFFIX, na=False)
+    if kb_mask.any():
+        names = df.loc[kb_mask, col].astype(str)
+        relabel = names.map(classification_stem).isin(MEMORY_BYTE_STEMS)
+        if relabel.any():
+            df.loc[names.index[relabel], col] = names.loc[relabel].str[: -len(_LEGACY_MEMORY_SUFFIX)] + _CANONICAL_MEMORY_SUFFIX
 
     return df
 

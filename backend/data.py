@@ -208,7 +208,7 @@ class AlumetData:
 
     @property
     def source_df(self) -> pd.DataFrame:
-        """The source DataFrame with NVML units corrected (mW→W, mJ→J) and metric names updated."""
+        """The source DataFrame after unit conversion (mW→W, mJ→J, legacy memory _kB→_B)."""
         return self._df_source.copy()
 
     @property

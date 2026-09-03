@@ -169,6 +169,40 @@ def classification_stem(base_metric: str | None) -> str:
             return name[: -len(suffix)]
     return name
 
+# Host /proc/meminfo gauges. 
+# Values are always bytes; the bug of inconsistent value unit and metric name remains unsolved til 0.9.3 and
+# being fixed to _B since 0.9.4 (https://github.com/alumet-dev/alumet/pull/352).
+SYSTEM_MEMORY_STEMS: frozenset[str] = frozenset(
+    {
+        "mem_total",
+        "mem_free",
+        "mem_available",
+        "active",
+        "inactive",
+        "cached",
+        "swap_cached",
+        "mapped",
+    }
+)
+
+PROCESS_MEMORY_STEMS: frozenset[str] = frozenset({"memory_usage"})
+
+GPU_MEMORY_BYTE_STEMS: frozenset[str] = frozenset({"nvml_gpu_memory_info"})
+
+MEMORY_BYTE_STEMS: frozenset[str] = SYSTEM_MEMORY_STEMS | PROCESS_MEMORY_STEMS | GPU_MEMORY_BYTE_STEMS
+
+
+def memory_kind(metric_name: str) -> str | None:
+    """Return ``system``, ``process``, or ``gpu`` for byte-valued memory metrics."""
+    stem = classification_stem(base_metric_from_id(metric_name))
+    if stem in SYSTEM_MEMORY_STEMS:
+        return "system"
+    if stem in PROCESS_MEMORY_STEMS:
+        return "process"
+    if stem in GPU_MEMORY_BYTE_STEMS:
+        return "gpu"
+    return None
+
 
 EXACT_COUNTERDIFF_STEMS: frozenset[str] = frozenset(
     {
@@ -376,6 +410,10 @@ def should_derive_power_from_energy(
     energy_lower = energy_base.lower()
     if "energy" not in energy_lower and "rapl" not in energy_lower:
         return False
+    # Do not derive attributed_power_total_W from union energy.
+    # Instead, P_total(t) = P_cpu(t) + P_gpu_total(t)
+    if classification_stem(energy_base) == "attributed_energy_total":
+        return False
 
     available = {str(metric_id) for metric_id in available_metric_ids}
     available_identities = [MetricId.parse(metric_id) for metric_id in available]
@@ -501,8 +539,8 @@ def get_metric_unit(metric_name: str) -> str:
     if "_j" in metric_lower or "energy" in metric_lower:
         return "J"
     
-    # Memory metrics - values are in Bytes despite "_kB" in name
-    if "_kb" in metric_lower or "memory_usage" in metric_lower:
+    # Memory metrics are always stored as bytes (legacy CSV names used _kB)
+    if memory_kind(metric_name) is not None:
         return "B"
     
     # Time metrics
@@ -520,16 +558,32 @@ def get_metric_unit(metric_name: str) -> str:
 
 
 def is_memory_metric(metric_name: str) -> bool:
-    """Check if a metric is a memory-related metric (values in Bytes).
-    
-    Excludes nvml_memory_utilization_% which is a percentage, not a byte count.
     """
-    metric_lower = base_metric_from_id(metric_name).lower()
-    # Exclude NVML memory utilization (it's a percentage, not bytes)
-    if "nvml_memory" in metric_lower:
-        return False
-    memory_patterns = [
-        "mem_", "memory", "_kb", "active_kb", "inactive_kb", 
-        "cached_kb", "mapped_kb", "swap_cached"
-    ]
-    return any(p in metric_lower for p in memory_patterns)
+    Return whether this metric is a byte-valued memory gauge.
+
+    Covers host `/proc/meminfo` gauges, process `memory_usage`, and GPU memory info.
+    Excludes `nvml_memory_utilization_%`, which is a percentage.
+    """
+    return memory_kind(metric_name) is not None
+
+
+def attach_unit_column(df: pd.DataFrame, source_col: str | None = None) -> pd.DataFrame:
+    """
+    Add a `unit` column inferred from the metric name.
+
+    Used by CSV exports so downstream analysis does not have to parse suffixes.
+    """
+    out = df.copy()
+    if "unit" in out.columns:
+        return out
+    if source_col is None:
+        source_col = next((column for column in ("base_metric", "metric", "metric_id") if column in out.columns), None)
+    if source_col is None:
+        return out
+
+    units = out[source_col].map(get_metric_unit)
+    if "value" in out.columns:
+        out.insert(list(out.columns).index("value") + 1, "unit", units)
+    else:
+        out["unit"] = units
+    return out

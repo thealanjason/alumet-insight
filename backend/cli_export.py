@@ -21,6 +21,7 @@ from backend.counterdiff import export_observed_measurements
 from backend.data import AlumetData
 from backend.figures import export_category_figures
 from backend.metrics import (
+    attach_unit_column,
     filter_by_base_metric,
     filter_by_metric_id,
     format_metric_id_list,
@@ -162,7 +163,7 @@ def export_csvs(
         metric_dir = output_root / (category or "metrics") / "csv"
         metric_dir.mkdir(parents=True, exist_ok=True)
         path = metric_dir / f"{safe_filename(metric_id)}.csv"
-        df.to_csv(path, index=False)
+        attach_unit_column(df).to_csv(path, index=False)
         return [path]
 
     for category_value in _selected_categories(data, category):
@@ -180,7 +181,7 @@ def export_csvs(
         category_dir.mkdir(parents=True, exist_ok=True)
         suffix = f"_core_{cpu_core}" if category_value == "kernel_cpu_time" and cpu_core else ""
         path = category_dir / f"{safe_filename(category_value + suffix)}.csv"
-        df.to_csv(path, index=False)
+        attach_unit_column(df).to_csv(path, index=False)
         created.append(path)
     return created
 
