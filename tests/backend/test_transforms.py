@@ -10,6 +10,7 @@ from backend.transforms import (
     filter_to_time_range,
     get_process_time_range_from_df,
     normalize_to_si,
+    xy_running_totals,
 )
 
 
@@ -179,6 +180,72 @@ class TransformsTests(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             align_xy_metrics(df, "x_R_a_C__A_", "x_R_a_C__A_", ts, ts)
+
+    def test_xy_running_totals_preserves_each_series_sum(self):
+        """Unequal rates + delayed Y: the 08_topo_uncertain cumulative failure mode.
+
+        CPU-like X at 50 ms, GPU-like Y at 200 ms starting 2 s later.
+        ``align_xy_metrics`` then ``cumsum`` drops the unmatched prefix and
+        repeats each Y sample onto several X stamps. Running totals must
+        still end at ``sum(X)`` and ``sum(Y)``.
+        """
+        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
+        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
+        start = pd.Timestamp("2024-01-01")
+        x_times = pd.date_range(start, periods=81, freq="50ms")
+        y_times = pd.date_range(start + pd.Timedelta("2s"), periods=11, freq="200ms")
+        df = pd.DataFrame(
+            {
+                "timestamp": list(x_times) + list(y_times),
+                "metric_id": [x_id] * len(x_times) + [y_id] * len(y_times),
+                "value": [2.0] * len(x_times) + [10.0] * len(y_times),
+                "point_role": ["observed"] * (len(x_times) + len(y_times)),
+            }
+        )
+        end = max(x_times[-1], y_times[-1])
+
+        totals = xy_running_totals(df, x_id, y_id, start, end)
+        self.assertAlmostEqual(float(totals["x"].iloc[-1]), 162.0)
+        self.assertAlmostEqual(float(totals["y"].iloc[-1]), 110.0)
+        self.assertTrue((totals.loc[totals["timestamp"] < y_times[0], "y"] == 0.0).all())
+
+        aligned = align_xy_metrics(df, x_id, y_id, start, end)
+        self.assertLess(float(aligned["x"].sum()), 162.0)
+        self.assertGreater(float(aligned["y"].sum()), 110.0)
+
+    def test_xy_running_totals_ignores_synthetic_padding(self):
+        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
+        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
+        ts0 = pd.Timestamp("2024-01-01")
+        ts1 = pd.Timestamp("2024-01-01 00:00:01")
+        df = pd.DataFrame(
+            {
+                "timestamp": [ts0, ts0, ts1, ts1, ts0, ts1],
+                "metric_id": [x_id, x_id, x_id, x_id, y_id, y_id],
+                "value": [5.0, 0.0, 7.0, 0.0, 3.0, 4.0],
+                "point_role": [
+                    "observed",
+                    "synthetic",
+                    "observed",
+                    "synthetic",
+                    "observed",
+                    "observed",
+                ],
+            }
+        )
+        totals = xy_running_totals(df, x_id, y_id, ts0, ts1)
+        self.assertEqual(totals[["x", "y"]].values.tolist(), [[5.0, 3.0], [12.0, 7.0]])
+
+    def test_xy_running_totals_empty_when_a_series_is_missing(self):
+        start, end = pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-01 00:00:01")
+        empty = xy_running_totals(
+            pd.DataFrame(columns=["metric_id", "timestamp", "value"]),
+            "a",
+            "b",
+            start,
+            end,
+        )
+        self.assertTrue(empty.empty)
 
 
 if __name__ == "__main__":

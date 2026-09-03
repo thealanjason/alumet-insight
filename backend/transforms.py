@@ -265,6 +265,47 @@ def align_xy_metrics(
     return dfxy.sort_values("timestamp", ignore_index=True)
 
 
+def xy_running_totals(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Running totals of two series on the union timeline.
+
+    Cumulates each series on its own timestamps, then forward-fills onto
+    the union so each sample is counted once. Do not ``cumsum`` the
+    ``merge_asof`` table from ``align_xy_metrics``: that repeats the
+    coarser series and drops unmatched prefix/suffix samples.
+    """
+    dfw = observed_only(filter_to_time_range(df_processed, proc_start, proc_end))
+
+    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].copy()
+    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].copy()
+    if dfx.empty or dfy.empty:
+        return pd.DataFrame(columns=["timestamp", "x", "y"])
+
+    for label, frame in (("x", dfx), ("y", dfy)):
+        dup_mask = frame.duplicated(subset=["timestamp"], keep=False)
+        if dup_mask.any():
+            raise ValueError(
+                f"Duplicate observed timestamps for {label}-metric after filtering; "
+                "refusing silent drop_duplicates. "
+                f"timestamps={frame.loc[dup_mask, 'timestamp'].tolist()}"
+            )
+
+    left = dfx.sort_values("timestamp", ignore_index=True)
+    right = dfy.sort_values("timestamp", ignore_index=True)
+    left["x"] = left["value"].cumsum()
+    right["y"] = right["value"].cumsum()
+
+    timeline = pd.DatetimeIndex(pd.Index(left["timestamp"]).union(pd.Index(right["timestamp"]))).sort_values()
+    x = left.drop_duplicates("timestamp").set_index("timestamp")["x"].reindex(timeline).ffill().fillna(0.0)
+    y = right.drop_duplicates("timestamp").set_index("timestamp")["y"].reindex(timeline).ffill().fillna(0.0)
+    return pd.DataFrame({"timestamp": timeline, "x": x.to_numpy(), "y": y.to_numpy()})
+
+
 def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
     """Get the process active time range from the dataframe.
 

@@ -20,6 +20,7 @@ from backend.transforms import (
     align_xy_metrics,
     comparative_metric_ids,
     filter_to_time_range,
+    xy_running_totals,
 )
 from backend.utils import safe_filename
 from frontend.app import app
@@ -362,9 +363,7 @@ def update_process_xy_plot(
     color_x = accents["x"]
     color_y = accents["y"]
 
-    dfxy = None
-    hover_times = None
-    if show_scatter or both_cumulative:
+    if show_scatter:
         dfxy = align_xy_metrics(
             dfp,
             x_metric_id,
@@ -381,8 +380,6 @@ def update_process_xy_plot(
             )
             return fig
         hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
-
-    if show_scatter:
         fig.add_trace(
             go.Scatter(
                 x=dfxy["x"],
@@ -424,13 +421,18 @@ def update_process_xy_plot(
         )
 
     elif both_cumulative:
-        dfxy["x_cumsum"] = dfxy["x"].cumsum()
-        dfxy["y_cumsum"] = dfxy["y"].cumsum()
+        dfxy = xy_running_totals(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+        if dfxy.empty:
+            fig.update_layout(
+                title=dict(text="Could not compute running totals (one or both series empty)", x=0.5)
+            )
+            return fig
+        hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
 
         fig.add_trace(
             go.Scatter(
-                x=dfxy["x_cumsum"],
-                y=dfxy["y_cumsum"],
+                x=dfxy["x"],
+                y=dfxy["y"],
                 mode="lines+markers",
                 line=dict(color=accents["cumulative"], width=2),
                 marker=dict(color=accents["cumulative"], size=6),
@@ -452,13 +454,13 @@ def update_process_xy_plot(
 
         if is_memory_metric(x_metric_id):
             x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(
-                dfxy["x_cumsum"].min(), dfxy["x_cumsum"].max(), num_ticks=5
+                dfxy["x"].min(), dfxy["x"].max(), num_ticks=5
             )
             xaxis_config["tickvals"] = x_tickvals
             xaxis_config["ticktext"] = x_ticktext
         if is_memory_metric(y_metric_id):
             y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(
-                dfxy["y_cumsum"].min(), dfxy["y_cumsum"].max(), num_ticks=5
+                dfxy["y"].min(), dfxy["y"].max(), num_ticks=5
             )
             yaxis_config["tickvals"] = y_tickvals
             yaxis_config["ticktext"] = y_ticktext
@@ -571,7 +573,10 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     if proc_start is None or proc_end is None:
         return None
 
-    dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+    if is_cumulative_metric(x_metric_id) and is_cumulative_metric(y_metric_id):
+        dfxy = xy_running_totals(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+    else:
+        dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
     if dfxy.empty:
         return None
 

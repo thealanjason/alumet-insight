@@ -176,6 +176,34 @@ class ComparativeTests(unittest.TestCase):
         self.assertEqual(list(figure.data[0].x), [x_time])
         self.assertEqual(list(figure.data[1].x), [y_time])
 
+    def test_cumulative_xy_uses_running_totals_not_aligned_cumsum(self):
+        x_metric = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
+        y_metric = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
+        start = pd.Timestamp("2024-01-01")
+        x_times = pd.date_range(start, periods=81, freq="50ms")
+        y_times = pd.date_range(start + pd.Timedelta("2s"), periods=11, freq="200ms")
+        records = [
+            {"timestamp": ts, "metric_id": x_metric, "value": 2.0} for ts in x_times
+        ] + [
+            {"timestamp": ts, "metric_id": y_metric, "value": 10.0} for ts in y_times
+        ]
+
+        figure = update_process_xy_plot(
+            x_metric,
+            y_metric,
+            [],
+            False,
+            records,
+            {
+                "start": "2024-01-01 00:00:00",
+                "end": str(max(x_times[-1], y_times[-1])),
+            },
+        )
+
+        self.assertEqual(len(figure.data), 1)
+        self.assertAlmostEqual(float(figure.data[0].x[-1]), 162.0)
+        self.assertAlmostEqual(float(figure.data[0].y[-1]), 110.0)
+
 
 if __name__ == "__main__":
     unittest.main()
