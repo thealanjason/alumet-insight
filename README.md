@@ -66,3 +66,17 @@ python alumet_insight.py cli /path/to/alumet/experiment/dir --export-figures /pa
 
 with optional `--process-specific` flag to focus on process active region.
 
+4. Compare two metric series:
+```bash
+python alumet_insight.py cli /path/to/alumet/experiment/dir --metric-id ID_X --compare-metric-id ID_Y --export-csv /path/to/saved/results
+python alumet_insight.py cli /path/to/alumet/experiment/dir --metric-id ID_X --compare-metric-id ID_Y --export-figures /path/to/saved/results
+python alumet_insight.py cli /path/to/alumet/experiment/dir --metric-id ID_X --compare-metric-id ID_Y --export-figures /path/to/saved/results --scatter
+```
+
+> [!NOTE]
+> Discover exact IDs with `--list-metric-ids` before passing `--metric-id` / `--compare-metric-id`.
+
+`--export-csv` writes the same table as Comparative tab **Download CSV** (running totals when both series are cumulative; otherwise nearest-aligned interval X/Y, plus `x_unit` / `y_unit`). `--export-figures` writes the same view as the tab: cumulative X–Y, dual-axis time series, or `--scatter`. Comparative exports use the process-active window (same as the tab); `--start-time` / `--end-time` clip further. Files go under `/path/to/saved/results/<measurement>/comparative/`. The CLI exports one explicit pair; it does not dump every combination.
+
+Run `python alumet_insight.py cli -h` for the full flag list.
+

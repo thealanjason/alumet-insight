@@ -19,15 +19,16 @@ from backend.categories import (
 )
 from backend.counterdiff import export_observed_measurements
 from backend.data import AlumetData
-from backend.figures import export_category_figures
+from backend.figures import export_category_figures, save_comparative_figure
 from backend.metrics import (
     attach_unit_column,
     filter_by_base_metric,
     filter_by_metric_id,
     format_metric_id_list,
+    is_cumulative_xy_pair,
     metric_ids_from_df,
 )
-from backend.transforms import filter_to_time_range, validate_time_range
+from backend.transforms import comparative_download_table, filter_to_time_range, validate_time_range
 from backend.utils import safe_filename
 
 
@@ -105,6 +106,7 @@ def summary(data: AlumetData) -> str:
         "  List exact metric IDs:   --list-metric-ids [--category <cat>] [--metric-name <name>]",
         "  Export CSV:              --export-csv <dir> [--category <cat> | --metric-id <id>]",
         "  Export figures:          --export-figures <dir> [--category <cat> | --metric-id <id>]",
+        "  Compare two series:      --metric-id <x> --compare-metric-id <y> --export-csv|--export-figures <dir> [--scatter]",
         "  Custom time window:      --start-time 2026-03-24T23:51:41+00:00 --end-time <timestamp>",
         rule,
     ]
@@ -184,6 +186,92 @@ def export_csvs(
         attach_unit_column(df).to_csv(path, index=False)
         created.append(path)
     return created
+
+
+def comparative_mode(x_metric_id: str, y_metric_id: str) -> str:
+    """Same mode rule as the Comparative tab: running-total X–Y or dual-axis."""
+    return "cumulative" if is_cumulative_xy_pair(x_metric_id, y_metric_id) else "dual_axis"
+
+
+def _comparative_window(
+    data: AlumetData,
+    *,
+    process_specific: bool,
+    start_time: Optional[str | pd.Timestamp],
+    end_time: Optional[str | pd.Timestamp],
+) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Same window as the Comparative tab: process-active range, then optional clips."""
+    _ = process_specific
+    start, end = data.process_time_range
+    if start is None or end is None:
+        start, end = data.data_time_range
+    if start is None or end is None:
+        raise ValueError("Cannot compare metrics: CSV has no valid timestamps")
+    user_start, user_end = validate_time_range(start_time, end_time, *data.data_time_range)
+    if user_start is not None:
+        start = max(start, user_start)
+    if user_end is not None:
+        end = min(end, user_end)
+    return start, end
+
+
+def export_comparative_csv(
+    data: AlumetData,
+    output_root: Path,
+    x_metric_id: str,
+    y_metric_id: str,
+    *,
+    process_specific: bool = False,
+    start_time: Optional[str | pd.Timestamp] = None,
+    end_time: Optional[str | pd.Timestamp] = None,
+) -> list[Path]:
+    """Export one aligned/comparative CSV under ``output_root/comparative/csv/``."""
+    start, end = _comparative_window(
+        data, process_specific=process_specific, start_time=start_time, end_time=end_time
+    )
+    table, filename = comparative_download_table(data.processed_df, x_metric_id, y_metric_id, start, end)
+    if table.empty:
+        return []
+    csv_dir = Path(output_root) / "comparative" / "csv"
+    csv_dir.mkdir(parents=True, exist_ok=True)
+    path = csv_dir / filename
+    table.to_csv(path, index=False)
+    return [path]
+
+
+def export_comparative_figure(
+    data: AlumetData,
+    output_root: Path,
+    x_metric_id: str,
+    y_metric_id: str,
+    *,
+    process_specific: bool = False,
+    start_time: Optional[str | pd.Timestamp] = None,
+    end_time: Optional[str | pd.Timestamp] = None,
+    figure_format: str = "png",
+    dpi: int = 150,
+    scatter: bool = False,
+) -> list[Path]:
+    """Export one comparative figure under ``output_root/comparative/plots/``."""
+    start, end = _comparative_window(
+        data, process_specific=process_specific, start_time=start_time, end_time=end_time
+    )
+    plots_dir = Path(output_root) / "comparative" / "plots"
+    stem = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}")
+    if scatter:
+        stem = f"{stem}_scatter"
+    path = plots_dir / f"{stem}.{figure_format}"
+    save_comparative_figure(
+        data.processed_df,
+        x_metric_id,
+        y_metric_id,
+        path,
+        start,
+        end,
+        scatter=scatter,
+        dpi=dpi,
+    )
+    return [path]
 
 
 def export_figures(

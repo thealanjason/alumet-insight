@@ -39,6 +39,18 @@ class CLIBasicTests(unittest.TestCase):
                 _run_cli([str(root), "--export-csv", str(out), "--category", "power"])
             self.assertTrue(any(out.rglob("*.csv")))
 
+    def test_help_documents_compare_pair(self):
+        stderr = io.StringIO()
+        with patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit):
+                _run_cli(["--help"])
+        help_text = stderr.getvalue()
+        self.assertIn("--compare-metric-id", help_text)
+        self.assertIn("--scatter", help_text)
+        self.assertIn("compare pair", help_text)
+        self.assertIn("comparative/csv/", help_text)
+        self.assertIn("--scatter with --export-figures", help_text)
+
     def test_no_action_prints_help_and_exits(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_dir(tmp)
@@ -165,6 +177,73 @@ class CLIValidationTests(unittest.TestCase):
                 with patch("sys.stderr", stderr):
                     _run_cli([str(root), "--export-figures", str(out), "--category", "power"])
             self.assertNotIn("Warning:", stderr.getvalue())
+
+    def test_compare_without_metric_id_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            stderr = io.StringIO()
+            with patch("sys.stderr", stderr):
+                with self.assertRaises(SystemExit):
+                    _run_cli([
+                        str(root), "--export-csv", str(tmp),
+                        "--compare-metric-id", "nvml_instant_power_W_R_gpu_0_C_process_123_A_",
+                    ])
+            self.assertIn("--compare-metric-id requires --metric-id", stderr.getvalue())
+
+    def test_compare_same_ids_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            metric_id = "cpu_percent_R_local_machine__C_process_123_A_"
+            stderr = io.StringIO()
+            with patch("sys.stderr", stderr):
+                with self.assertRaises(SystemExit):
+                    _run_cli([
+                        str(root), "--export-csv", str(tmp),
+                        "--metric-id", metric_id, "--compare-metric-id", metric_id,
+                    ])
+            self.assertIn("must name two different series", stderr.getvalue())
+
+    def test_scatter_without_compare_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            stderr = io.StringIO()
+            with patch("sys.stderr", stderr):
+                with self.assertRaises(SystemExit):
+                    _run_cli([str(root), "--export-figures", str(tmp), "--scatter"])
+            self.assertIn("--scatter requires --compare-metric-id", stderr.getvalue())
+
+    def test_scatter_without_figures_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            stderr = io.StringIO()
+            with patch("sys.stderr", stderr):
+                with self.assertRaises(SystemExit):
+                    _run_cli([
+                        str(root), "--export-csv", str(tmp),
+                        "--metric-id", "cpu_percent_R_local_machine__C_process_123_A_",
+                        "--compare-metric-id", "nvml_instant_power_W_R_gpu_0_C_process_123_A_",
+                        "--scatter",
+                    ])
+            self.assertIn("--scatter is only valid with --export-figures", stderr.getvalue())
+
+    def test_export_comparative_csv_and_figure(self):
+        x_id = "cpu_percent_R_local_machine__C_process_123_A_"
+        y_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._make_dir(tmp)
+            out = Path(tmp) / "export"
+            with patch("builtins.print") as mock_print:
+                _run_cli([
+                    str(root),
+                    "--export-csv", str(out),
+                    "--export-figures", str(out),
+                    "--metric-id", x_id,
+                    "--compare-metric-id", y_id,
+                ])
+            printed = " ".join(str(call[0][0]) for call in mock_print.call_args_list if call[0])
+            self.assertIn("Comparative mode: dual_axis", printed)
+            self.assertTrue(any(p.parent.parent.name == "comparative" for p in out.rglob("*.csv")))
+            self.assertTrue(any(p.parent.parent.name == "comparative" for p in out.rglob("*.png")))
 
     def test_entry_point_forwards_cli_help(self):
         import alumet_insight
