@@ -6,7 +6,14 @@ from typing import Optional
 
 import pandas as pd
 
+from backend.counterdiff import observed_only
 from backend.formatting import get_bytes_tickvals_ticktext
+from backend.metrics import (
+    MEMORY_BYTE_STEMS,
+    classification_stem,
+    is_running_total_metric,
+    running_total_metric_id,
+)
 
 
 # Maps metric name suffix → (scale factor, SI replacement suffix).
@@ -16,9 +23,18 @@ _SI_RESCALE: dict[str, tuple[float, str]] = {
     "_mW": (1e-3, "_W"),
 }
 
+# Alumet ≤0.9.3 declared procfs meminfo as kB while already emitting bytes
+# (alumet#348 / #352). CSV then appended _kB. Relabel without scaling to fix the bug manually here so that older Alumet versions can show the correct scale.
+_LEGACY_MEMORY_SUFFIX = "_kB"
+_CANONICAL_MEMORY_SUFFIX = "_B"
+
 
 def normalize_to_si(df: pd.DataFrame, col: str = "metric") -> pd.DataFrame:
-    """Rescale values and rename metric suffixes to SI units (e.g. _mW→_W, _mJ→_J)."""
+    """
+    Rescale non-SI values and rename metric suffixes to SI units (e.g. _mW→_W, _mJ→_J).
+    Canonicalize legacy memory metric suffixes (_kB→_B) in names. 
+    This is a manual fix to fix the bug manually here so that older Alumet versions can show the correct scale.
+    """
     df = df.copy()
     # Cast to object so renamed values can be assigned without category constraints
     if isinstance(df[col].dtype, pd.CategoricalDtype):
@@ -28,7 +44,14 @@ def normalize_to_si(df: pd.DataFrame, col: str = "metric") -> pd.DataFrame:
         mask = df[col].str.endswith(from_suffix, na=False)
         if mask.any():
             df.loc[mask, "value"] = df.loc[mask, "value"] * factor
-            df.loc[mask, col] = df.loc[mask, col].str[: -len(from_suffix)] + to_suffix
+            df.loc[mask, col] = df.loc[mask, col].astype(str).str[: -len(from_suffix)] + to_suffix
+
+    kb_mask = df[col].astype(str).str.endswith(_LEGACY_MEMORY_SUFFIX, na=False)
+    if kb_mask.any():
+        names = df.loc[kb_mask, col].astype(str)
+        relabel = names.map(classification_stem).isin(MEMORY_BYTE_STEMS)
+        if relabel.any():
+            df.loc[names.index[relabel], col] = names.loc[relabel].str[: -len(_LEGACY_MEMORY_SUFFIX)] + _CANONICAL_MEMORY_SUFFIX
 
     return df
 
@@ -99,10 +122,7 @@ def parse_timestamp(value: str | pd.Timestamp, label: str) -> pd.Timestamp:
     try:
         return pd.to_datetime(value)
     except (ValueError, TypeError):
-        raise ValueError(
-            f"Invalid {label} '{value}'. "
-            "Expected date+time with T, e.g. 2026-03-24T23:51:41+00:00."
-        )
+        raise ValueError(f"Invalid {label} '{value}'. Expected date+time with T, e.g. 2026-03-24T23:51:41+00:00.")
 
 
 def validate_time_range(
@@ -216,9 +236,10 @@ def align_xy_metrics(
     """Align two metric series on timestamps within the process window.
 
     Returns a DataFrame with columns ``timestamp``, ``x``, ``y``.
-    Uses nearest-neighbour matching (merge_asof) — avoids synthetic data points.
+    Uses nearest-neighbour matching (merge_asof) on observed rows only —
+    synthetic CounterDiff padding never participates in matching.
     """
-    dfw = filter_to_time_range(df_processed, proc_start, proc_end)
+    dfw = observed_only(filter_to_time_range(df_processed, proc_start, proc_end))
 
     dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].rename(columns={"value": "x"})
     dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].rename(columns={"value": "y"})
@@ -226,8 +247,17 @@ def align_xy_metrics(
     if dfx.empty or dfy.empty:
         return pd.DataFrame(columns=["timestamp", "x", "y"])
 
-    dfx = dfx.drop_duplicates(subset=["timestamp"], keep="first").sort_values("timestamp", ignore_index=True)
-    dfy = dfy.drop_duplicates(subset=["timestamp"], keep="first").sort_values("timestamp", ignore_index=True)
+    for label, frame in (("x", dfx), ("y", dfy)):
+        dup_mask = frame.duplicated(subset=["timestamp"], keep=False)
+        if dup_mask.any():
+            raise ValueError(
+                f"Duplicate observed timestamps for {label}-metric after filtering; "
+                "refusing silent drop_duplicates. "
+                f"timestamps={frame.loc[dup_mask, 'timestamp'].tolist()}"
+            )
+
+    dfx = dfx.sort_values("timestamp", ignore_index=True)
+    dfy = dfy.sort_values("timestamp", ignore_index=True)
 
     dx = dfx["timestamp"].diff().median()
     dy = dfy["timestamp"].diff().median()
@@ -238,6 +268,116 @@ def align_xy_metrics(
 
     dfxy = pd.merge_asof(dfx, dfy, on="timestamp", direction="nearest", tolerance=tol).dropna(subset=["y"])
     return dfxy.sort_values("timestamp", ignore_index=True)
+
+
+def _xy_series_or_empty(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
+    """Observed X/Y value frames in the process window, or ``(None, None)``."""
+    dfw = observed_only(filter_to_time_range(df_processed, proc_start, proc_end))
+
+    dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].copy()
+    dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].copy()
+    if dfx.empty or dfy.empty:
+        return None, None
+
+    for label, frame in (("x", dfx), ("y", dfy)):
+        dup_mask = frame.duplicated(subset=["timestamp"], keep=False)
+        if dup_mask.any():
+            raise ValueError(
+                f"Duplicate observed timestamps for {label}-metric after filtering; "
+                "refusing silent drop_duplicates. "
+                f"timestamps={frame.loc[dup_mask, 'timestamp'].tolist()}"
+            )
+    return dfx, dfy
+
+
+def _union_ffill_xy(left: pd.DataFrame, right: pd.DataFrame) -> pd.DataFrame:
+    """Forward-fill two timestamp/value series onto their union timeline."""
+    left = left.sort_values("timestamp", ignore_index=True)
+    right = right.sort_values("timestamp", ignore_index=True)
+    timeline = pd.DatetimeIndex(pd.Index(left["timestamp"]).union(pd.Index(right["timestamp"]))).sort_values()
+    x = left.drop_duplicates("timestamp").set_index("timestamp")["x"].reindex(timeline).ffill().fillna(0.0)
+    y = right.drop_duplicates("timestamp").set_index("timestamp")["y"].reindex(timeline).ffill().fillna(0.0)
+    return pd.DataFrame({"timestamp": timeline, "x": x.to_numpy(), "y": y.to_numpy()})
+
+
+def xy_running_totals(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Running totals of two interval-delta series on the union timeline.
+
+    Cumulates each series on its own timestamps, then forward-fills onto
+    the union so each sample is counted once. Prefer ``align_running_total_xy``
+    when load-time cumulative siblings already exist in the dataframe.
+    """
+    dfx, dfy = _xy_series_or_empty(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    if dfx is None or dfy is None:
+        return pd.DataFrame(columns=["timestamp", "x", "y"])
+
+    left = dfx.sort_values("timestamp", ignore_index=True)
+    right = dfy.sort_values("timestamp", ignore_index=True)
+    left["x"] = left["value"].cumsum()
+    right["y"] = right["value"].cumsum()
+    return _union_ffill_xy(left, right)
+
+
+def align_running_total_xy(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Pair two already-cumulative series on the union timeline.
+
+    Values are forward-filled, not cumsum'd again. Use this when Comparative
+    reads load-time running-total siblings from ``processed_df``.
+    """
+    dfx, dfy = _xy_series_or_empty(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    if dfx is None or dfy is None:
+        return pd.DataFrame(columns=["timestamp", "x", "y"])
+
+    left = dfx.rename(columns={"value": "x"})
+    right = dfy.rename(columns={"value": "y"})
+    return _union_ffill_xy(left, right)
+
+
+def comparative_cumulative_xy(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Cumulative X–Y from load-time siblings, else view-time cumsum.
+
+    Comparative only chooses the plot mode; the values come from
+    ``processed_df`` when ``synthesize_running_totals`` has already run.
+    """
+    if is_running_total_metric(x_metric_id) and is_running_total_metric(y_metric_id):
+        return align_running_total_xy(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+
+    x_cum = running_total_metric_id(x_metric_id)
+    y_cum = running_total_metric_id(y_metric_id)
+    present = (
+        set(df_processed["metric_id"].dropna().astype(str))
+        if "metric_id" in df_processed.columns
+        else set()
+    )
+    if x_cum in present and y_cum in present:
+        aligned = align_running_total_xy(df_processed, x_cum, y_cum, proc_start, proc_end)
+        if not aligned.empty:
+            return aligned
+    return xy_running_totals(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
 
 
 def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:

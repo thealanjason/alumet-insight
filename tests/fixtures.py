@@ -17,13 +17,13 @@ def processed_rows() -> pd.DataFrame:
             "metric_id": [
                 "attributed_energy_J_R_local_machine__C_process_123_A_",
                 "nvml_instant_power_W_R_gpu_0_C_process_123_A_",
-                "mem_total_kB_R_local_machine__C__A_",
+                "mem_total_B_R_local_machine__C__A_",
                 "kernel_cpu_time_ms_R_cpu_core_0.0_C_process_123_A_",
             ],
             "base_metric": [
                 "attributed_energy_J",
                 "nvml_instant_power_W",
-                "mem_total_kB",
+                "mem_total_B",
                 "kernel_cpu_time_ms",
             ],
             "timestamp": ts,

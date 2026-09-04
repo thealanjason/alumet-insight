@@ -41,7 +41,13 @@ def _format_id(id_str: str) -> str:
         return id_str
 
 
-def format_metric_title(metric_id: str) -> str:
+def format_metric_choice_label(name: str, *, derived: bool = False) -> str:
+    """Dropdown label; append ``(derived)`` for post-processed series."""
+    label = str(name)
+    return f"{label} (derived)" if derived else label
+
+
+def format_metric_title(metric_id: str, *, derived: bool = False) -> str:
     """Format a metric_id into a human-readable plot title.
 
     Parses: {base_metric}_R_{resource_kind}_{resource_id}_C_{consumer_kind}_{consumer_id}_A_{late_attributes}
@@ -49,7 +55,7 @@ def format_metric_title(metric_id: str) -> str:
     """
     try:
         if "_R_" not in metric_id:
-            return metric_id
+            return format_metric_choice_label(metric_id, derived=derived)
 
         parts = metric_id.split("_R_", 1)
         base_metric = parts[0]
@@ -90,9 +96,10 @@ def format_metric_title(metric_id: str) -> str:
         if late_attr:
             title_parts.append(f"A: {late_attr.replace('_', ' ')}")
 
-        return " ".join(title_parts)
+        title = " ".join(title_parts)
+        return format_metric_choice_label(title, derived=derived)
     except Exception:
-        return metric_id.replace("_", " ")
+        return format_metric_choice_label(metric_id.replace("_", " "), derived=derived)
 
 
 def metric_id_to_plot_label(metric_id: str, max_len: int = 60) -> str:

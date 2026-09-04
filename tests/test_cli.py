@@ -90,7 +90,7 @@ class CLIValidationTests(unittest.TestCase):
                 _run_cli([str(root), "--list-metric-ids", "--category", "power"])
             output = mock_print.call_args_list[0][0][0]
             self.assertIn("nvml_instant_power_W_R_gpu_0_C_process_123_A_", output)
-            self.assertNotIn("mem_total_kB", output)
+            self.assertNotIn("mem_total_B", output)
 
     def test_list_metric_ids_with_limit(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -10,6 +10,7 @@ from backend.cli_export import (
     export_figures,
     summary,
 )
+from backend.counterdiff import expand_counterdiff_rows
 from tests.fixtures import make_alumetdata_stub
 
 
@@ -59,6 +60,7 @@ class CliExportTests(unittest.TestCase):
             self.assertEqual(created[0].parent.name, "csv")
             exported = pd.read_csv(created[0])
             self.assertEqual(exported["metric_id"].unique().tolist(), [metric_id])
+            self.assertEqual(exported["unit"].unique().tolist(), ["W"])
 
     def test_export_csvs_single_metric_id_under_matching_category(self):
         data = make_alumetdata_stub()
@@ -67,6 +69,27 @@ class CliExportTests(unittest.TestCase):
             created = export_csvs(data, Path(tmp), category="power", metric_id=metric_id)
             self.assertEqual(len(created), 1)
             self.assertEqual(created[0].parent.parent.name, "power")
+
+    def test_export_csvs_counterdiff_is_measurement_faithful(self):
+        metric_id = "rapl_consumed_energy_J_R_pkg_0_C__A_"
+        processed = expand_counterdiff_rows(
+            pd.DataFrame(
+                {
+                    "metric_id": [metric_id],
+                    "base_metric": ["rapl_consumed_energy_J"],
+                    "timestamp": [pd.Timestamp("2024-01-01")],
+                    "value": [7.0],
+                }
+            )
+        )
+        data = make_alumetdata_stub(processed_df=processed)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            created = export_csvs(data, Path(tmp), metric_id=metric_id)
+            exported = pd.read_csv(created[0])
+
+        self.assertEqual(exported["value"].tolist(), [7.0])
+        self.assertTrue({"point_role", "point_order", "sample_id"}.isdisjoint(exported.columns))
 
     def test_export_csvs_rejects_metric_id_category_mismatch(self):
         data = make_alumetdata_stub()

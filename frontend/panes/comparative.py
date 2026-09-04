@@ -4,30 +4,37 @@ from typing import Any
 
 import dash
 import dash_bootstrap_components as dbc
-import plotly.graph_objects as go
 import pandas as pd
+import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 
-from frontend.app import app
-from frontend.cache import df_from_store
-from frontend.helpers import parse_process_time_range_store, ensure_timestamp_datetime
-from frontend.style import apply_figure_theme, plot_pair_colors, DROPDOWN_STYLE, CARD_STYLE
-from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
-from backend.formatting import get_bytes_tickvals_ticktext
+from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
 from backend.metrics import (
     base_metric_from_id,
-    is_cumulative_metric,
-    get_metric_unit,
-    is_memory_metric,
+    derived_metric_ids,
     filter_process_metric_ids,
+    get_metric_unit,
+    is_cumulative_xy_pair,
+    is_memory_metric,
 )
-from backend.transforms import comparative_metric_ids, align_xy_metrics
+from backend.transforms import (
+    align_xy_metrics,
+    comparative_cumulative_xy,
+    comparative_metric_ids,
+    filter_to_time_range,
+)
 from backend.utils import safe_filename
-
+from frontend.app import app
+from frontend.cache import df_from_store
+from frontend.figures import build_metric_trace_configs
+from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
+from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
+from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, plot_pair_colors
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_metric_ids(processed_df_data: Any, process_time_range: Any) -> list[str]:
     """Reconstruct dataframe and call backend to get metric IDs."""
@@ -58,13 +65,35 @@ def prepare_xy_download(
 ) -> tuple[pd.DataFrame, str]:
     """Rename columns for CSV export and compute a safe filename."""
     df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
+    df_out["x_unit"] = get_metric_unit(x_metric_id)
+    df_out["y_unit"] = get_metric_unit(y_metric_id)
     filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
     return df_out, filename
+
+
+def comparative_timeseries_trace_configs(
+    df_series: pd.DataFrame,
+    metric_id: str,
+    name: str,
+    color: str,
+    yaxis: str,
+) -> list[dict]:
+    """Build dual-axis traces using the shared metric rendering policy."""
+    return build_metric_trace_configs(
+        df_series,
+        metric_id,
+        color=color,
+        name=name,
+        show_default_markers=False,
+        fill_to_zero=False,
+        yaxis=yaxis,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Callbacks
 # ---------------------------------------------------------------------------
+
 
 # Build comparative tab
 @app.callback(
@@ -234,10 +263,7 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
     if not x_metric_id or not y_metric_id:
         return html.Span("")
 
-    x_cumulative = is_cumulative_metric(x_metric_id)
-    y_cumulative = is_cumulative_metric(y_metric_id)
-
-    if x_cumulative and y_cumulative:
+    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
         return html.Div(
             [
                 html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
@@ -268,7 +294,9 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
     State("ps-xmetric-dropdown", "value"),
     State("ps-ymetric-dropdown", "value"),
 )
-def update_comparative_metric_dropdowns(process_only_toggle, tab_value, processed_df_data, process_time_range, cur_x, cur_y):
+def update_comparative_metric_dropdowns(
+    process_only_toggle, tab_value, processed_df_data, process_time_range, cur_x, cur_y
+):
     """Filter comparative X/Y metric lists to process-attributed series when requested."""
     if tab_value != "comparative-tab":
         raise dash.exceptions.PreventUpdate
@@ -280,7 +308,12 @@ def update_comparative_metric_dropdowns(process_only_toggle, tab_value, processe
     process_only = bool(process_only_toggle and "process_only" in process_only_toggle)
     filtered = filter_process_metric_ids(all_ids, process_only)
 
-    opts = [{"label": m, "value": m} for m in filtered]
+    dfp = df_from_store(processed_df_data)
+    derived_ids = derived_metric_ids(dfp)
+    opts = [
+        {"label": format_metric_choice_label(m, derived=m in derived_ids), "value": m}
+        for m in filtered
+    ]
     x_val, y_val = pick_xy_values(filtered, cur_x, cur_y)
     return opts, x_val, opts, y_val
 
@@ -296,7 +329,9 @@ def update_comparative_metric_dropdowns(process_only_toggle, tab_value, processe
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range):
+def update_process_xy_plot(
+    x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
+):
     fig = go.Figure()
     fig.update_layout(margin=dict(l=70, r=70, t=60, b=60), autosize=True)
     apply_figure_theme(fig, use_light_mode)
@@ -313,12 +348,6 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         fig.update_layout(title=dict(text="Process time range not available", x=0.5))
         return fig
 
-    dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
-
-    if dfxy.empty:
-        fig.update_layout(title=dict(text="Could not align metrics in time (no matches within tolerance)", x=0.5))
-        return fig
-
     x_abbrev = base_metric_from_id(x_metric_id)
     y_abbrev = base_metric_from_id(y_metric_id)
 
@@ -327,9 +356,7 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
     x_label = f"{x_abbrev} ({x_unit})" if x_unit else x_abbrev
     y_label = f"{y_abbrev} ({y_unit})" if y_unit else y_abbrev
 
-    x_cumulative = is_cumulative_metric(x_metric_id)
-    y_cumulative = is_cumulative_metric(y_metric_id)
-    both_cumulative = x_cumulative and y_cumulative
+    both_cumulative = is_cumulative_xy_pair(x_metric_id, y_metric_id)
 
     show_scatter = scatter_toggle and "scatter" in scatter_toggle
 
@@ -337,9 +364,23 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
     color_x = accents["x"]
     color_y = accents["y"]
 
-    hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
-
     if show_scatter:
+        dfxy = align_xy_metrics(
+            dfp,
+            x_metric_id,
+            y_metric_id,
+            proc_start,
+            proc_end,
+        )
+        if dfxy.empty:
+            fig.update_layout(
+                title=dict(
+                    text="Could not align metrics in time (no matches within tolerance)",
+                    x=0.5,
+                )
+            )
+            return fig
+        hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
         fig.add_trace(
             go.Scatter(
                 x=dfxy["x"],
@@ -381,13 +422,18 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         )
 
     elif both_cumulative:
-        dfxy["x_cumsum"] = dfxy["x"].cumsum()
-        dfxy["y_cumsum"] = dfxy["y"].cumsum()
+        dfxy = comparative_cumulative_xy(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+        if dfxy.empty:
+            fig.update_layout(
+                title=dict(text="Could not compute running totals (one or both series empty)", x=0.5)
+            )
+            return fig
+        hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
 
         fig.add_trace(
             go.Scatter(
-                x=dfxy["x_cumsum"],
-                y=dfxy["y_cumsum"],
+                x=dfxy["x"],
+                y=dfxy["y"],
                 mode="lines+markers",
                 line=dict(color=accents["cumulative"], width=2),
                 marker=dict(color=accents["cumulative"], size=6),
@@ -408,11 +454,15 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         yaxis_config = dict(title=dict(text=y_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
 
         if is_memory_metric(x_metric_id):
-            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x_cumsum"].min(), dfxy["x_cumsum"].max(), num_ticks=5)
+            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(
+                dfxy["x"].min(), dfxy["x"].max(), num_ticks=5
+            )
             xaxis_config["tickvals"] = x_tickvals
             xaxis_config["ticktext"] = x_ticktext
         if is_memory_metric(y_metric_id):
-            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(dfxy["y_cumsum"].min(), dfxy["y_cumsum"].max(), num_ticks=5)
+            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(
+                dfxy["y"].min(), dfxy["y"].max(), num_ticks=5
+            )
             yaxis_config["tickvals"] = y_tickvals
             yaxis_config["ticktext"] = y_ticktext
 
@@ -424,31 +474,27 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         )
 
     else:
-        fig.add_trace(
-            go.Scatter(
-                x=dfxy["timestamp"],
-                y=dfxy["x"],
-                mode="lines+markers",
-                name=x_abbrev,
-                line=dict(color=color_x, width=2),
-                marker=dict(color=color_x, size=6),
-                yaxis="y1",
-                hovertemplate=f"<b>{x_abbrev}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
-            )
-        )
+        df_window = filter_to_time_range(dfp, proc_start, proc_end)
+        x_series = df_window[df_window["metric_id"].astype(str) == str(x_metric_id)].copy()
+        y_series = df_window[df_window["metric_id"].astype(str) == str(y_metric_id)].copy()
 
-        fig.add_trace(
-            go.Scatter(
-                x=dfxy["timestamp"],
-                y=dfxy["y"],
-                mode="lines+markers",
-                name=y_abbrev,
-                line=dict(color=color_y, width=2),
-                marker=dict(color=color_y, size=6),
-                yaxis="y2",
-                hovertemplate=f"<b>{y_abbrev}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
-            )
-        )
+        for trace_config in comparative_timeseries_trace_configs(
+            x_series,
+            x_metric_id,
+            x_abbrev,
+            color_x,
+            "y1",
+        ):
+            fig.add_trace(go.Scatter(**trace_config))
+
+        for trace_config in comparative_timeseries_trace_configs(
+            y_series,
+            y_metric_id,
+            y_abbrev,
+            color_y,
+            "y2",
+        ):
+            fig.add_trace(go.Scatter(**trace_config))
 
         yaxis_config = dict(
             title=dict(text=x_label, font=dict(size=11, color=color_x)),
@@ -465,17 +511,30 @@ def update_process_xy_plot(x_metric_id, y_metric_id, scatter_toggle, use_light_m
         )
 
         if is_memory_metric(x_metric_id):
-            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x"].min(), dfxy["x"].max(), num_ticks=5)
+            x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(
+                x_series["value"].min(),
+                x_series["value"].max(),
+                num_ticks=5,
+            )
             yaxis_config["tickvals"] = x_tickvals
             yaxis_config["ticktext"] = x_ticktext
         if is_memory_metric(y_metric_id):
-            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(dfxy["y"].min(), dfxy["y"].max(), num_ticks=5)
+            y_tickvals, y_ticktext = get_bytes_tickvals_ticktext(
+                y_series["value"].min(),
+                y_series["value"].max(),
+                num_ticks=5,
+            )
             yaxis2_config["tickvals"] = y_tickvals
             yaxis2_config["ticktext"] = y_ticktext
 
         fig.update_layout(
             title=dict(text=f"Time Series: {x_abbrev} & {y_abbrev}", x=0.5, font=dict(size=14)),
-            xaxis=dict(title=dict(text="Time", font=dict(size=12)), gridcolor="rgba(76, 86, 106, 0.2)", domain=[0.05, 0.95]),
+            xaxis=dict(
+                title=dict(text="Time", font=dict(size=12)),
+                gridcolor="rgba(76, 86, 106, 0.2)",
+                domain=[0.05, 0.95],
+                range=[proc_start, proc_end],
+            ),
             yaxis=yaxis_config,
             yaxis2=yaxis2_config,
             legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5, bgcolor="rgba(59, 66, 82, 0.8)"),
@@ -509,7 +568,10 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     if proc_start is None or proc_end is None:
         return None
 
-    dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
+        dfxy = comparative_cumulative_xy(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+    else:
+        dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
     if dfxy.empty:
         return None
 

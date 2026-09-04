@@ -1,14 +1,24 @@
 """Interactive Plotly chart builders for the dashboard."""
 
+from __future__ import annotations
+
+from typing import List, Optional
+
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from typing import List, Optional
 
 from backend.categories import category_yaxis_label
+from backend.counterdiff import (
+    build_counterdiff_spike_coordinates,
+    build_step_power_coordinates,
+    counterdiff_spike_peaks,
+    sort_for_plotting,
+)
 from backend.formatting import format_metric_title
+from backend.metrics import MetricOrigin, is_spike_metric, is_step_power_metric
 from backend.transforms import compute_yaxis_ranges, get_time_range_from_df
-from frontend.style import plot_color_palette, process_active_fill, set_plotly_rgba
+from frontend.style import derived_title_color, plot_color_palette, process_active_fill, set_plotly_rgba
 
 
 def get_color_palette(n_colors: int, use_light_mode: bool = False) -> List[str]:
@@ -46,6 +56,127 @@ def color_for_metric(
     # Fallback: stable, process-independent index from the metric name.
     idx = sum((i + 1) * ord(ch) for i, ch in enumerate(str(metric)))
     return palette[idx % len(palette)]
+def build_metric_trace_configs(
+    df_series: pd.DataFrame,
+    metric_id: str,
+    *,
+    color: str,
+    name: str,
+    show_default_markers: bool = True,
+    fill_to_zero: bool = False,
+    fillcolor: str | None = None,
+    step_line_shape: str | None = None,
+    marker_outline: bool = False,
+    yaxis: str | None = None,
+    showlegend: bool | None = None,
+) -> list[dict]:
+    """
+    Build one or more Plotly Scatter settings for a metric time series.
+
+    Pick the drawing style based on the metric type:
+    - CounterDiff → stem lines (no hover) plus peak markers (hover only)
+    - derived power → stepwise lines over each averaging interval
+    - otherwise → a normal connected line (optionally with markers)
+
+    Extra keyword args only tweak look-and-feel for each pane
+    (fill, dual-axis, marker outline, etc.).
+    """
+    roles = df_series["point_role"] if "point_role" in df_series.columns else None
+    orders = df_series["point_order"] if "point_order" in df_series.columns else None
+    interval_starts = df_series["interval_start"] if "interval_start" in df_series.columns else None
+
+    config: dict = {
+        "name": name,
+        "line": {"color": color, "width": 2},
+        "hovertemplate": (f"<b>{name}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>"),
+    }
+    if yaxis is not None:
+        config["yaxis"] = yaxis
+    if showlegend is not None:
+        config["showlegend"] = showlegend
+
+    outline = {"width": 1, "color": "rgba(255, 255, 255, 0.5)"} if marker_outline else None
+
+    if is_spike_metric(metric_id):
+        x_values, y_values = build_counterdiff_spike_coordinates(
+            df_series["timestamp"],
+            df_series["value"],
+            point_roles=roles,
+            point_orders=orders,
+        )
+        peak_x, peak_y = counterdiff_spike_peaks(x_values, y_values)
+        stem = {
+            "name": name,
+            "x": x_values,
+            "y": y_values,
+            "mode": "lines",
+            "line": {"color": color, "width": 2},
+            "connectgaps": False,
+            "hoverinfo": "none",
+            "showlegend": False,
+            "legendgroup": name,
+        }
+        if yaxis is not None:
+            stem["yaxis"] = yaxis
+        marker: dict = {
+            "color": color,
+            "size": 6,
+            "symbol": "circle",
+        }
+        if outline is not None:
+            marker["line"] = outline
+        peak = {
+            **config,
+            "x": peak_x,
+            "y": peak_y,
+            "mode": "markers",
+            "marker": marker,
+            "legendgroup": name,
+        }
+        if showlegend is None:
+            peak["showlegend"] = True
+        return [stem, peak]
+
+    if is_step_power_metric(metric_id):
+        x_values, y_values = build_step_power_coordinates(
+            df_series["timestamp"],
+            df_series["value"],
+            point_roles=roles,
+            interval_starts=interval_starts,
+        )
+        line = {"color": color, "width": 2}
+        if step_line_shape is not None:
+            line["shape"] = step_line_shape
+        config.update(
+            {
+                "x": x_values,
+                "y": y_values,
+                "mode": "lines",
+                "line": line,
+                "connectgaps": False,
+            }
+        )
+        if fill_to_zero:
+            config["fill"] = "tozeroy"
+            config["fillcolor"] = fillcolor
+        return [config]
+
+    config.update(
+        {
+            "x": pd.to_datetime(df_series["timestamp"], errors="coerce"),
+            "y": df_series["value"],
+            "mode": "lines+markers" if show_default_markers else "lines",
+        }
+    )
+    if show_default_markers:
+        marker = {"color": color, "size": 6, "symbol": "circle"}
+        if outline is not None:
+            marker["line"] = outline
+        config["marker"] = marker
+    if fill_to_zero:
+        config["fill"] = "tozeroy"
+        config["fillcolor"] = fillcolor
+    return [config]
 
 
 def create_all_timeseries_plots(
@@ -81,17 +212,32 @@ def create_all_timeseries_plots(
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
 
     MIN_SUBPLOT_HEIGHT = 175
-    SUBPLOT_GAP_PX = 40
-    total_height = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
-    vertical_spacing = (SUBPLOT_GAP_PX / total_height) if n_metrics > 1 else 0.05
+    # Room for two-line date ticks on the plot above plus the next subplot title.
+    SUBPLOT_GAP_PX = 64
+    MARGIN_T = 36
+    MARGIN_B = 36
+    plot_area = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
+    total_height = plot_area + MARGIN_T + MARGIN_B
+    vertical_spacing = (SUBPLOT_GAP_PX / plot_area) if n_metrics > 1 else 0.05
 
-    formatted_titles = [format_metric_title(metric_id) for metric_id in unique_metrics]
+    formatted_titles = []
+    for metric_id in unique_metrics:
+        metric_rows = df_processed.loc[df_processed["metric_id"].astype(str) == str(metric_id)]
+        derived = False
+        if not metric_rows.empty and "metric_origin" in metric_rows.columns:
+            derived = (metric_rows["metric_origin"].astype(str) == MetricOrigin.DERIVED.value).any()
+        title = format_metric_title(str(metric_id), derived=derived)
+        if derived:
+            color = derived_title_color(use_light_mode)
+            formatted_titles.append(f'<b><span style="color:{color}">{title}</span></b>')
+        else:
+            formatted_titles.append(f"<b>{title}</b>")
     fig = make_subplots(
         rows=n_metrics,
         cols=1,
         shared_xaxes=True,
         vertical_spacing=vertical_spacing,
-        subplot_titles=[f"<b>{title}</b>" for title in formatted_titles],
+        subplot_titles=formatted_titles,
     )
 
     is_memory_category = category == "memory"
@@ -113,7 +259,21 @@ def create_all_timeseries_plots(
                 line=dict(width=0),
                 layer="below",
             )
-    df_sorted = df_processed.sort_values(["metric_id", "timestamp"])
+        fig.add_trace(
+            go.Scatter(
+                x=[None],
+                y=[None],
+                mode="markers",
+                marker=dict(size=10, color="rgba(136, 192, 208, 0.4)", symbol="square"),
+                name="Process Active",
+                showlegend=True,
+                legendgroup="process_active",
+            ),
+            row=1,
+            col=1,
+        )
+
+    df_sorted = sort_for_plotting(df_processed)
     grouped = {mid: grp for mid, grp in df_sorted.groupby("metric_id", observed=True, sort=False)}
 
     total_points = len(df_processed)
@@ -133,32 +293,20 @@ def create_all_timeseries_plots(
 
         ScatterClass = go.Scattergl if use_webgl else go.Scatter
 
-        trace_config = dict(
-            x=pd.to_datetime(metric_data["timestamp"], errors="coerce"),
-            y=metric_data["value"],
-            mode="lines+markers" if show_markers else "lines",
-            name=metric_id,
-            line=dict(color=color, width=2),
-            hovertemplate=f"<b>{metric_id}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
+        fill_to_zero = (not use_webgl) and (not is_spike_metric(metric_id))
+        for trace_config in build_metric_trace_configs(
+            metric_data,
+            str(metric_id),
+            color=color,
+            name=str(metric_id),
+            show_default_markers=show_markers,
+            fill_to_zero=fill_to_zero,
+            fillcolor=rgba_fill if fill_to_zero else None,
+            step_line_shape="hv",
+            marker_outline=True,
             showlegend=False,
-        )
-
-        if show_markers:
-            trace_config["marker"] = dict(
-                color=color,
-                size=6,
-                symbol="circle",
-                line=dict(
-                    width=1,
-                    color="rgba(31, 41, 55, 0.35)" if use_light_mode else "rgba(255, 255, 255, 0.5)",
-                ),
-            )
-
-        if not use_webgl:
-            trace_config["fill"] = "tozeroy"
-            trace_config["fillcolor"] = rgba_fill
-
-        fig.add_trace(ScatterClass(**trace_config), row=idx, col=1)
+        ):
+            fig.add_trace(ScatterClass(**trace_config), row=idx, col=1)
 
         fig.update_xaxes(
             type="date",
@@ -202,7 +350,7 @@ def create_all_timeseries_plots(
         plot_bgcolor="rgba(59, 66, 82, 0.7)",
         font=dict(color="#d8dee9"),
         hovermode="closest",
-        margin=dict(l=50, r=20, t=36, b=36),
+        margin=dict(l=50, r=20, t=MARGIN_T, b=MARGIN_B),
         autosize=True,
         width=None,
         showlegend=False,

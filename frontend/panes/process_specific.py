@@ -7,13 +7,36 @@ from typing import Any, Optional
 import dash
 import dash_bootstrap_components as dbc
 import numpy as np
-import plotly.graph_objects as go
 import pandas as pd
-from dash import Input, Output, State, ctx, dcc, html, MATCH, ALL
+import plotly.graph_objects as go
+from dash import ALL, MATCH, Input, Output, State, ctx, dcc, html
 
+from backend.counterdiff import export_observed_measurements
+from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
+from backend.metrics import (
+    attach_unit_column,
+    derived_base_metrics,
+    get_metric_unit,
+    is_memory_metric,
+    is_spike_metric,
+)
+from backend.transforms import _padded_range, align_xrange_tz, filter_to_time_range
+from backend.utils import safe_filename
 from frontend.app import app
 from frontend.cache import df_from_store, is_cache_miss
-from frontend.helpers import normalize_dropdown_value, triggered_component_type, parse_process_time_range_store, ensure_timestamp_datetime
+from frontend.figures import (
+    build_metric_trace_configs,
+    color_for_metric,
+    relayout_requests_reset,
+    restore_axis_defaults,
+)
+from frontend.helpers import (
+    ensure_timestamp_datetime,
+    normalize_dropdown_value,
+    parse_process_time_range_store,
+    triggered_component_type,
+)
+from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
 from frontend.style import (
     CARD_STYLE,
     COMPACT_DROPDOWN_STYLE,
@@ -32,22 +55,46 @@ from frontend.style import (
     set_plotly_rgba,
     status_alert_class,
 )
-from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
-from frontend.helpers import normalize_dropdown_value, triggered_component_type
-from backend.formatting import get_bytes_tickvals_ticktext
-from backend.metrics import get_metric_unit, is_memory_metric
-from backend.transforms import _padded_range, align_xrange_tz, filter_to_time_range
-from backend.utils import safe_filename
-from frontend.figures import (
-    color_for_metric,
-    relayout_requests_reset,
-    restore_axis_defaults,
-)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _series_metric_id(df_series: pd.DataFrame, metric: str) -> str:
+    """Prefer the resolved full metric_id when a filtered series is unique."""
+    if "metric_id" in df_series.columns and not df_series.empty:
+        ids = df_series["metric_id"].dropna().astype(str).unique().tolist()
+        if len(ids) == 1:
+            return ids[0]
+    return metric
+
+
+def _metric_column(df: pd.DataFrame) -> str:
+    """Return the column used for process-specific metric selection."""
+    if "base_metric" in df.columns:
+        return "base_metric"
+    return "metric"
+
+
+def grid_trace_configs(
+    metric: str,
+    df_series: pd.DataFrame,
+    color: str,
+    fillcolor: str,
+) -> list[dict]:
+    """Build process-grid traces using the shared metric rendering policy."""
+    series_metric_id = _series_metric_id(df_series, metric)
+    return build_metric_trace_configs(
+        df_series,
+        series_metric_id,
+        color=color,
+        name=metric,
+        show_default_markers=True,
+        fill_to_zero=not is_spike_metric(series_metric_id),
+        fillcolor=fillcolor,
+    )
+
 
 def empty_filter_callback_response() -> tuple:
     """Default MATCH callback payload when metric data is unavailable."""
@@ -55,6 +102,7 @@ def empty_filter_callback_response() -> tuple:
     for _ in FILTER_KEYS:
         slot_defaults.extend([STYLE_HIDDEN, [], None])
     return (STYLE_HIDDEN, *slot_defaults)
+
 
 def unique_nonempty(series: pd.Series) -> list[str]:
     """Get unique non-empty string values from a series, sorted."""
@@ -156,7 +204,7 @@ def filter_single_series(
 
 
 def prepare_download_df(
-    df_original: pd.DataFrame,
+    df_processed: pd.DataFrame,
     metric: str,
     rk: Optional[str],
     rid: Optional[str],
@@ -166,8 +214,9 @@ def prepare_download_df(
     proc_start: Optional[pd.Timestamp] = None,
     proc_end: Optional[pd.Timestamp] = None,
 ) -> pd.DataFrame:
-    """Filter and prepare a DataFrame suitable for CSV download."""
-    dfm = normalize_filter_columns(df_original[df_original["metric"] == metric])
+    """Filter and prepare observed-only CSV rows from processed data."""
+    metric_col = _metric_column(df_processed)
+    dfm = normalize_filter_columns(df_processed[df_processed[metric_col] == metric])
 
     if rk:
         dfm = dfm[dfm["rk"] == str(rk).strip()]
@@ -185,14 +234,21 @@ def prepare_download_df(
     if dfm.empty:
         return dfm
 
-    dfm = dfm.sort_values("timestamp")
+    dfm = export_observed_measurements(dfm.sort_values("timestamp"))
+    if dfm.empty:
+        return dfm
 
-    export_cols = ["timestamp", "metric", "value"]
+    if "metric" not in dfm.columns and "base_metric" in dfm.columns:
+        dfm = dfm.copy()
+        dfm["metric"] = dfm["base_metric"]
+
+    export_cols = [c for c in ("timestamp", "metric", "value") if c in dfm.columns]
     for orig_col in ["resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]:
         if orig_col in dfm.columns and dfm[orig_col].notna().any():
             export_cols.append(orig_col)
 
-    return dfm[export_cols].copy()
+    return attach_unit_column(dfm[export_cols].copy())
+
 
 def build_filter_callback_response(cascade: dict) -> tuple:
     """Build MATCH callback outputs for one grid cell's filter controls."""
@@ -207,6 +263,7 @@ def build_filter_callback_response(cascade: dict) -> tuple:
     any_visible = any(len(cascade[key]["options"]) > 1 for key in FILTER_KEYS)
     filters_row_style = STYLE_VISIBLE if any_visible else STYLE_HIDDEN
     return (filters_row_style, *slot_outputs)
+
 
 def grid_message_figure(fig: go.Figure, title: str, use_light_mode: bool) -> go.Figure:
     """Compact placeholder figure for empty, incomplete, or invalid grid states."""
@@ -330,9 +387,15 @@ def _filter_slot(cell_index: str, label: str, dropdown_type: str, container_type
         style=STYLE_HIDDEN,
     )
 
-def _build_grid_cell(i: int, j: int, unique_metrics: list[str]) -> html.Div:
+
+def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> html.Div:
     """Build one viewport-fitted cell for the 2x2 process-specific grid."""
     cell_index = f"{i}-{j}"
+    derived_metrics = derived_metrics or set()
+    metric_options = [
+        {"label": format_metric_choice_label(metric, derived=metric in derived_metrics), "value": metric}
+        for metric in unique_metrics
+    ]
 
     return html.Div(
         dbc.Card(
@@ -346,7 +409,7 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str]) -> html.Div:
                                         html.Label("Metric:", className="process-grid-metric-label"),
                                         dcc.Dropdown(
                                             id={"type": "metric-dropdown", "index": cell_index},
-                                            options=[{"label": metric, "value": metric} for metric in unique_metrics],
+                                            options=metric_options,
                                             placeholder="Select metric",
                                             style=DROPDOWN_STYLE,
                                             className="dark-dropdown process-grid-metric-dropdown",
@@ -401,10 +464,11 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str]) -> html.Div:
         className="process-grid-cell",
     )
 
-def build_process_grid_card(unique_metrics: list[str]) -> dbc.Card:
+
+def build_process_grid_card(unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> dbc.Card:
     """Build the viewport-fitted 2x2 process-specific comparison card."""
     grid_cells = [
-        _build_grid_cell(i, j, unique_metrics)
+        _build_grid_cell(i, j, unique_metrics, derived_metrics)
         for i in range(GRID_SIZE)
         for j in range(GRID_SIZE)
     ]
@@ -428,13 +492,13 @@ def build_process_grid_card(unique_metrics: list[str]) -> dbc.Card:
 @app.callback(
     Output("process-specific-content", "children"),
     Input("results-tabs", "value"),
-    Input("original-df-store", "data"),
+    Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
     State("process-specific-content", "children"),
 )
-def build_process_specific_tab(tab_value, original_df_data, process_time_range, current_children):
+def build_process_specific_tab(tab_value, processed_df_data, process_time_range, current_children):
     triggered_id = ctx.triggered_id
-    is_data_trigger = triggered_id in ("original-df-store", "process-time-range-store")
+    is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
 
     if is_data_trigger and tab_value != "process-specific-tab":
         return empty_process_specific_content()
@@ -445,7 +509,7 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
         if current_children and not is_empty_tab_placeholder(current_children):
             return dash.no_update
 
-    if not original_df_data or not process_time_range:
+    if not processed_df_data or not process_time_range:
         return empty_process_specific_content()
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
@@ -457,17 +521,18 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
             className=status_alert_class("warning"),
         )
 
-    df_original = df_from_store(original_df_data)
-    if is_cache_miss(df_original):
+    df_processed = df_from_store(processed_df_data)
+    if is_cache_miss(df_processed):
         return dbc.Alert(
             "Session data expired (server was restarted). Please load data again.",
             color="danger",
             className=status_alert_class("danger"),
         )
-    ensure_timestamp_datetime(df_original)
+    ensure_timestamp_datetime(df_processed)
 
-    unique_metrics = sorted(df_original["metric"].unique().tolist())
-    return build_process_grid_card(unique_metrics)
+    metric_col = _metric_column(df_processed)
+    unique_metrics = sorted(df_processed[metric_col].dropna().astype(str).unique().tolist())
+    return build_process_grid_card(unique_metrics, derived_base_metrics(df_processed))
 
 
 # MATCH callback: update filter dropdowns
@@ -494,16 +559,17 @@ def build_process_specific_tab(tab_value, original_df_data, process_time_range, 
     Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
     Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
     Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
-    State("original-df-store", "data"),
+    State("processed-df-store", "data"),
     prevent_initial_call=True,
 )
-def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
+def update_filters_match(metric, rk, rid, ck, cid, la, processed_df_data):
     """Update filter dropdowns for a single plot using MATCH."""
-    if not original_df_data or not metric:
+    if not processed_df_data or not metric:
         return empty_filter_callback_response()
 
-    df = df_from_store(original_df_data)
-    dfm = normalize_filter_columns(df[df["metric"] == metric])
+    df = df_from_store(processed_df_data)
+    metric_col = _metric_column(df)
+    dfm = normalize_filter_columns(df[df[metric_col] == metric])
 
     rk = normalize_dropdown_value(rk)
     rid = normalize_dropdown_value(rid)
@@ -529,21 +595,22 @@ def update_filters_match(metric, rk, rid, ck, cid, la, original_df_data):
     Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
     Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
     Input("theme-switch", "value"),
-    State("original-df-store", "data"),
+    State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     State({"type": "metric-dropdown", "index": MATCH}, "id"),
 )
-def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, original_df_data, process_time_range, my_id):
+def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, processed_df_data, process_time_range, my_id):
     """Update a single grid plot figure using MATCH."""
     fig = go.Figure()
     apply_figure_theme(fig, use_light_mode)
 
-    if not original_df_data or not metric:
+    if not processed_df_data or not metric:
         return grid_message_figure(fig, "Select a metric", use_light_mode)
 
-    df = df_from_store(original_df_data)
+    df = df_from_store(processed_df_data)
     ensure_timestamp_datetime(df)
-    dfm = normalize_filter_columns(df[df["metric"] == metric])
+    metric_col = _metric_column(df)
+    dfm = normalize_filter_columns(df[df[metric_col] == metric])
 
     rk = normalize_dropdown_value(rk)
     rid = normalize_dropdown_value(rid)
@@ -575,28 +642,24 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, origina
     if dff.empty:
         return grid_message_figure(fig, "No data during process active period", use_light_mode)
 
+    series_metric_id = _series_metric_id(dff, metric)
     y_min, y_max = float(dff["value"].min()), float(dff["value"].max())
+    if is_spike_metric(series_metric_id):
+        y_min = min(0.0, y_min)
+        y_max = max(0.0, y_max)
     is_memory = is_memory_metric(metric)
     y_bottom, y_top = _padded_range(y_min, y_max, clamp_zero=is_memory)
 
-    metric_order = sorted(df["metric"].dropna().astype(str).unique().tolist()) if "metric" in df.columns else []
+    metric_col = _metric_column(df)
+    metric_order = sorted(df[metric_col].dropna().astype(str).unique().tolist()) if metric_col in df.columns else []
     color = color_for_metric(str(metric), use_light_mode, metric_order)
     rgba_fill = set_plotly_rgba(color)
 
     unit = get_metric_unit(metric)
     y_axis_title = f"Value ({unit})" if unit else "Value"
 
-    fig.add_trace(go.Scatter(
-        x=dff["timestamp"],
-        y=dff["value"],
-        mode="lines+markers",
-        name=metric,
-        line=dict(color=color, width=2),
-        marker=dict(color=color, size=6, symbol="circle"),
-        fill="tozeroy",
-        fillcolor=rgba_fill,
-        hovertemplate=f"<b>{metric}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>",
-    ))
+    for trace_config in grid_trace_configs(metric, dff, color, rgba_fill):
+        fig.add_trace(go.Scatter(**trace_config))
 
     yaxis_config = dict(
         gridcolor="rgba(76, 86, 106, 0.2)",
@@ -751,21 +814,21 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
     State({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
     State({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
     State({"type": "late-attr-dropdown", "index": MATCH}, "value"),
-    State("original-df-store", "data"),
+    State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
-def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, original_df_data, process_time_range):
+def download_grid_csv(n_clicks, metric, rk, rid, ck, cid, la, processed_df_data, process_time_range):
     """Generate and download CSV for a specific grid plot."""
-    if not n_clicks or not original_df_data or not metric:
+    if not n_clicks or not processed_df_data or not metric:
         return None
 
-    df_original = df_from_store(original_df_data)
-    ensure_timestamp_datetime(df_original)
+    df_processed = df_from_store(processed_df_data)
+    ensure_timestamp_datetime(df_processed)
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
-    df_export = prepare_download_df(df_original, metric, rk, rid, ck, cid, la, proc_start, proc_end)
+    df_export = prepare_download_df(df_processed, metric, rk, rid, ck, cid, la, proc_start, proc_end)
 
     if df_export.empty:
         return None
