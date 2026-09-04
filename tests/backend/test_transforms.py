@@ -5,13 +5,16 @@ import pandas as pd
 from backend.transforms import (
     align_xrange_tz,
     align_xy_metrics,
+    comparative_download_table,
     comparative_metric_ids,
+    comparative_xy_frame,
     compute_yaxis_ranges,
     filter_to_time_range,
     get_process_time_range_from_df,
     normalize_to_si,
     align_running_total_xy,
     comparative_cumulative_xy,
+    prepare_xy_download,
     xy_running_totals,
 )
 
@@ -277,6 +280,31 @@ class TransformsTests(unittest.TestCase):
         self.assertEqual(from_siblings["y"].tolist(), from_helper["y"].tolist())
         self.assertAlmostEqual(float(from_helper["x"].iloc[-1]), 6.0)
         self.assertAlmostEqual(float(from_helper["y"].iloc[-1]), 20.0)
+
+    def test_comparative_download_table_matches_dashboard_columns(self):
+        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
+        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
+        start = pd.Timestamp("2024-01-01")
+        x_times = pd.date_range(start, periods=4, freq="s")
+        y_times = pd.date_range(start, periods=2, freq="2s")
+        df = pd.DataFrame(
+            {
+                "timestamp": list(x_times) + list(y_times),
+                "metric_id": [x_id] * 4 + [y_id] * 2,
+                "value": [1.0, 1.0, 1.0, 1.0, 10.0, 20.0],
+            }
+        )
+        end = x_times[-1]
+        frame = comparative_xy_frame(df, x_id, y_id, start, end)
+        table, filename = comparative_download_table(df, x_id, y_id, start, end)
+        renamed, same_name = prepare_xy_download(frame, x_id, y_id)
+        self.assertEqual(filename, same_name)
+        self.assertEqual(list(table.columns), list(renamed.columns))
+        self.assertIn("x_unit", table.columns)
+        self.assertAlmostEqual(float(table[x_id].iloc[-1]), 4.0)
+        self.assertAlmostEqual(float(table[y_id].iloc[-1]), 30.0)
+        scatter = comparative_xy_frame(df, x_id, y_id, start, end, scatter=True)
+        self.assertEqual(list(scatter.columns), ["timestamp", "x", "y"])
 
 
 if __name__ == "__main__":
