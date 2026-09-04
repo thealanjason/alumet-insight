@@ -71,3 +71,5 @@ with optional `--process-specific` flag to focus on process active region.
 
 ```bash
 bash alumet_insight.py cli --help
+```
+
