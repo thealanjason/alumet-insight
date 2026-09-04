@@ -26,7 +26,7 @@ from backend.transforms import (
 from backend.utils import safe_filename
 from frontend.app import app
 from frontend.cache import df_from_store
-from frontend.figures import build_metric_trace_config
+from frontend.figures import build_metric_trace_configs
 from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
 from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, plot_pair_colors
@@ -71,15 +71,15 @@ def prepare_xy_download(
     return df_out, filename
 
 
-def comparative_timeseries_trace_config(
+def comparative_timeseries_trace_configs(
     df_series: pd.DataFrame,
     metric_id: str,
     name: str,
     color: str,
     yaxis: str,
-) -> dict:
-    """Build one dual-axis trace using the shared metric rendering policy."""
-    return build_metric_trace_config(
+) -> list[dict]:
+    """Build dual-axis traces using the shared metric rendering policy."""
+    return build_metric_trace_configs(
         df_series,
         metric_id,
         color=color,
@@ -478,29 +478,23 @@ def update_process_xy_plot(
         x_series = df_window[df_window["metric_id"].astype(str) == str(x_metric_id)].copy()
         y_series = df_window[df_window["metric_id"].astype(str) == str(y_metric_id)].copy()
 
-        fig.add_trace(
-            go.Scatter(
-                **comparative_timeseries_trace_config(
-                    x_series,
-                    x_metric_id,
-                    x_abbrev,
-                    color_x,
-                    "y1",
-                )
-            )
-        )
+        for trace_config in comparative_timeseries_trace_configs(
+            x_series,
+            x_metric_id,
+            x_abbrev,
+            color_x,
+            "y1",
+        ):
+            fig.add_trace(go.Scatter(**trace_config))
 
-        fig.add_trace(
-            go.Scatter(
-                **comparative_timeseries_trace_config(
-                    y_series,
-                    y_metric_id,
-                    y_abbrev,
-                    color_y,
-                    "y2",
-                )
-            )
-        )
+        for trace_config in comparative_timeseries_trace_configs(
+            y_series,
+            y_metric_id,
+            y_abbrev,
+            color_y,
+            "y2",
+        ):
+            fig.add_trace(go.Scatter(**trace_config))
 
         yaxis_config = dict(
             title=dict(text=x_label, font=dict(size=11, color=color_x)),

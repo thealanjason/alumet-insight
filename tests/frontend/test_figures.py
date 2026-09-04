@@ -3,7 +3,7 @@ import unittest
 import pandas as pd
 
 from backend.counterdiff import expand_counterdiff_rows
-from frontend.figures import create_all_timeseries_plots, build_metric_trace_config
+from frontend.figures import create_all_timeseries_plots, build_metric_trace_configs
 
 
 class TimeseriesFigureTests(unittest.TestCase):
@@ -18,17 +18,22 @@ class TimeseriesFigureTests(unittest.TestCase):
                 }
             )
         )
-        config = build_metric_trace_config(
+        stem, peak = build_metric_trace_configs(
             df,
             "rapl_consumed_energy_J_R_pkg_0_C__A_",
             color="blue",
             name="energy",
         )
-        self.assertEqual(config["y"], [0.0, 7.0, 0.0, None])
-        self.assertEqual(config["mode"], "lines+markers")
-        self.assertEqual(config["marker"]["size"], [0, 6, 0, 0])
-        self.assertFalse(config["connectgaps"])
-        self.assertNotIn("fill", config)
+        self.assertEqual(stem["y"], [0.0, 7.0, 0.0, None])
+        self.assertEqual(stem["mode"], "lines")
+        self.assertEqual(stem["hoverinfo"], "none")
+        self.assertFalse(stem["connectgaps"])
+        self.assertFalse(stem["showlegend"])
+        self.assertNotIn("fill", stem)
+        self.assertEqual(peak["y"], [7.0])
+        self.assertEqual(peak["mode"], "markers")
+        self.assertEqual(peak["marker"]["size"], 6)
+        self.assertNotEqual(peak.get("hoverinfo"), "none")
 
     def test_counterdiff_trace_uses_isolated_spikes(self):
         df = expand_counterdiff_rows(
@@ -43,13 +48,16 @@ class TimeseriesFigureTests(unittest.TestCase):
         )
 
         figure = create_all_timeseries_plots(df, category="energy")
-        trace = figure.data[0]
+        stem, peak = figure.data[0], figure.data[1]
 
-        self.assertEqual(list(trace.y), [0.0, 7.0, 0.0, None])
-        self.assertIsNone(trace.x[3])
-        self.assertEqual(trace.mode, "lines+markers")
-        self.assertEqual(list(trace.marker.size), [0, 6, 0, 0])
-        self.assertFalse(trace.connectgaps)
+        self.assertEqual(list(stem.y), [0.0, 7.0, 0.0, None])
+        self.assertIsNone(stem.x[3])
+        self.assertEqual(stem.mode, "lines")
+        self.assertEqual(stem.hoverinfo, "none")
+        self.assertFalse(stem.connectgaps)
+        self.assertEqual(list(peak.y), [7.0])
+        self.assertEqual(peak.mode, "markers")
+        self.assertEqual(peak.marker.size, 6)
 
     def test_zero_counterdiff_sample_remains_visible_as_observed_marker(self):
         df = expand_counterdiff_rows(
@@ -63,10 +71,12 @@ class TimeseriesFigureTests(unittest.TestCase):
             )
         )
 
-        trace = create_all_timeseries_plots(df).data[0]
+        figure = create_all_timeseries_plots(df)
+        stem, peak = figure.data[0], figure.data[1]
 
-        self.assertEqual(list(trace.y), [0.0, 0.0, 0.0, None])
-        self.assertEqual(list(trace.marker.size), [0, 6, 0, 0])
+        self.assertEqual(list(stem.y), [0.0, 0.0, 0.0, None])
+        self.assertEqual(list(peak.y), [0.0])
+        self.assertEqual(peak.marker.size, 6)
 
     def test_derived_power_trace_uses_explicit_interval_start(self):
         interval_start = pd.Timestamp("2024-01-01")

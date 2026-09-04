@@ -10,7 +10,7 @@ from frontend.panes.process_specific import (
     apply_shared_xrange_to_grid_plots,
     cascade_filter_options,
     filter_single_series,
-    grid_trace_config,
+    grid_trace_configs,
     normalize_filter_columns,
     prepare_download_df,
     unique_nonempty,
@@ -35,20 +35,23 @@ class ProcessSpecificTests(unittest.TestCase):
             )
         )
 
-        trace = grid_trace_config(
+        stem, peak = grid_trace_configs(
             "rapl_consumed_energy_J",
             df,
             "blue",
             "transparent",
         )
 
-        self.assertEqual(trace["mode"], "lines+markers")
+        self.assertEqual(stem["mode"], "lines")
+        self.assertEqual(stem["hoverinfo"], "none")
         self.assertEqual(
-            trace["y"],
+            stem["y"],
             [0.0, 2.0, 0.0, None, 0.0, 5.0, 0.0, None],
         )
-        self.assertEqual(trace["marker"]["size"], [0, 6, 0, 0, 0, 6, 0, 0])
-        self.assertNotIn("fill", trace)
+        self.assertNotIn("fill", stem)
+        self.assertEqual(peak["mode"], "markers")
+        self.assertEqual(peak["y"], [2.0, 5.0])
+        self.assertEqual(peak["marker"]["size"], 6)
 
     def test_grid_trace_config_uses_derived_power_steps(self):
         df = pd.DataFrame(
@@ -63,7 +66,7 @@ class ProcessSpecificTests(unittest.TestCase):
             }
         )
 
-        trace = grid_trace_config(
+        (trace,) = grid_trace_configs(
             "rapl_average_power_W",
             df,
             "blue",
@@ -311,7 +314,7 @@ class ProcessSpecificTests(unittest.TestCase):
         rapl = update_grid_plot_match(metric="rapl_consumption_J", my_id={"index": "0-1"}, **kwargs)
 
         self.assertEqual(energy_a.data[0].line.color, energy_b.data[0].line.color)
-        self.assertEqual(energy_a.data[0].marker.color, energy_a.data[0].line.color)
+        self.assertEqual(energy_a.data[1].marker.color, energy_a.data[0].line.color)
         self.assertNotEqual(energy_a.data[0].line.color, rapl.data[0].line.color)
 
     def test_grid_reset_restores_each_figure_axis_defaults(self):
@@ -511,7 +514,7 @@ class ProcessSpecificTests(unittest.TestCase):
             if "point_role" in cumulative.columns
             else cumulative
         )
-        cum_trace = grid_trace_config(
+        (cum_trace,) = grid_trace_configs(
             "attributed_energy_cpu_cumulative_J",
             observed_cumulative,
             "green",
@@ -538,7 +541,7 @@ class ProcessSpecificTests(unittest.TestCase):
             if "point_role" in power.columns
             else power
         )
-        trace = grid_trace_config(
+        (trace,) = grid_trace_configs(
             "attributed_power_total_W",
             observed_power,
             "blue",

@@ -569,6 +569,11 @@ def counterdiff_spike_marker_sizes(
     ]
 
 
+def counterdiff_spike_peaks(spike_x: Iterable, spike_y: Iterable) -> tuple[list, list]:
+    """Observed peak coordinates from spike lists (one peak every four points)."""
+    return list(spike_x)[1::4], list(spike_y)[1::4]
+
+
 def build_step_power_coordinates(
     timestamps: Iterable,
     values: Iterable,

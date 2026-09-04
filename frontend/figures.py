@@ -12,7 +12,7 @@ from backend.categories import category_yaxis_label
 from backend.counterdiff import (
     build_counterdiff_spike_coordinates,
     build_step_power_coordinates,
-    counterdiff_spike_marker_sizes,
+    counterdiff_spike_peaks,
     sort_for_plotting,
 )
 from backend.formatting import format_metric_title
@@ -56,7 +56,7 @@ def color_for_metric(
     # Fallback: stable, process-independent index from the metric name.
     idx = sum((i + 1) * ord(ch) for i, ch in enumerate(str(metric)))
     return palette[idx % len(palette)]
-def build_metric_trace_config(
+def build_metric_trace_configs(
     df_series: pd.DataFrame,
     metric_id: str,
     *,
@@ -69,16 +69,16 @@ def build_metric_trace_config(
     marker_outline: bool = False,
     yaxis: str | None = None,
     showlegend: bool | None = None,
-) -> dict:
+) -> list[dict]:
     """
-    Build Plotly Scatter settings for one metric time series.
+    Build one or more Plotly Scatter settings for a metric time series.
 
     Pick the drawing style based on the metric type:
-    - CounterDiff → spikes with dots on peaks
+    - CounterDiff → stem lines (no hover) plus peak markers (hover only)
     - derived power → stepwise lines over each averaging interval
     - otherwise → a normal connected line (optionally with markers)
 
-    Extra keyword args only tweak look-and-feel for each pane 
+    Extra keyword args only tweak look-and-feel for each pane
     (fill, dual-axis, marker outline, etc.).
     """
     roles = df_series["point_role"] if "point_role" in df_series.columns else None
@@ -104,23 +104,38 @@ def build_metric_trace_config(
             point_roles=roles,
             point_orders=orders,
         )
+        peak_x, peak_y = counterdiff_spike_peaks(x_values, y_values)
+        stem = {
+            "name": name,
+            "x": x_values,
+            "y": y_values,
+            "mode": "lines",
+            "line": {"color": color, "width": 2},
+            "connectgaps": False,
+            "hoverinfo": "none",
+            "showlegend": False,
+            "legendgroup": name,
+        }
+        if yaxis is not None:
+            stem["yaxis"] = yaxis
         marker: dict = {
             "color": color,
-            "size": counterdiff_spike_marker_sizes(x_values),
+            "size": 6,
             "symbol": "circle",
         }
         if outline is not None:
             marker["line"] = outline
-        config.update(
-            {
-                "x": x_values,
-                "y": y_values,
-                "mode": "lines+markers",
-                "marker": marker,
-                "connectgaps": False,
-            }
-        )
-        return config
+        peak = {
+            **config,
+            "x": peak_x,
+            "y": peak_y,
+            "mode": "markers",
+            "marker": marker,
+            "legendgroup": name,
+        }
+        if showlegend is None:
+            peak["showlegend"] = True
+        return [stem, peak]
 
     if is_step_power_metric(metric_id):
         x_values, y_values = build_step_power_coordinates(
@@ -144,7 +159,7 @@ def build_metric_trace_config(
         if fill_to_zero:
             config["fill"] = "tozeroy"
             config["fillcolor"] = fillcolor
-        return config
+        return [config]
 
     config.update(
         {
@@ -161,7 +176,7 @@ def build_metric_trace_config(
     if fill_to_zero:
         config["fill"] = "tozeroy"
         config["fillcolor"] = fillcolor
-    return config
+    return [config]
 
 
 def create_all_timeseries_plots(
@@ -279,7 +294,7 @@ def create_all_timeseries_plots(
         ScatterClass = go.Scattergl if use_webgl else go.Scatter
 
         fill_to_zero = (not use_webgl) and (not is_spike_metric(metric_id))
-        trace_config = build_metric_trace_config(
+        for trace_config in build_metric_trace_configs(
             metric_data,
             str(metric_id),
             color=color,
@@ -290,9 +305,8 @@ def create_all_timeseries_plots(
             step_line_shape="hv",
             marker_outline=True,
             showlegend=False,
-        )
-
-        fig.add_trace(ScatterClass(**trace_config), row=idx, col=1)
+        ):
+            fig.add_trace(ScatterClass(**trace_config), row=idx, col=1)
 
         fig.update_xaxes(
             type="date",

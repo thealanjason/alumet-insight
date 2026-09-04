@@ -5,7 +5,7 @@ import pandas as pd
 from backend.metrics import filter_process_metric_ids
 from backend.transforms import align_xy_metrics, comparative_metric_ids
 from frontend.panes.comparative import (
-    comparative_timeseries_trace_config,
+    comparative_timeseries_trace_configs,
     pick_xy_values,
     prepare_xy_download,
     update_process_xy_plot,
@@ -77,7 +77,7 @@ class ComparativeTests(unittest.TestCase):
             }
         )
 
-        trace = comparative_timeseries_trace_config(
+        stem, peak = comparative_timeseries_trace_configs(
             df,
             metric_id,
             "kernel_cpu_time_ms",
@@ -85,13 +85,17 @@ class ComparativeTests(unittest.TestCase):
             "y1",
         )
 
-        self.assertEqual(trace["mode"], "lines+markers")
+        self.assertEqual(stem["mode"], "lines")
+        self.assertEqual(stem["hoverinfo"], "none")
         self.assertEqual(
-            trace["y"],
+            stem["y"],
             [0.0, 0.0, 0.0, None, 0.0, 3.0, 0.0, None],
         )
-        self.assertEqual(trace["marker"]["size"], [0, 6, 0, 0, 0, 6, 0, 0])
-        self.assertFalse(trace["connectgaps"])
+        self.assertFalse(stem["connectgaps"])
+        self.assertEqual(peak["mode"], "markers")
+        self.assertEqual(peak["y"], [0.0, 3.0])
+        self.assertEqual(peak["marker"]["size"], 6)
+        self.assertNotEqual(peak.get("hoverinfo"), "none")
 
     def test_dual_timeseries_derived_power_uses_interval_steps(self):
         metric_id = "rapl_average_power_W_R_pkg_0_C__A_"
@@ -106,7 +110,7 @@ class ComparativeTests(unittest.TestCase):
             }
         )
 
-        trace = comparative_timeseries_trace_config(
+        (trace,) = comparative_timeseries_trace_configs(
             df,
             metric_id,
             "rapl_average_power_W",
@@ -123,7 +127,7 @@ class ComparativeTests(unittest.TestCase):
         timestamps = pd.date_range("2024-01-01", periods=2, freq="s")
         df = pd.DataFrame({"timestamp": timestamps, "value": [1.0, 2.0]})
 
-        trace = comparative_timeseries_trace_config(
+        (trace,) = comparative_timeseries_trace_configs(
             df,
             "cpu_percent_R_local_machine__C_process_4_A_",
             "cpu_percent",
@@ -139,7 +143,7 @@ class ComparativeTests(unittest.TestCase):
         timestamps = pd.date_range("2024-01-01", periods=2, freq="s")
         df = pd.DataFrame({"timestamp": timestamps, "value": [1_000_000, 1_500_000]})
 
-        trace = comparative_timeseries_trace_config(
+        (trace,) = comparative_timeseries_trace_configs(
             df,
             "perf_hardware_INSTRUCTIONS_R_cpu_0_C_process_4_A_",
             "perf_hardware_INSTRUCTIONS",
@@ -150,6 +154,40 @@ class ComparativeTests(unittest.TestCase):
         self.assertEqual(trace["mode"], "lines")
         self.assertEqual(list(trace["x"]), list(timestamps))
         self.assertEqual(trace["y"].tolist(), [1_000_000, 1_500_000])
+
+    def test_dual_timeseries_spike_hover_uses_only_measured_peaks(self):
+        x_metric = "mem_active_B_R_local_machine__C_process_4_A_"
+        y_metric = "attributed_energy_cpu_J_R_pkg_C_process_4_A_"
+        t0 = pd.Timestamp("2024-01-01 00:00:00")
+        t1 = pd.Timestamp("2024-01-01 00:00:01")
+        records = [
+            {"timestamp": t0, "metric_id": x_metric, "value": 100.0},
+            {"timestamp": t1, "metric_id": x_metric, "value": 110.0},
+            {"timestamp": t0, "metric_id": y_metric, "value": 7.0},
+            {"timestamp": t1, "metric_id": y_metric, "value": 0.0},
+        ]
+
+        figure = update_process_xy_plot(
+            x_metric,
+            y_metric,
+            [],
+            False,
+            records,
+            {
+                "start": "2024-01-01 00:00:00",
+                "end": "2024-01-01 00:00:01",
+            },
+        )
+
+        hoverable_energy = [
+            float(y)
+            for trace in figure.data
+            if trace.name == "attributed_energy_cpu_J" and trace.hoverinfo != "none"
+            for y in trace.y
+        ]
+        self.assertEqual(hoverable_energy, [7.0, 0.0])
+        stem = next(trace for trace in figure.data if trace.name == "attributed_energy_cpu_J" and trace.hoverinfo == "none")
+        self.assertEqual(list(stem.y), [0.0, 7.0, 0.0, None, 0.0, 0.0, 0.0, None])
 
     def test_dual_timeseries_keeps_independent_raw_timestamps(self):
         x_metric = "cpu_percent_R_local_machine__C_process_4_A_"

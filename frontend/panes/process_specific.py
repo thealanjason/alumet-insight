@@ -25,7 +25,7 @@ from backend.utils import safe_filename
 from frontend.app import app
 from frontend.cache import df_from_store, is_cache_miss
 from frontend.figures import (
-    build_metric_trace_config,
+    build_metric_trace_configs,
     color_for_metric,
     relayout_requests_reset,
     restore_axis_defaults,
@@ -77,15 +77,15 @@ def _metric_column(df: pd.DataFrame) -> str:
     return "metric"
 
 
-def grid_trace_config(
+def grid_trace_configs(
     metric: str,
     df_series: pd.DataFrame,
     color: str,
     fillcolor: str,
-) -> dict:
-    """Build a process-grid trace using the shared metric rendering policy."""
+) -> list[dict]:
+    """Build process-grid traces using the shared metric rendering policy."""
     series_metric_id = _series_metric_id(df_series, metric)
-    return build_metric_trace_config(
+    return build_metric_trace_configs(
         df_series,
         series_metric_id,
         color=color,
@@ -658,7 +658,8 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     unit = get_metric_unit(metric)
     y_axis_title = f"Value ({unit})" if unit else "Value"
 
-    fig.add_trace(go.Scatter(**grid_trace_config(metric, dff, color, rgba_fill)))
+    for trace_config in grid_trace_configs(metric, dff, color, rgba_fill):
+        fig.add_trace(go.Scatter(**trace_config))
 
     yaxis_config = dict(
         gridcolor="rgba(76, 86, 106, 0.2)",

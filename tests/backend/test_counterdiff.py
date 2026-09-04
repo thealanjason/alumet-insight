@@ -10,6 +10,7 @@ from backend.counterdiff import (
     build_counterdiff_spike_coordinates,
     build_step_power_coordinates,
     counterdiff_spike_marker_sizes,
+    counterdiff_spike_peaks,
     derive_interval_average_power,
     expand_counterdiff_rows,
     export_observed_measurements,
@@ -397,12 +398,15 @@ class CounterDiffTests(unittest.TestCase):
 
     def test_spike_marker_sizes_show_only_observed_values_including_zero(self):
         ts = pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:01"])
-        x, _ = build_counterdiff_spike_coordinates(ts, [0.0, 5.0])
+        x, y = build_counterdiff_spike_coordinates(ts, [0.0, 5.0])
 
         self.assertEqual(
             counterdiff_spike_marker_sizes(x, marker_size=7),
             [0, 7, 0, 0, 0, 7, 0, 0],
         )
+        peak_x, peak_y = counterdiff_spike_peaks(x, y)
+        self.assertEqual(peak_y, [0.0, 5.0])
+        self.assertEqual(len(peak_x), 2)
 
     def test_step_power_coordinates_connect_contiguous_intervals(self):
         timestamps = pd.to_datetime(["2024-01-01 00:00:01", "2024-01-01 00:00:03"])
