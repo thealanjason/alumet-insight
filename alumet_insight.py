@@ -12,10 +12,14 @@ Usage:
     python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --category energy
     python alumet_insight.py cli /path/to/measurements --export-figures /path/to/output --category energy
     python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --metric-id <metric_id>
+    python alumet_insight.py cli /path/to/measurements --metric-id ID_X --compare-metric-id ID_Y --export-csv /path/to/output
+    python alumet_insight.py cli /path/to/measurements --metric-id ID_X --compare-metric-id ID_Y --export-figures /path/to/output
+    python alumet_insight.py cli /path/to/measurements --metric-id ID_X --compare-metric-id ID_Y --export-figures /path/to/output --scatter
     python alumet_insight.py cli /path/to/measurements --export-figures /path/to/output --start-time 2024-01-01T00:00:00 --end-time 2024-01-01T00:01:00
     python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --process-specific
 
 Exports are written under /path/to/output/<measurement-folder-name>/.
+Comparative analysis files go under that folder's comparative/csv/ and comparative/plots/.
 Run ``python alumet_insight.py cli -h`` for full flag reference and workflows.
 """
 

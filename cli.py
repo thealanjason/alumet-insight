@@ -6,8 +6,12 @@ Examples:
     python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output
     python alumet_insight.py cli /path/to/measurements --export-figures /path/to/output --category energy
     python alumet_insight.py cli /path/to/measurements --export-csv /path/to/output --process-specific
+    python alumet_insight.py cli DIR --metric-id ID_X --compare-metric-id ID_Y --export-csv OUT
+    python alumet_insight.py cli DIR --metric-id ID_X --compare-metric-id ID_Y --export-figures OUT
+    python alumet_insight.py cli DIR --metric-id ID_X --compare-metric-id ID_Y --export-figures OUT --scatter
 
 Exports are written under /path/to/output/<measurement-folder-name>/.
+Compare files go under that folder's comparative/csv/ and comparative/plots/.
 Run ``python alumet_insight.py cli -h`` for full flag reference and workflows.
 """
 
@@ -18,22 +22,36 @@ import sys
 from pathlib import Path
 
 from backend.categories import CATEGORY_VALUES, validate_metric_id_in_category
-from backend.cli_export import build_metric_id_listing, export_csvs, export_figures, summary
+from backend.cli_export import (
+    build_metric_id_listing,
+    comparative_mode,
+    export_comparative_csv,
+    export_comparative_figure,
+    export_csvs,
+    export_figures,
+    summary,
+)
 from backend.data import AlumetData
 from backend.figures import SUPPORTED_FIGURE_FORMATS
-from cli_branding import print_logo
 from backend.transforms import parse_timestamp, validate_time_range
+from cli_branding import print_logo
 
 CLI_EPILOG = """\
 workflows:
-  overview        --summary
-  find metric IDs --list-metric-ids [--category CAT] [--metric-name NAME] [--limit N]
-  one series      --export-csv|figures DIR --metric-id ID
-  whole category  --export-csv|figures DIR [--category CAT]
-  time window     --start-time / --end-time on exports
-  process window  add --process-specific
+  overview            --summary
+  find metric IDs     --list-metric-ids [--category CAT] [--metric-name NAME] [--limit N]
+  one series          --export-csv|figures OUT_DIR --metric-id ID
+  compare pair        --export-csv|figures OUT_DIR --metric-id ID_X --compare-metric-id ID_Y [--scatter]
+                      --scatter with --export-figures for aligned interval X vs Y
+                      files: <out>/<measurement>/comparative/csv/ and comparative/plots/
+  whole category      --export-csv|figures OUT_DIR [--category CAT]
+  time window         --start-time / --end-time on exports
+  process window      --process-specific
 
 By default, without additional specified arguments, export all series (For figures, one file per series; for CSV, one file per category).
+Comparative analysis requires an explicit pair. CSV and figures match the Comparative
+tab (Download CSV / current plot). Interval-delta pairs are running totals;
+power/gauges stay a dual-axis time series.
 """
 
 TIMESTAMP_ARG_HELP = (
@@ -59,7 +77,34 @@ class _CLIArgumentParser(argparse.ArgumentParser):
 def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, data: AlumetData) -> None:
     """Validate argument combinations before executing any action."""
     if args.metric_id and args.metric_id not in data.metric_ids:
-        parser.error(f"Unknown --metric-id '{args.metric_id}'. Run --summary to list available base metrics.")
+        parser.error(f"Unknown --metric-id '{args.metric_id}'. Run --list-metric-ids to list available series.")
+
+    if getattr(args, "compare_metric_id", None):
+        if not args.metric_id:
+            parser.error("--compare-metric-id requires --metric-id (X series).")
+        if args.compare_metric_id not in data.metric_ids:
+            parser.error(
+                f"Unknown --compare-metric-id '{args.compare_metric_id}'. "
+                "Run --list-metric-ids to list available series."
+            )
+        if args.compare_metric_id == args.metric_id:
+            parser.error("--metric-id and --compare-metric-id must name two different series.")
+        if args.metric_name:
+            parser.error("--metric-name cannot be used with --compare-metric-id.")
+        if not (args.export_csv or args.export_figures):
+            parser.error("--compare-metric-id requires --export-csv and/or --export-figures.")
+        if args.category:
+            try:
+                validate_metric_id_in_category(
+                    data.processed_df, args.metric_id, args.category, selected_cpu_core=args.cpu_core
+                )
+                validate_metric_id_in_category(
+                    data.processed_df, args.compare_metric_id, args.category, selected_cpu_core=args.cpu_core
+                )
+            except ValueError as exc:
+                parser.error(str(exc))
+        if getattr(args, "scatter", False) and not args.export_figures:
+            parser.error("--scatter is only valid with --export-figures.")
 
     if args.metric_name and args.metric_name not in data.metrics:
         parser.error(
@@ -107,11 +152,16 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, da
     if args.limit is not None and not args.list_metric_ids:
         parser.error("--limit is only valid with --list-metric-ids.")
 
+    if getattr(args, "scatter", False) and not getattr(args, "compare_metric_id", None):
+        parser.error("--scatter requires --compare-metric-id.")
+
 def main(argv: list[str] | None = None) -> None:
     entry = Path(sys.argv[0]).name
     prog = f"{entry} cli" if entry.startswith("alumet_insight") else None
     parser = _CLIArgumentParser(
         prog=prog,
+        epilog=CLI_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("directory", help="Path to measurement directory containing .csv and optional .log/.txt files")
 
@@ -147,7 +197,18 @@ def main(argv: list[str] | None = None) -> None:
         "--metric-id",
         type=str,
         default=None,
-        help="Export exactly one metric series. Run --list-metric-ids to find IDs.",
+        help="Export exactly one metric series (X series when comparing). Run --list-metric-ids to find IDs.",
+    )
+    selectors.add_argument(
+        "--compare-metric-id",
+        type=str,
+        default=None,
+        metavar="ID",
+        help=(
+            "Y series for a two-metric export (X is --metric-id). Requires --export-csv "
+            "and/or --export-figures. Discover IDs with --list-metric-ids. Writes one "
+            "file under <out>/<measurement>/comparative/csv/ or comparative/plots/. "
+        ),
     )
     selectors.add_argument("--cpu-core", type=str, default=None, help="CPU core filter (only for kernel_cpu_time)")
 
@@ -190,6 +251,14 @@ def main(argv: list[str] | None = None) -> None:
         help="Static figure format for --export-figures",
     )
     export.add_argument("--dpi", type=int, default=300, help="DPI for raster figure exports")
+    export.add_argument(
+        "--scatter",
+        action="store_true",
+        help=(
+            "With --compare-metric-id and --export-figures, plot nearest-aligned interval "
+            "X-Y scatter instead of the default cumulative X-Y or dual-axis figure"
+        ),
+    )
 
     args = parser.parse_args(argv)
     data = AlumetData(args.directory)
@@ -214,17 +283,32 @@ def main(argv: list[str] | None = None) -> None:
     if args.export_csv:
         out = _measurement_output_root(args.export_csv, args.directory)
         out.mkdir(parents=True, exist_ok=True)
-        created = export_csvs(
-            data,
-            out,
-            category=args.category,
-            cpu_core=args.cpu_core,
-            process_specific=args.process_specific,
-            metric_id=args.metric_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
-        )
-        print(f"Exported {len(created)} CSV file(s) under {out}")
+        if args.compare_metric_id:
+            created = export_comparative_csv(
+                data,
+                out,
+                args.metric_id,
+                args.compare_metric_id,
+                process_specific=args.process_specific,
+                start_time=args.start_time,
+                end_time=args.end_time,
+            )
+            print(
+                f"Comparative mode: {comparative_mode(args.metric_id, args.compare_metric_id)}. "
+                f"Exported {len(created)} CSV file(s) under {out}"
+            )
+        else:
+            created = export_csvs(
+                data,
+                out,
+                category=args.category,
+                cpu_core=args.cpu_core,
+                process_specific=args.process_specific,
+                metric_id=args.metric_id,
+                start_time=args.start_time,
+                end_time=args.end_time,
+            )
+            print(f"Exported {len(created)} CSV file(s) under {out}")
         ran_action = True
 
     if args.export_figures:
@@ -238,19 +322,35 @@ def main(argv: list[str] | None = None) -> None:
             )
         out = _measurement_output_root(args.export_figures, args.directory)
         out.mkdir(parents=True, exist_ok=True)
-        created = export_figures(
-            data,
-            out,
-            category=args.category,
-            cpu_core=args.cpu_core,
-            figure_format=args.figure_format,
-            dpi=args.dpi,
-            process_specific=args.process_specific,
-            metric_id=args.metric_id,
-            start_time=args.start_time,
-            end_time=args.end_time,
-        )
-        print(f"Exported {len(created)} figure file(s) under {out}")
+        if args.compare_metric_id:
+            created = export_comparative_figure(
+                data,
+                out,
+                args.metric_id,
+                args.compare_metric_id,
+                process_specific=args.process_specific,
+                start_time=args.start_time,
+                end_time=args.end_time,
+                figure_format=args.figure_format,
+                dpi=args.dpi,
+                scatter=args.scatter,
+            )
+            mode = "scatter" if args.scatter else comparative_mode(args.metric_id, args.compare_metric_id)
+            print(f"Comparative mode: {mode}. Exported {len(created)} figure file(s) under {out}")
+        else:
+            created = export_figures(
+                data,
+                out,
+                category=args.category,
+                cpu_core=args.cpu_core,
+                figure_format=args.figure_format,
+                dpi=args.dpi,
+                process_specific=args.process_specific,
+                metric_id=args.metric_id,
+                start_time=args.start_time,
+                end_time=args.end_time,
+            )
+            print(f"Exported {len(created)} figure file(s) under {out}")
         ran_action = True
 
     if not ran_action:

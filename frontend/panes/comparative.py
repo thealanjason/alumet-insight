@@ -18,12 +18,12 @@ from backend.metrics import (
     is_memory_metric,
 )
 from backend.transforms import (
-    align_xy_metrics,
-    comparative_cumulative_xy,
+    comparative_download_table,
     comparative_metric_ids,
+    comparative_xy_frame,
     filter_to_time_range,
+    prepare_xy_download,
 )
-from backend.utils import safe_filename
 from frontend.app import app
 from frontend.cache import df_from_store
 from frontend.figures import build_metric_trace_configs
@@ -56,19 +56,6 @@ def pick_xy_values(filtered: list[str], cur_x: Any, cur_y: Any) -> tuple[Any, An
     others = [m for m in filtered if m != x_val]
     y_val = cur_y if cur_y in others else others[0]
     return x_val, y_val
-
-
-def prepare_xy_download(
-    dfxy: pd.DataFrame,
-    x_metric_id: str,
-    y_metric_id: str,
-) -> tuple[pd.DataFrame, str]:
-    """Rename columns for CSV export and compute a safe filename."""
-    df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
-    df_out["x_unit"] = get_metric_unit(x_metric_id)
-    df_out["y_unit"] = get_metric_unit(y_metric_id)
-    filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
-    return df_out, filename
 
 
 def comparative_timeseries_trace_configs(
@@ -365,12 +352,13 @@ def update_process_xy_plot(
     color_y = accents["y"]
 
     if show_scatter:
-        dfxy = align_xy_metrics(
+        dfxy = comparative_xy_frame(
             dfp,
             x_metric_id,
             y_metric_id,
             proc_start,
             proc_end,
+            scatter=True,
         )
         if dfxy.empty:
             fig.update_layout(
@@ -422,7 +410,7 @@ def update_process_xy_plot(
         )
 
     elif both_cumulative:
-        dfxy = comparative_cumulative_xy(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
+        dfxy = comparative_xy_frame(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
         if dfxy.empty:
             fig.update_layout(
                 title=dict(text="Could not compute running totals (one or both series empty)", x=0.5)
@@ -568,12 +556,9 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
     if proc_start is None or proc_end is None:
         return None
 
-    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
-        dfxy = comparative_cumulative_xy(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
-    else:
-        dfxy = align_xy_metrics(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
-    if dfxy.empty:
+    df_out, filename = comparative_download_table(
+        dfp, x_metric_id, y_metric_id, proc_start, proc_end
+    )
+    if df_out.empty:
         return None
-
-    df_out, filename = prepare_xy_download(dfxy, x_metric_id, y_metric_id)
     return dcc.send_data_frame(df_out.to_csv, filename, index=False)

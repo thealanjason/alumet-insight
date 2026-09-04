@@ -66,3 +66,10 @@ python alumet_insight.py cli /path/to/alumet/experiment/dir --export-figures /pa
 
 with optional `--process-specific` flag to focus on process active region.
 
+
+4. For a detailed overview of all the available features use
+
+```bash
+bash alumet_insight.py cli --help
+```
+

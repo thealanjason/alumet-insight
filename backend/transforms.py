@@ -11,9 +11,12 @@ from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import (
     MEMORY_BYTE_STEMS,
     classification_stem,
+    get_metric_unit,
+    is_cumulative_xy_pair,
     is_running_total_metric,
     running_total_metric_id,
 )
+from backend.utils import safe_filename
 
 
 # Maps metric name suffix → (scale factor, SI replacement suffix).
@@ -378,6 +381,53 @@ def comparative_cumulative_xy(
         if not aligned.empty:
             return aligned
     return xy_running_totals(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+
+
+def comparative_xy_frame(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+    *,
+    scatter: bool = False,
+) -> pd.DataFrame:
+    """X–Y frame used by Comparative plots and CSV download.
+
+    Scatter and non-cumulative pairs use nearest ``align_xy_metrics``.
+    Cumulative pairs use ``comparative_cumulative_xy`` (union + forward-fill).
+    """
+    if scatter or not is_cumulative_xy_pair(x_metric_id, y_metric_id):
+        return align_xy_metrics(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    return comparative_cumulative_xy(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+
+
+def prepare_xy_download(
+    dfxy: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+) -> tuple[pd.DataFrame, str]:
+    """Rename plot columns for CSV export and attach units (dashboard Download CSV)."""
+    df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
+    df_out["x_unit"] = get_metric_unit(x_metric_id)
+    df_out["y_unit"] = get_metric_unit(y_metric_id)
+    filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
+    return df_out, filename
+
+
+def comparative_download_table(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> tuple[pd.DataFrame, str]:
+    """Same table as Comparative tab Download CSV (scatter toggle is ignored)."""
+    dfxy = comparative_xy_frame(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
+    if dfxy.empty:
+        return dfxy, filename
+    return prepare_xy_download(dfxy, x_metric_id, y_metric_id)
 
 
 def get_process_time_range_from_df(df: pd.DataFrame) -> tuple:
