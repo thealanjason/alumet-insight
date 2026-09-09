@@ -625,23 +625,3 @@ def is_memory_metric(metric_name: str) -> bool:
     return memory_kind(metric_name) is not None
 
 
-def attach_unit_column(df: pd.DataFrame, source_col: str | None = None) -> pd.DataFrame:
-    """
-    Add a `unit` column inferred from the metric name.
-
-    Used by CSV exports so downstream analysis does not have to parse suffixes.
-    """
-    out = df.copy()
-    if "unit" in out.columns:
-        return out
-    if source_col is None:
-        source_col = next((column for column in ("base_metric", "metric", "metric_id") if column in out.columns), None)
-    if source_col is None:
-        return out
-
-    units = out[source_col].map(get_metric_unit)
-    if "value" in out.columns:
-        out.insert(list(out.columns).index("value") + 1, "unit", units)
-    else:
-        out["unit"] = units
-    return out

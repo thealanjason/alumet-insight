@@ -14,7 +14,6 @@ from dash import ALL, MATCH, Input, Output, State, ctx, dcc, html
 from backend.counterdiff import export_observed_measurements
 from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
 from backend.metrics import (
-    attach_unit_column,
     derived_base_metrics,
     get_metric_unit,
     is_memory_metric,
@@ -247,7 +246,7 @@ def prepare_download_df(
         if orig_col in dfm.columns and dfm[orig_col].notna().any():
             export_cols.append(orig_col)
 
-    return attach_unit_column(dfm[export_cols].copy())
+    return dfm[export_cols].copy()
 
 
 def build_filter_callback_response(cascade: dict) -> tuple:

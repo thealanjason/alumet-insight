@@ -542,9 +542,12 @@ def update_process_xy_plot(
     State("ps-ymetric-dropdown", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
+    State("scatter-toggle", "value"),
     prevent_initial_call=True,
 )
-def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, process_time_range):
+def download_xy_csv(
+    n_clicks, x_metric_id, y_metric_id, processed_df_data, process_time_range, scatter_toggle
+):
     """Generate and download CSV for the X-Y comparative plot."""
     if not n_clicks or not processed_df_data or not x_metric_id or not y_metric_id:
         return None
@@ -557,7 +560,12 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
         return None
 
     df_out, filename = comparative_download_table(
-        dfp, x_metric_id, y_metric_id, proc_start, proc_end
+        dfp,
+        x_metric_id,
+        y_metric_id,
+        proc_start,
+        proc_end,
+        scatter=bool(scatter_toggle and "scatter" in scatter_toggle),
     )
     if df_out.empty:
         return None
