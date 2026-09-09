@@ -20,6 +20,7 @@ from backend.metrics import MetricOrigin, is_spike_metric, is_step_power_metric
 from backend.transforms import compute_yaxis_ranges, get_time_range_from_df
 from frontend.style import derived_title_color, plot_color_palette, process_active_fill, set_plotly_rgba
 
+_WEBGL_COORDINATE_THRESHOLD = 10000
 
 def get_color_palette(n_colors: int, use_light_mode: bool = False) -> List[str]:
     """Get a theme-aware color palette for n_colors time series."""
@@ -56,6 +57,44 @@ def color_for_metric(
     # Fallback: stable, process-independent index from the metric name.
     idx = sum((i + 1) * ord(ch) for i, ch in enumerate(str(metric)))
     return palette[idx % len(palette)]
+
+def prepare_trace_coordinates(
+    df_series: pd.DataFrame, metric_id: str
+) -> tuple[list | pd.Series, list | pd.Series]:
+    """Build the (x, y) arrays Plotly will draw for one metric series.
+
+    CounterDiff spikes and step-power expand each sample into several vertices.
+    Call once per series and reuse for the WebGL size check and trace construction.
+    """
+    if df_series.empty:
+        return [], []
+
+    roles = df_series["point_role"] if "point_role" in df_series.columns else None
+    orders = df_series["point_order"] if "point_order" in df_series.columns else None
+    interval_starts = df_series["interval_start"] if "interval_start" in df_series.columns else None
+
+    if is_spike_metric(metric_id):
+        return build_counterdiff_spike_coordinates(
+            df_series["timestamp"],
+            df_series["value"],
+            point_roles=roles,
+            point_orders=orders,
+        )
+
+    if is_step_power_metric(metric_id):
+        return build_step_power_coordinates(
+            df_series["timestamp"],
+            df_series["value"],
+            point_roles=roles,
+            interval_starts=interval_starts,
+        )
+
+    return (
+        pd.to_datetime(df_series["timestamp"], errors="coerce"),
+        df_series["value"],
+    )
+
+
 def build_metric_trace_configs(
     df_series: pd.DataFrame,
     metric_id: str,
@@ -69,6 +108,8 @@ def build_metric_trace_configs(
     marker_outline: bool = False,
     yaxis: str | None = None,
     showlegend: bool | None = None,
+    x_values: list | pd.Series | None = None,
+    y_values: list | pd.Series | None = None,
 ) -> list[dict]:
     """
     Build one or more Plotly Scatter settings for a metric time series.
@@ -80,10 +121,11 @@ def build_metric_trace_configs(
 
     Extra keyword args only tweak look-and-feel for each pane
     (fill, dual-axis, marker outline, etc.).
+    Pass precomputed ``x_values`` / ``y_values`` from
+    ``prepare_trace_coordinates`` when the caller already expanded the series.
     """
-    roles = df_series["point_role"] if "point_role" in df_series.columns else None
-    orders = df_series["point_order"] if "point_order" in df_series.columns else None
-    interval_starts = df_series["interval_start"] if "interval_start" in df_series.columns else None
+    if x_values is None or y_values is None:
+        x_values, y_values = prepare_trace_coordinates(df_series, metric_id)
 
     config: dict = {
         "name": name,
@@ -98,12 +140,6 @@ def build_metric_trace_configs(
     outline = {"width": 1, "color": "rgba(255, 255, 255, 0.5)"} if marker_outline else None
 
     if is_spike_metric(metric_id):
-        x_values, y_values = build_counterdiff_spike_coordinates(
-            df_series["timestamp"],
-            df_series["value"],
-            point_roles=roles,
-            point_orders=orders,
-        )
         peak_x, peak_y = counterdiff_spike_peaks(x_values, y_values)
         stem = {
             "name": name,
@@ -138,12 +174,6 @@ def build_metric_trace_configs(
         return [stem, peak]
 
     if is_step_power_metric(metric_id):
-        x_values, y_values = build_step_power_coordinates(
-            df_series["timestamp"],
-            df_series["value"],
-            point_roles=roles,
-            interval_starts=interval_starts,
-        )
         line = {"color": color, "width": 2}
         if step_line_shape is not None:
             line["shape"] = step_line_shape
@@ -163,8 +193,8 @@ def build_metric_trace_configs(
 
     config.update(
         {
-            "x": pd.to_datetime(df_series["timestamp"], errors="coerce"),
-            "y": df_series["value"],
+            "x": x_values,
+            "y": y_values,
             "mode": "lines+markers" if show_default_markers else "lines",
         }
     )
@@ -285,7 +315,8 @@ def create_all_timeseries_plots(
             continue
 
         n_pts = len(metric_data)
-        use_webgl = n_pts > 10000
+        x_values, y_values = prepare_trace_coordinates(metric_data, str(metric_id))
+        use_webgl = len(x_values) > _WEBGL_COORDINATE_THRESHOLD
         show_markers = show_markers_global and n_pts < 5000
 
         color = color_map[metric_id]
@@ -305,6 +336,8 @@ def create_all_timeseries_plots(
             step_line_shape="hv",
             marker_outline=True,
             showlegend=False,
+            x_values=x_values,
+            y_values=y_values,
         ):
             fig.add_trace(ScatterClass(**trace_config), row=idx, col=1)
 
