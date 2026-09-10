@@ -6,6 +6,7 @@ from backend.transforms import (
     align_xrange_tz,
     align_xy_metrics,
     comparative_download_table,
+    comparative_export_xy,
     comparative_metric_ids,
     comparative_xy_frame,
     compute_yaxis_ranges,
@@ -16,6 +17,22 @@ from backend.transforms import (
     comparative_cumulative_xy,
     prepare_xy_download,
     xy_running_totals,
+)
+from tests.fixtures import (
+    CPU_ENERGY_CUM_ID,
+    CPU_ENERGY_ID,
+    DEFAULT_START,
+    DOWNLOAD_CPU_TOTAL,
+    DOWNLOAD_GPU_TOTAL,
+    GPU_ENERGY_CUM_ID,
+    GPU_ENERGY_ID,
+    OFFSET_CPU_GPU_X_TOTAL,
+    OFFSET_CPU_GPU_Y_TOTAL,
+    RAPL_ENERGY_ID,
+    concat_series,
+    download_cpu_gpu_energy_rows,
+    offset_cpu_gpu_energy_rows,
+    series_rows,
 )
 
 
@@ -149,28 +166,25 @@ class TransformsTests(unittest.TestCase):
         self.assertTrue(empty.empty)
 
     def test_align_xy_metrics_ignores_synthetic_padding(self):
-        ts = pd.Timestamp("2024-01-01")
-        df = pd.DataFrame(
-            {
-                "timestamp": [ts, ts, ts, ts],
-                "metric_id": [
-                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
-                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
-                    "cpu_percent_R_host__C_process_1_A_",
-                    "cpu_percent_R_host__C_process_1_A_",
-                ],
-                "value": [5.0, 0.0, 40.0, 40.0],
-                "point_role": ["observed", "synthetic", "observed", "synthetic"],
-                "point_order": [0, 1, 0, 1],
-            }
+        ts = DEFAULT_START
+        cpu_id = "cpu_percent_R_host__C_process_1_A_"
+        df = concat_series(
+            series_rows(
+                RAPL_ENERGY_ID,
+                [5.0, 0.0],
+                timestamps=[ts, ts],
+                point_role=["observed", "synthetic"],
+                point_order=[0, 1],
+            ),
+            series_rows(
+                cpu_id,
+                [40.0, 40.0],
+                timestamps=[ts, ts],
+                point_role=["observed", "synthetic"],
+                point_order=[0, 1],
+            ),
         )
-        aligned = align_xy_metrics(
-            df,
-            "rapl_consumed_energy_J_R_pkg_0_C__A_",
-            "cpu_percent_R_host__C_process_1_A_",
-            ts,
-            ts,
-        )
+        aligned = align_xy_metrics(df, RAPL_ENERGY_ID, cpu_id, ts, ts)
         self.assertEqual(aligned[["x", "y"]].values.tolist(), [[5.0, 40.0]])
 
     def test_align_xy_metrics_rejects_duplicate_observed_timestamps(self):
@@ -194,51 +208,38 @@ class TransformsTests(unittest.TestCase):
         repeats each Y sample onto several X stamps. Running totals must
         still end at ``sum(X)`` and ``sum(Y)``.
         """
-        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
-        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
-        start = pd.Timestamp("2024-01-01")
-        x_times = pd.date_range(start, periods=81, freq="50ms")
-        y_times = pd.date_range(start + pd.Timedelta("2s"), periods=11, freq="200ms")
-        df = pd.DataFrame(
-            {
-                "timestamp": list(x_times) + list(y_times),
-                "metric_id": [x_id] * len(x_times) + [y_id] * len(y_times),
-                "value": [2.0] * len(x_times) + [10.0] * len(y_times),
-                "point_role": ["observed"] * (len(x_times) + len(y_times)),
-            }
-        )
-        end = max(x_times[-1], y_times[-1])
+        df = offset_cpu_gpu_energy_rows()
+        start = df["timestamp"].min()
+        end = df["timestamp"].max()
+        y_start = df.loc[df["metric_id"] == GPU_ENERGY_ID, "timestamp"].min()
 
-        totals = xy_running_totals(df, x_id, y_id, start, end)
-        self.assertAlmostEqual(float(totals["x"].iloc[-1]), 162.0)
-        self.assertAlmostEqual(float(totals["y"].iloc[-1]), 110.0)
-        self.assertTrue((totals.loc[totals["timestamp"] < y_times[0], "y"] == 0.0).all())
+        totals = xy_running_totals(df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end)
+        self.assertAlmostEqual(float(totals["x"].iloc[-1]), OFFSET_CPU_GPU_X_TOTAL)
+        self.assertAlmostEqual(float(totals["y"].iloc[-1]), OFFSET_CPU_GPU_Y_TOTAL)
+        self.assertTrue((totals.loc[totals["timestamp"] < y_start, "y"] == 0.0).all())
 
-        aligned = align_xy_metrics(df, x_id, y_id, start, end)
-        self.assertLess(float(aligned["x"].sum()), 162.0)
-        self.assertGreater(float(aligned["y"].sum()), 110.0)
+        aligned = align_xy_metrics(df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end)
+        self.assertLess(float(aligned["x"].sum()), OFFSET_CPU_GPU_X_TOTAL)
+        self.assertGreater(float(aligned["y"].sum()), OFFSET_CPU_GPU_Y_TOTAL)
 
     def test_xy_running_totals_ignores_synthetic_padding(self):
-        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
-        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
-        ts0 = pd.Timestamp("2024-01-01")
-        ts1 = pd.Timestamp("2024-01-01 00:00:01")
-        df = pd.DataFrame(
-            {
-                "timestamp": [ts0, ts0, ts1, ts1, ts0, ts1],
-                "metric_id": [x_id, x_id, x_id, x_id, y_id, y_id],
-                "value": [5.0, 0.0, 7.0, 0.0, 3.0, 4.0],
-                "point_role": [
-                    "observed",
-                    "synthetic",
-                    "observed",
-                    "synthetic",
-                    "observed",
-                    "observed",
-                ],
-            }
+        ts0 = DEFAULT_START
+        ts1 = DEFAULT_START + pd.Timedelta("1s")
+        df = concat_series(
+            series_rows(
+                CPU_ENERGY_ID,
+                [5.0, 0.0, 7.0, 0.0],
+                timestamps=[ts0, ts0, ts1, ts1],
+                point_role=["observed", "synthetic", "observed", "synthetic"],
+            ),
+            series_rows(
+                GPU_ENERGY_ID,
+                [3.0, 4.0],
+                timestamps=[ts0, ts1],
+                point_role=["observed", "observed"],
+            ),
         )
-        totals = xy_running_totals(df, x_id, y_id, ts0, ts1)
+        totals = xy_running_totals(df, CPU_ENERGY_ID, GPU_ENERGY_ID, ts0, ts1)
         self.assertEqual(totals[["x", "y"]].values.tolist(), [[5.0, 3.0], [12.0, 7.0]])
 
     def test_xy_running_totals_empty_when_a_series_is_missing(self):
@@ -253,58 +254,74 @@ class TransformsTests(unittest.TestCase):
         self.assertTrue(empty.empty)
 
     def test_comparative_cumulative_xy_prefers_precomputed_siblings(self):
-        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
-        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
-        x_cum = "attributed_energy_cpu_cumulative_J_R_pkg_C_process_1_A_"
-        y_cum = "attributed_energy_gpu_cumulative_J_R_gpu_C_process_1_A_"
-        start = pd.Timestamp("2024-01-01")
+        start = DEFAULT_START
         x_times = pd.date_range(start, periods=3, freq="50ms")
         y_times = pd.date_range(start + pd.Timedelta("100ms"), periods=2, freq="100ms")
-        df = pd.DataFrame(
-            {
-                "timestamp": list(x_times) + list(y_times) + list(x_times) + list(y_times),
-                "metric_id": (
-                    [x_id] * len(x_times)
-                    + [y_id] * len(y_times)
-                    + [x_cum] * len(x_times)
-                    + [y_cum] * len(y_times)
-                ),
-                "value": [2.0, 2.0, 2.0, 10.0, 10.0, 2.0, 4.0, 6.0, 10.0, 20.0],
-                "point_role": ["observed"] * 10,
-            }
+        df = concat_series(
+            series_rows(CPU_ENERGY_ID, [2.0, 2.0, 2.0], timestamps=x_times, point_role="observed"),
+            series_rows(GPU_ENERGY_ID, [10.0, 10.0], timestamps=y_times, point_role="observed"),
+            series_rows(CPU_ENERGY_CUM_ID, [2.0, 4.0, 6.0], timestamps=x_times, point_role="observed"),
+            series_rows(GPU_ENERGY_CUM_ID, [10.0, 20.0], timestamps=y_times, point_role="observed"),
         )
         end = y_times[-1]
-        from_siblings = align_running_total_xy(df, x_cum, y_cum, start, end)
-        from_helper = comparative_cumulative_xy(df, x_id, y_id, start, end)
+        from_siblings = align_running_total_xy(df, CPU_ENERGY_CUM_ID, GPU_ENERGY_CUM_ID, start, end)
+        from_helper = comparative_cumulative_xy(df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end)
         self.assertEqual(from_siblings["x"].tolist(), from_helper["x"].tolist())
         self.assertEqual(from_siblings["y"].tolist(), from_helper["y"].tolist())
         self.assertAlmostEqual(float(from_helper["x"].iloc[-1]), 6.0)
         self.assertAlmostEqual(float(from_helper["y"].iloc[-1]), 20.0)
 
-    def test_comparative_download_table_matches_dashboard_columns(self):
-        x_id = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
-        y_id = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
+    def test_comparative_download_table_matches_the_visible_plot(self):
+        df = download_cpu_gpu_energy_rows()
+        start, end = df["timestamp"].min(), df["timestamp"].max()
+        plot_frame = comparative_xy_frame(df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end)
+        table, filename = comparative_download_table(df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end)
+        renamed, same_name = prepare_xy_download(plot_frame, CPU_ENERGY_ID, GPU_ENERGY_ID)
+        self.assertEqual(filename, same_name)
+        self.assertEqual(list(table.columns), ["timestamp", CPU_ENERGY_ID, GPU_ENERGY_ID])
+        self.assertEqual(list(table.columns), list(renamed.columns))
+        self.assertNotIn("x_unit", table.columns)
+        pd.testing.assert_frame_equal(table.reset_index(drop=True), renamed.reset_index(drop=True))
+        self.assertAlmostEqual(float(table[CPU_ENERGY_ID].iloc[-1]), DOWNLOAD_CPU_TOTAL)
+        self.assertAlmostEqual(float(table[GPU_ENERGY_ID].iloc[-1]), DOWNLOAD_GPU_TOTAL)
+        _, slashed = prepare_xy_download(plot_frame, "bad/id", "also bad")
+        self.assertNotIn("/", slashed)
+        scatter_plot = comparative_xy_frame(df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end, scatter=True)
+        scatter_table, _ = comparative_download_table(
+            df, CPU_ENERGY_ID, GPU_ENERGY_ID, start, end, scatter=True
+        )
+        scatter_renamed, _ = prepare_xy_download(scatter_plot, CPU_ENERGY_ID, GPU_ENERGY_ID)
+        pd.testing.assert_frame_equal(
+            scatter_table.reset_index(drop=True), scatter_renamed.reset_index(drop=True)
+        )
+
+    def test_comparative_export_xy_keeps_leading_unmatched_samples_as_nan(self):
+        x_id = "mem_available_B_R_host__C_process_1_A_"
+        y_id = "cpu_percent_R_host__C_process_1_A_"
         start = pd.Timestamp("2024-01-01")
-        x_times = pd.date_range(start, periods=4, freq="s")
-        y_times = pd.date_range(start, periods=2, freq="2s")
+        y_first = start
+        x_times = pd.date_range(start + pd.Timedelta("1s"), periods=2, freq="s")
+        y_times = [y_first, x_times[-1]]
         df = pd.DataFrame(
             {
                 "timestamp": list(x_times) + list(y_times),
-                "metric_id": [x_id] * 4 + [y_id] * 2,
-                "value": [1.0, 1.0, 1.0, 1.0, 10.0, 20.0],
+                "metric_id": [x_id] * 2 + [y_id] * 2,
+                "value": [100.0, 200.0, 10.0, 20.0],
             }
         )
         end = x_times[-1]
-        frame = comparative_xy_frame(df, x_id, y_id, start, end)
-        table, filename = comparative_download_table(df, x_id, y_id, start, end)
-        renamed, same_name = prepare_xy_download(frame, x_id, y_id)
-        self.assertEqual(filename, same_name)
-        self.assertEqual(list(table.columns), list(renamed.columns))
-        self.assertIn("x_unit", table.columns)
-        self.assertAlmostEqual(float(table[x_id].iloc[-1]), 4.0)
-        self.assertAlmostEqual(float(table[y_id].iloc[-1]), 30.0)
-        scatter = comparative_xy_frame(df, x_id, y_id, start, end, scatter=True)
-        self.assertEqual(list(scatter.columns), ["timestamp", "x", "y"])
+        exported = comparative_export_xy(df, x_id, y_id, start, end)
+        table, _ = comparative_download_table(df, x_id, y_id, start, end)
+        self.assertEqual(len(exported), 3)
+        self.assertTrue(pd.isna(exported.loc[0, "x"]))
+        self.assertEqual(float(exported.loc[0, "y"]), 10.0)
+        self.assertTrue(pd.isna(exported.loc[1, "y"]))
+        self.assertEqual(exported["x"].dropna().tolist(), [100.0, 200.0])
+        self.assertEqual(list(table.columns), ["timestamp", x_id, y_id])
+        self.assertTrue(pd.isna(table.loc[0, x_id]))
+        aligned = align_xy_metrics(df, x_id, y_id, start, end)
+        self.assertLess(len(aligned), len(exported))
+        self.assertNotIn(y_first, set(aligned["timestamp"]))
 
 
 if __name__ == "__main__":
