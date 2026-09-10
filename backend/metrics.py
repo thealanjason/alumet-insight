@@ -615,6 +615,12 @@ def get_metric_unit(metric_name: str) -> str:
     return ""
 
 
+def same_physical_xy_unit(x_metric_id: str, y_metric_id: str) -> bool:
+    """True when both series have the same non-empty physical unit."""
+    x_unit = get_metric_unit(x_metric_id)
+    return bool(x_unit) and x_unit == get_metric_unit(y_metric_id)
+
+
 def is_memory_metric(metric_name: str) -> bool:
     """
     Return whether this metric is a byte-valued memory gauge.
@@ -625,23 +631,62 @@ def is_memory_metric(metric_name: str) -> bool:
     return memory_kind(metric_name) is not None
 
 
-def attach_unit_column(df: pd.DataFrame, source_col: str | None = None) -> pd.DataFrame:
-    """
-    Add a `unit` column inferred from the metric name.
+class DeviceClass(StrEnum):
+    """Device scope for dashboard labels; orthogonal to energy/power categories."""
 
-    Used by CSV exports so downstream analysis does not have to parse suffixes.
-    """
-    out = df.copy()
-    if "unit" in out.columns:
-        return out
-    if source_col is None:
-        source_col = next((column for column in ("base_metric", "metric", "metric_id") if column in out.columns), None)
-    if source_col is None:
-        return out
+    CPU = "cpu"
+    GPU = "gpu"
+    TOTAL = "total"
+    OTHER = "other"
 
-    units = out[source_col].map(get_metric_unit)
-    if "value" in out.columns:
-        out.insert(list(out.columns).index("value") + 1, "unit", units)
-    else:
-        out["unit"] = units
-    return out
+
+DEVICE_CLASS_LABELS: dict[DeviceClass, str] = {
+    DeviceClass.CPU: "CPU",
+    DeviceClass.GPU: "GPU",
+    DeviceClass.TOTAL: "Total",
+    DeviceClass.OTHER: "Other",
+}
+
+_GPU_NAME_PREFIXES: tuple[str, ...] = ("nvml_", "amd_gpu_", "grace_")
+_CPU_NAME_PREFIXES: tuple[str, ...] = ("rapl_", "kernel_", "perf_")
+
+
+def _device_class_stem(metric_id: str) -> str:
+    stem = classification_stem(base_metric_from_id(metric_id))
+    if stem.endswith(_RUNNING_TOTAL_STEM_SUFFIX):
+        return stem[: -len(_RUNNING_TOTAL_STEM_SUFFIX)]
+    return stem
+
+
+def device_class(metric_id: str) -> DeviceClass:
+    """Classify a series as CPU, GPU, synthesized Total, or Other.
+
+    Total is only synthesized combined attributed series (process CPU+GPU
+    total and GPU-sum totals), not host-wide RAPL or ``mem_total``.
+    """
+    stem = _device_class_stem(metric_id)
+    if stem.startswith("attributed_") and stem.endswith("_total"):
+        return DeviceClass.TOTAL
+    if stem in {"attributed_energy_gpu", "attributed_power_gpu"} or stem.startswith(_GPU_NAME_PREFIXES):
+        return DeviceClass.GPU
+    if (
+        stem in {"attributed_energy_cpu", "attributed_power_cpu", "cpu_percent"}
+        or stem.startswith(_CPU_NAME_PREFIXES)
+    ):
+        return DeviceClass.CPU
+
+    resource = (MetricId.parse(metric_id).resource or "").lower()
+    if resource.startswith("gpu"):
+        return DeviceClass.GPU
+    if resource.startswith(("cpu", "pkg", "package")):
+        return DeviceClass.CPU
+    return DeviceClass.OTHER
+
+
+def device_class_label(metric_id: str | DeviceClass) -> str:
+    """Return the short display token ``CPU`` / ``GPU`` / ``Total`` / ``Other``."""
+    if isinstance(metric_id, DeviceClass):
+        return DEVICE_CLASS_LABELS[metric_id]
+    return DEVICE_CLASS_LABELS[device_class(metric_id)]
+
+

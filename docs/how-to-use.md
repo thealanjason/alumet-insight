@@ -93,7 +93,7 @@ In this pane, we can inspect up to four individual metric series side by side. P
 #### Additional Useful Features
 
 - **Synchronized x-axis zoom:**  Zooming the time axis in any panel syncs all four panels to the same time range.
-- **Per-panel CSV export:** Click **Download CSV** on a panel to export the currently selected series, filtered to the process active time range.
+- **Per-panel CSV export:** Click **Download CSV** on a panel to export the currently selected series, filtered to the process active time range. The metric name keeps its unit as the suffix (`_B`, `_J`, `_W`).
 
 
 ### 3. Comparative Analysis Pane
@@ -121,4 +121,4 @@ In this pane, you can compare two metric series using samples from the process a
 
  #### Additional Useful Features
 
-5. Click **Download CSV** to export the aligned X/Y data used in the current plot.
+5. Click **Download CSV** to export the data shown in the plot. Dual-axis keeps both traces (empty/NaN where one series has no sample). Cumulative X–Y is the forward-filled running totals. Scatter is the nearest-aligned pairs. Column names are the metric IDs with units as suffix (e.g., `_J`, `_B`, `_W`).

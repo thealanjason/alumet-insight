@@ -3,12 +3,14 @@ import unittest
 import pandas as pd
 
 from backend.metrics import (
+    DeviceClass,
     MetricId,
     MetricType,
     PowerKind,
-    attach_unit_column,
     classification_stem,
     classify_base_metric,
+    device_class,
+    filter_by_base_metric,
     filter_process_metric_ids,
     get_metric_unit,
     is_counterdiff_base_metric,
@@ -29,7 +31,24 @@ from backend.metrics import (
     power_kind,
     running_total_base_metric,
     running_total_metric_id,
+    same_physical_xy_unit,
     should_derive_power_from_energy,
+)
+from tests.fixtures import (
+    ATTRIBUTED_ENERGY_ID,
+    CPU_ENERGY_ID,
+    CPU_PERCENT_ID,
+    CUSTOM_COUNTER_ID,
+    ENERGY_TOTAL_ID,
+    GPU_ENERGY_ID,
+    GPU_ENERGY_TOTAL_ID,
+    KERNEL_CPU_TIME_ID,
+    MEM_TOTAL_ID,
+    NETWORK_RX_ID,
+    NVML_POWER_ID,
+    RAPL_ENERGY_ID,
+    concat_series,
+    series_rows,
 )
 
 
@@ -191,6 +210,39 @@ class MetricKindTests(unittest.TestCase):
             )
         )
 
+    def test_should_derive_power_from_energy_policy(self):
+        available = {
+            "nvml_energy_consumption_J_R_gpu_0_C__A_",
+            "nvml_instant_power_W_R_gpu_0_C__A_",
+            "rapl_consumed_energy_J_R_pkg_0_C__A_",
+        }
+        self.assertFalse(should_derive_power_from_energy("nvml_energy_consumption_J_R_gpu_0_C__A_", available))
+        self.assertTrue(should_derive_power_from_energy("rapl_consumed_energy_J_R_pkg_0_C__A_", available))
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_total_J_R_total__C_process_1_A_",
+                available,
+            )
+        )
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_gpu_total_J_R_gpu_all__C_process_1_A_",
+                available,
+            )
+        )
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_total_J_R_cpu_all__C_process_1_A_",
+                available,
+            )
+        )
+        self.assertTrue(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_J_R_local_machine__C_process_1_A_domain=package_total",
+                available,
+            )
+        )
+
     def test_is_power_metric_only_accepts_supported_power_series(self):
         self.assertTrue(is_power_metric("nvml_instant_power_W"))
         self.assertTrue(is_power_metric("rapl_average_power_W"))
@@ -217,6 +269,15 @@ class MetricSeriesTests(unittest.TestCase):
         ids = ["host_R_a_C_host_1_A_", "proc_R_a_C_process_1_A_"]
         self.assertEqual(filter_process_metric_ids(ids, process_only=False), ids)
         self.assertEqual(filter_process_metric_ids(ids, process_only=True), [ids[1]])
+
+    def test_filter_by_base_metric(self):
+        df = concat_series(
+            series_rows(NVML_POWER_ID, [1.0]),
+            series_rows(CPU_PERCENT_ID, [2.0]),
+        )
+        matched = filter_by_base_metric(df, "nvml_instant_power_W")
+        self.assertEqual(matched["metric_id"].tolist(), [NVML_POWER_ID])
+        self.assertTrue(filter_by_base_metric(df, "nonexistent").empty)
 
 
 class MetricUnitTests(unittest.TestCase):
@@ -260,12 +321,30 @@ class MetricUnitTests(unittest.TestCase):
         self.assertEqual(memory_kind("nvml_gpu_memory_info_B"), "gpu")
         self.assertIsNone(memory_kind("nvml_memory_utilization_%"))
 
-    def test_attach_unit_column_inserts_after_value(self):
-        df = pd.DataFrame({"metric": ["mem_available_kB", "cpu_percent"], "value": [1024.0, 50.0]})
-        out = attach_unit_column(df)
-        self.assertEqual(out["unit"].tolist(), ["B", "%"])
-        self.assertEqual(list(out.columns), ["metric", "value", "unit"])
-
+    def test_device_class_uses_stem_then_resource(self):
+        self.assertEqual(device_class(RAPL_ENERGY_ID), DeviceClass.CPU)
+        self.assertEqual(device_class(CPU_ENERGY_ID), DeviceClass.CPU)
+        self.assertEqual(device_class(KERNEL_CPU_TIME_ID), DeviceClass.CPU)
+        self.assertEqual(device_class(CPU_PERCENT_ID), DeviceClass.CPU)
+        self.assertEqual(device_class("perf_hardware_INSTRUCTIONS_R_cpu_0_C_process_1_A_"), DeviceClass.CPU)
+        self.assertEqual(device_class(NVML_POWER_ID), DeviceClass.GPU)
+        self.assertEqual(device_class(GPU_ENERGY_ID), DeviceClass.GPU)
+        self.assertEqual(device_class("amd_gpu_energy_consumption_J_R_gpu_0_C__A_"), DeviceClass.GPU)
+        self.assertEqual(device_class("grace_energy_consumption_J_R_gpu_0_C__A_"), DeviceClass.GPU)
+        self.assertEqual(device_class(ENERGY_TOTAL_ID), DeviceClass.TOTAL)
+        self.assertEqual(device_class(GPU_ENERGY_TOTAL_ID), DeviceClass.TOTAL)
+        self.assertEqual(device_class("attributed_power_total_W"), DeviceClass.TOTAL)
+        self.assertEqual(device_class("attributed_energy_total_cumulative_J"), DeviceClass.TOTAL)
+        self.assertEqual(device_class("attributed_energy_gpu_total_cumulative_J"), DeviceClass.TOTAL)
+        self.assertEqual(device_class(ATTRIBUTED_ENERGY_ID), DeviceClass.OTHER)
+        self.assertEqual(device_class(MEM_TOTAL_ID), DeviceClass.OTHER)
+        self.assertEqual(device_class(NETWORK_RX_ID), DeviceClass.OTHER)
+        self.assertEqual(device_class(CUSTOM_COUNTER_ID), DeviceClass.OTHER)
+        self.assertEqual(device_class("custom_sensor_R_gpu_1_C__A_"), DeviceClass.GPU)
+        self.assertEqual(device_class("custom_sensor_R_pkg_0_C__A_"), DeviceClass.CPU)
+        self.assertTrue(same_physical_xy_unit(CPU_ENERGY_ID, GPU_ENERGY_ID))
+        self.assertFalse(same_physical_xy_unit(CPU_PERCENT_ID, MEM_TOTAL_ID))
+        self.assertFalse(same_physical_xy_unit(CUSTOM_COUNTER_ID, CUSTOM_COUNTER_ID))
 
 if __name__ == "__main__":
     unittest.main()

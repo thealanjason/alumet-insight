@@ -8,7 +8,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 
-from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
+from backend.formatting import (
+    get_bytes_tickvals_ticktext,
+    metric_choice_option,
+    shared_xy_axis_dtick,
+    shared_xy_axis_range,
+)
 from backend.metrics import (
     base_metric_from_id,
     derived_metric_ids,
@@ -16,20 +21,30 @@ from backend.metrics import (
     get_metric_unit,
     is_cumulative_xy_pair,
     is_memory_metric,
+    same_physical_xy_unit,
 )
 from backend.transforms import (
     comparative_download_table,
     comparative_metric_ids,
     comparative_xy_frame,
     filter_to_time_range,
-    prepare_xy_download,
 )
 from frontend.app import app
 from frontend.cache import df_from_store
 from frontend.figures import build_metric_trace_configs
 from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
-from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, plot_pair_colors
+from frontend.style import (
+    CARD_STYLE,
+    DROPDOWN_STYLE,
+    apply_figure_theme,
+    comparative_series_colors,
+    comparative_series_line_dash,
+    device_class_chip,
+    device_class_inline_name,
+    device_class_key,
+    plot_pair_colors,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,6 +79,7 @@ def comparative_timeseries_trace_configs(
     name: str,
     color: str,
     yaxis: str,
+    line_dash: str = "solid",
 ) -> list[dict]:
     """Build dual-axis traces using the shared metric rendering policy."""
     return build_metric_trace_configs(
@@ -74,7 +90,63 @@ def comparative_timeseries_trace_configs(
         show_default_markers=False,
         fill_to_zero=False,
         yaxis=yaxis,
+        line_dash=line_dash,
     )
+
+
+COMPARATIVE_PLOT_AREA_CLASS = "comparative-plot-area"
+EQUAL_XY_PLOT_AREA_CLASS = f"{COMPARATIVE_PLOT_AREA_CLASS} equal-xy"
+
+
+def comparative_plot_area_class(equal_xy: bool) -> str:
+    """Square the graph widget when X-Y must stay 1:1; otherwise fill the card."""
+    return EQUAL_XY_PLOT_AREA_CLASS if equal_xy else COMPARATIVE_PLOT_AREA_CLASS
+
+
+def comparative_plot_title(prefix: str, left_name, right_name):
+    """One centered line for ``#ps-xy-title``. Double spaces stay inside the wrapper."""
+    return html.Span(
+        [html.Span(f"{prefix}:  "), *left_name, html.Span("  vs  "), *right_name],
+        className="comparative-plot-title-text",
+    )
+
+
+def comparative_plot_message(text: str) -> str:
+    """Status line in the same slot as the plot heading."""
+    return text
+
+
+def apply_equal_xy_scale(
+    fig: go.Figure,
+    dfxy: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    *,
+    include_zero: bool,
+) -> bool:
+    """Share numeric limits and tick steps when X and Y are the same physical unit.
+
+    The dashboard sizes the graph as the largest square that fits the card, so
+    one unit is the same length on both axes without Plotly letterboxing the
+    plot inside a wide figure.
+    """
+    if not same_physical_xy_unit(x_metric_id, y_metric_id):
+        return False
+    shared = shared_xy_axis_range(dfxy["x"], dfxy["y"], include_zero=include_zero)
+    if shared is None:
+        return False
+    lo, hi = shared
+    axis_lock: dict[str, Any] = {"range": [lo, hi], "autorange": False}
+    if is_memory_metric(x_metric_id) or is_memory_metric(y_metric_id):
+        tickvals, ticktext = get_bytes_tickvals_ticktext(lo, hi, num_ticks=5)
+        axis_lock["tickvals"] = tickvals
+        axis_lock["ticktext"] = ticktext
+    else:
+        axis_lock["dtick"] = shared_xy_axis_dtick(lo, hi)
+    fig.update_xaxes(**axis_lock)
+    fig.update_yaxes(**axis_lock)
+    fig.update_layout(margin=dict(l=56, r=16, t=16, b=52))
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -89,8 +161,11 @@ def comparative_timeseries_trace_configs(
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
     State("comparative-content", "children"),
+    State("theme-switch", "value"),
 )
-def build_comparative_tab(tab_value, processed_df_data, process_time_range, current_children):
+def build_comparative_tab(
+    tab_value, processed_df_data, process_time_range, current_children, use_light_mode
+):
     triggered_id = ctx.triggered_id
     is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
 
@@ -110,6 +185,9 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     if len(metric_ids) < 2:
         return empty_comparative_content("Need at least 2 metrics inside process window.")
 
+    derived_ids = derived_metric_ids(df_from_store(processed_df_data))
+    metric_options = [metric_choice_option(m, derived=m in derived_ids) for m in metric_ids]
+
     return dbc.Card(
         [
             dbc.CardBody(
@@ -120,18 +198,29 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                 [
                                     dbc.Col(
                                         [
-                                            html.Label(
-                                                "Metric 1 (X-axis / Left Y-axis):",
-                                                style={"color": "var(--app-text)", "fontWeight": "600"},
+                                            html.Div(
+                                                [
+                                                    html.Label(
+                                                        "Metric 1 (X-axis / Left Y-axis):",
+                                                        style={"color": "var(--app-text)", "fontWeight": "600", "fontSize": "1rem"},
+                                                    ),
+                                                    html.Span(id="ps-xmetric-device-chip", className="device-class-chip"),
+                                                ],
+                                                style={"display": "flex", "alignItems": "center", "gap": "8px"},
                                             ),
-                                            dcc.Dropdown(
-                                                id="ps-xmetric-dropdown",
-                                                options=[{"label": m, "value": m} for m in metric_ids],
-                                                value=metric_ids[0],
-                                                clearable=False,
-                                                persistence=True,
-                                                className="dark-dropdown",
-                                                style=DROPDOWN_STYLE,
+                                            html.Div(
+                                                dcc.Dropdown(
+                                                    id="ps-xmetric-dropdown",
+                                                    options=metric_options,
+                                                    value=metric_ids[0],
+                                                    clearable=False,
+                                                    persistence=True,
+                                                    className="dark-dropdown",
+                                                    style=DROPDOWN_STYLE,
+                                                ),
+                                                id="ps-xmetric-dropdown-wrap",
+                                                className="comparative-metric-dropdown-wrap",
+                                                title=str(metric_ids[0]),
                                             ),
                                         ],
                                         width=12,
@@ -140,18 +229,29 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                     ),
                                     dbc.Col(
                                         [
-                                            html.Label(
-                                                "Metric 2 (Y-axis / Right Y-axis):",
-                                                style={"color": "var(--app-text)", "fontWeight": "600"},
+                                            html.Div(
+                                                [
+                                                    html.Label(
+                                                        "Metric 2 (Y-axis / Right Y-axis):",
+                                                        style={"color": "var(--app-text)", "fontWeight": "600", "fontSize": "1rem"},
+                                                    ),
+                                                    html.Span(id="ps-ymetric-device-chip", className="device-class-chip"),
+                                                ],
+                                                style={"display": "flex", "alignItems": "center", "gap": "8px"},
                                             ),
-                                            dcc.Dropdown(
-                                                id="ps-ymetric-dropdown",
-                                                options=[{"label": m, "value": m} for m in metric_ids],
-                                                value=metric_ids[1],
-                                                clearable=False,
-                                                persistence=True,
-                                                className="dark-dropdown",
-                                                style=DROPDOWN_STYLE,
+                                            html.Div(
+                                                dcc.Dropdown(
+                                                    id="ps-ymetric-dropdown",
+                                                    options=metric_options,
+                                                    value=metric_ids[1],
+                                                    clearable=False,
+                                                    persistence=True,
+                                                    className="dark-dropdown",
+                                                    style=DROPDOWN_STYLE,
+                                                ),
+                                                id="ps-ymetric-dropdown-wrap",
+                                                className="comparative-metric-dropdown-wrap",
+                                                title=str(metric_ids[1]),
                                             ),
                                         ],
                                         width=12,
@@ -208,12 +308,19 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                         className="comparative-controls",
                     ),
                     html.Div(
+                        device_class_key(use_light_mode=bool(use_light_mode)),
+                        id="comparative-device-key",
+                        className="device-class-key comparative-device-key",
+                    ),
+                    html.Div(id="ps-xy-title", className="comparative-plot-title"),
+                    html.Div(
                         dcc.Graph(
                             id="ps-xy-graph",
                             style={"height": "100%", "width": "100%"},
                             config={"responsive": True, "displaylogo": False},
                         ),
-                        className="comparative-plot-area",
+                        id="comparative-plot-area",
+                        className=COMPARATIVE_PLOT_AREA_CLASS,
                     ),
                     html.Div(
                         [
@@ -238,6 +345,45 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     )
 
 
+@app.callback(
+    Output("ps-xmetric-device-chip", "children"),
+    Output("ps-xmetric-device-chip", "className"),
+    Output("ps-xmetric-device-chip", "style"),
+    Output("ps-ymetric-device-chip", "children"),
+    Output("ps-ymetric-device-chip", "className"),
+    Output("ps-ymetric-device-chip", "style"),
+    Output("ps-xmetric-dropdown-wrap", "title"),
+    Output("ps-ymetric-dropdown-wrap", "title"),
+    Input("ps-xmetric-dropdown", "value"),
+    Input("ps-ymetric-dropdown", "value"),
+    Input("theme-switch", "value"),
+)
+def update_comparative_device_chips(x_metric_id, y_metric_id, use_light_mode):
+    x_chip = device_class_chip(x_metric_id, use_light_mode=bool(use_light_mode))
+    y_chip = device_class_chip(y_metric_id, use_light_mode=bool(use_light_mode))
+    x_title = str(x_metric_id) if x_metric_id else ""
+    y_title = str(y_metric_id) if y_metric_id else ""
+    return (
+        x_chip.children,
+        x_chip.className,
+        x_chip.style,
+        y_chip.children,
+        y_chip.className,
+        y_chip.style,
+        x_title,
+        y_title,
+    )
+
+
+@app.callback(
+    Output("comparative-device-key", "children"),
+    Input("theme-switch", "value"),
+    prevent_initial_call=True,
+)
+def update_comparative_device_key(use_light_mode):
+    return device_class_key(use_light_mode=bool(use_light_mode))
+
+
 # Mode info
 @app.callback(
     Output("comparative-mode-info", "children"),
@@ -250,22 +396,14 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
     if not x_metric_id or not y_metric_id:
         return html.Span("")
 
-    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
-        return html.Div(
-            [
-                html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
-                html.Span("Cumulative X-Y Plot", style={"color": "var(--app-success)", "fontWeight": "600"}),
-            ],
-            style={"color": "var(--app-text)"},
-        )
-    else:
-        return html.Div(
-            [
-                html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
-                html.Span("Dual Y-Axis Time Series", style={"color": "var(--app-warning)", "fontWeight": "600"}),
-            ],
-            style={"color": "var(--app-text)"},
-        )
+    mode = "Cumulative X-Y Plot" if is_cumulative_xy_pair(x_metric_id, y_metric_id) else "Dual Y-Axis Time Series"
+    return html.Div(
+        [
+            html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
+            html.Span(mode, style={"fontWeight": "600"}),
+        ],
+        style={"color": "var(--app-text)"},
+    )
 
 
 # Metric dropdowns
@@ -297,10 +435,7 @@ def update_comparative_metric_dropdowns(
 
     dfp = df_from_store(processed_df_data)
     derived_ids = derived_metric_ids(dfp)
-    opts = [
-        {"label": format_metric_choice_label(m, derived=m in derived_ids), "value": m}
-        for m in filtered
-    ]
+    opts = [metric_choice_option(m, derived=m in derived_ids) for m in filtered]
     x_val, y_val = pick_xy_values(filtered, cur_x, cur_y)
     return opts, x_val, opts, y_val
 
@@ -308,6 +443,8 @@ def update_comparative_metric_dropdowns(
 # X-Y plot
 @app.callback(
     Output("ps-xy-graph", "figure"),
+    Output("comparative-plot-area", "className"),
+    Output("ps-xy-title", "children"),
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
     Input("scatter-toggle", "value"),
@@ -316,27 +453,49 @@ def update_comparative_metric_dropdowns(
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
+def render_comparative_xy_plot(
+    x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
+):
+    fig, title = update_process_xy_plot(
+        x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
+    )
+    meta = fig.layout.meta or {}
+    equal_xy = bool(meta.get("equal_xy") if isinstance(meta, dict) else getattr(meta, "equal_xy", False))
+    return fig, comparative_plot_area_class(equal_xy), title
+
+
 def update_process_xy_plot(
     x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
 ):
     fig = go.Figure()
-    fig.update_layout(margin=dict(l=70, r=70, t=60, b=60), autosize=True)
+    fig.update_layout(margin=dict(l=70, r=70, t=16, b=60), autosize=True, title=None)
     apply_figure_theme(fig, use_light_mode)
 
     if not processed_df_data or not process_time_range or not x_metric_id or not y_metric_id:
-        fig.update_layout(title=dict(text="Select both metrics", x=0.5))
-        return fig
+        return fig, comparative_plot_message("Select both metrics")
 
     dfp = df_from_store(processed_df_data)
     ensure_timestamp_datetime(dfp)
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
     if proc_start is None or proc_end is None:
-        fig.update_layout(title=dict(text="Process time range not available", x=0.5))
-        return fig
+        return fig, comparative_plot_message("Process time range not available")
 
     x_abbrev = base_metric_from_id(x_metric_id)
     y_abbrev = base_metric_from_id(y_metric_id)
+    derived_ids = derived_metric_ids(dfp)
+    x_named = device_class_inline_name(
+        x_metric_id,
+        derived=x_metric_id in derived_ids,
+        use_light_mode=use_light_mode,
+        body=x_abbrev,
+    )
+    y_named = device_class_inline_name(
+        y_metric_id,
+        derived=y_metric_id in derived_ids,
+        use_light_mode=use_light_mode,
+        body=y_abbrev,
+    )
 
     x_unit = get_metric_unit(x_metric_id)
     y_unit = get_metric_unit(y_metric_id)
@@ -348,8 +507,9 @@ def update_process_xy_plot(
     show_scatter = scatter_toggle and "scatter" in scatter_toggle
 
     accents = plot_pair_colors(use_light_mode)
-    color_x = accents["x"]
-    color_y = accents["y"]
+    color_x, color_y = comparative_series_colors(x_metric_id, y_metric_id, use_light_mode)
+    dash_x, dash_y = comparative_series_line_dash(x_metric_id, y_metric_id)
+    dfxy = None
 
     if show_scatter:
         dfxy = comparative_xy_frame(
@@ -361,13 +521,7 @@ def update_process_xy_plot(
             scatter=True,
         )
         if dfxy.empty:
-            fig.update_layout(
-                title=dict(
-                    text="Could not align metrics in time (no matches within tolerance)",
-                    x=0.5,
-                )
-            )
-            return fig
+            return fig, comparative_plot_message("Could not align metrics in time (no matches within tolerance)")
         hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
         fig.add_trace(
             go.Scatter(
@@ -391,8 +545,16 @@ def update_process_xy_plot(
             )
         )
 
-        xaxis_config = dict(title=dict(text=x_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
-        yaxis_config = dict(title=dict(text=y_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        xaxis_config = dict(
+            title=dict(text=x_label, font=dict(size=11, color=color_x)),
+            tickfont=dict(color=color_x),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
+        yaxis_config = dict(
+            title=dict(text=y_label, font=dict(size=11, color=color_y)),
+            tickfont=dict(color=color_y),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
         if is_memory_metric(x_metric_id):
             x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x"].min(), dfxy["x"].max(), num_ticks=5)
             xaxis_config["tickvals"] = x_tickvals
@@ -403,19 +565,16 @@ def update_process_xy_plot(
             yaxis_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Scatter plot: {y_abbrev} vs {x_abbrev}", x=0.5, font=dict(size=14)),
             xaxis=xaxis_config,
             yaxis=yaxis_config,
             hovermode="closest",
         )
+        heading = comparative_plot_title("Scatter", x_named, y_named)
 
     elif both_cumulative:
         dfxy = comparative_xy_frame(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
         if dfxy.empty:
-            fig.update_layout(
-                title=dict(text="Could not compute running totals (one or both series empty)", x=0.5)
-            )
-            return fig
+            return fig, comparative_plot_message("Could not compute running totals (one or both series empty)")
         hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
 
         fig.add_trace(
@@ -438,8 +597,16 @@ def update_process_xy_plot(
         x_cum_label = f"Cumulative {x_abbrev} ({x_unit})" if x_unit else f"Cumulative {x_abbrev}"
         y_cum_label = f"Cumulative {y_abbrev} ({y_unit})" if y_unit else f"Cumulative {y_abbrev}"
 
-        xaxis_config = dict(title=dict(text=x_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
-        yaxis_config = dict(title=dict(text=y_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        xaxis_config = dict(
+            title=dict(text=x_cum_label, font=dict(size=11, color=color_x)),
+            tickfont=dict(color=color_x),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
+        yaxis_config = dict(
+            title=dict(text=y_cum_label, font=dict(size=11, color=color_y)),
+            tickfont=dict(color=color_y),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
 
         if is_memory_metric(x_metric_id):
             x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(
@@ -455,11 +622,11 @@ def update_process_xy_plot(
             yaxis_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Cumulative {y_abbrev} vs Cumulative {x_abbrev}", x=0.5, font=dict(size=14)),
             xaxis=xaxis_config,
             yaxis=yaxis_config,
             hovermode="closest",
         )
+        heading = comparative_plot_title("Cumulative", x_named, y_named)
 
     else:
         df_window = filter_to_time_range(dfp, proc_start, proc_end)
@@ -472,6 +639,7 @@ def update_process_xy_plot(
             x_abbrev,
             color_x,
             "y1",
+            dash_x,
         ):
             fig.add_trace(go.Scatter(**trace_config))
 
@@ -481,6 +649,7 @@ def update_process_xy_plot(
             y_abbrev,
             color_y,
             "y2",
+            dash_y,
         ):
             fig.add_trace(go.Scatter(**trace_config))
 
@@ -516,7 +685,6 @@ def update_process_xy_plot(
             yaxis2_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Time Series: {x_abbrev} & {y_abbrev}", x=0.5, font=dict(size=14)),
             xaxis=dict(
                 title=dict(text="Time", font=dict(size=12)),
                 gridcolor="rgba(76, 86, 106, 0.2)",
@@ -526,12 +694,23 @@ def update_process_xy_plot(
             yaxis=yaxis_config,
             yaxis2=yaxis2_config,
             legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5, bgcolor="rgba(59, 66, 82, 0.8)"),
-            margin=dict(b=100),
+            margin=dict(t=16, b=100),
             hovermode="x unified",
         )
+        heading = comparative_plot_title("Time Series", x_named, y_named)
 
     apply_figure_theme(fig, use_light_mode)
-    return fig
+    equal_xy = False
+    if dfxy is not None:
+        equal_xy = apply_equal_xy_scale(
+            fig,
+            dfxy,
+            x_metric_id,
+            y_metric_id,
+            include_zero=both_cumulative and not show_scatter,
+        )
+    fig.update_layout(meta={"equal_xy": equal_xy})
+    return fig, heading
 
 
 # CSV download for X-Y plot
@@ -542,9 +721,12 @@ def update_process_xy_plot(
     State("ps-ymetric-dropdown", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
+    State("scatter-toggle", "value"),
     prevent_initial_call=True,
 )
-def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, process_time_range):
+def download_xy_csv(
+    n_clicks, x_metric_id, y_metric_id, processed_df_data, process_time_range, scatter_toggle
+):
     """Generate and download CSV for the X-Y comparative plot."""
     if not n_clicks or not processed_df_data or not x_metric_id or not y_metric_id:
         return None
@@ -557,7 +739,12 @@ def download_xy_csv(n_clicks, x_metric_id, y_metric_id, processed_df_data, proce
         return None
 
     df_out, filename = comparative_download_table(
-        dfp, x_metric_id, y_metric_id, proc_start, proc_end
+        dfp,
+        x_metric_id,
+        y_metric_id,
+        proc_start,
+        proc_end,
+        scatter=bool(scatter_toggle and "scatter" in scatter_toggle),
     )
     if df_out.empty:
         return None

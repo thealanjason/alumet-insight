@@ -37,6 +37,10 @@
     --Dash-Shading-Weak: rgba(0, 0, 0, 0.35);
     --Dash-Tooltip-Background-Color: #3B4252;
     --Dash-Tooltip-Border-Color: #4C566A;
+    --device-class-cpu: #88C0D0;
+    --device-class-gpu: #EBCB8B;
+    --device-class-total: #A3BE8C;
+    --device-class-other: #A4AEBC;
 }
 
 .app-shell.theme-light {
@@ -73,6 +77,10 @@
     --Dash-Shading-Weak: rgba(31, 41, 55, 0.08);
     --Dash-Tooltip-Background-Color: #ffffff;
     --Dash-Tooltip-Border-Color: #d9dee8;
+    --device-class-cpu: #3E6B8F;
+    --device-class-gpu: #B45309;
+    --device-class-total: #4F7D3B;
+    --device-class-other: #6B7280;
 }
 
 body {
@@ -898,10 +906,101 @@ div.rc-slider-mark-text-active {
     color: var(--app-text);
     display: flex;
     flex: 0 0 auto;
+    flex-direction: column;
+    font-size: 0.72rem;
+    gap: 1px;
+    justify-content: center;
+    margin-bottom: clamp(2px, 0.4vh, 4px);
+}
+
+.timeseries-process-legend-row {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    gap: 5px;
+    justify-content: center;
+}
+
+.timeseries-process-legend-label {
+    color: var(--app-text);
+}
+
+.device-class-key,
+.process-grid-device-key,
+.comparative-device-key {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
     font-size: 0.85rem;
-    gap: 8px;
+    gap: 8px 14px;
     justify-content: center;
     margin-bottom: clamp(4px, 0.8vh, 8px);
+}
+
+#ps-xy-title,
+.comparative-plot-title {
+    align-self: stretch;
+    color: var(--app-text);
+    display: flex;
+    flex: 0 0 auto;
+    font-size: 0.92rem;
+    font-weight: 700;
+    justify-content: center;
+    line-height: 1.35;
+    margin: 0 0 8px;
+    min-height: 1.35em;
+    overflow-wrap: anywhere;
+    text-align: center;
+    width: 100%;
+}
+
+#ps-xy-title span,
+.comparative-plot-title span,
+.comparative-plot-title-text {
+    font-weight: 700;
+}
+
+.comparative-plot-title-text {
+    white-space: pre-wrap;
+}
+
+.timeseries-process-legend .device-class-key {
+    font-size: inherit;
+    gap: 6px 10px;
+    margin-bottom: 0;
+}
+
+.device-class-key-item,
+.device-class-chip {
+    flex: 0 0 auto;
+    font-weight: 700;
+}
+
+.device-class-chip {
+    font-size: 0.75rem;
+    min-width: 2.4rem;
+}
+
+.comparative-controls .device-class-chip {
+    font-size: 1rem;
+    min-width: 0;
+}
+
+.device-class-cpu {
+    color: var(--device-class-cpu);
+}
+
+.device-class-gpu {
+    color: var(--device-class-gpu);
+}
+
+.device-class-total {
+    color: var(--device-class-total);
+}
+
+.device-class-other {
+    color: var(--device-class-other);
 }
 
 .timeseries-process-legend-swatch {
@@ -910,8 +1009,8 @@ div.rc-slider-mark-text-active {
     border-radius: 2px;
     display: inline-block;
     flex: 0 0 auto;
-    height: 12px;
-    width: 16px;
+    height: 9px;
+    width: 12px;
 }
 
 .theme-light .timeseries-process-legend-swatch {
@@ -949,6 +1048,40 @@ div.rc-slider-mark-text-active {
     max-height: 100% !important;
     min-height: 0 !important;
     width: 100% !important;
+}
+
+/* Largest square that fits the card: 1:1 units without shrinking the plot inside a wide figure. */
+.comparative-plot-area.equal-xy {
+    align-items: center;
+    container-type: size;
+    flex-direction: row;
+    justify-content: center;
+}
+
+.comparative-plot-area.equal-xy #ps-xy-graph {
+    flex: 0 0 auto !important;
+    aspect-ratio: 1 / 1;
+    height: 100% !important;
+    max-height: 100% !important;
+    max-width: 100% !important;
+    width: auto !important;
+}
+
+.comparative-plot-area.equal-xy #ps-xy-graph .js-plotly-plot,
+.comparative-plot-area.equal-xy #ps-xy-graph .plotly,
+.comparative-plot-area.equal-xy #ps-xy-graph .plot-container {
+    flex: none !important;
+    height: 100% !important;
+    max-height: none !important;
+    width: 100% !important;
+}
+
+@supports (width: 1cqh) {
+    .comparative-plot-area.equal-xy #ps-xy-graph {
+        aspect-ratio: auto;
+        height: min(100cqw, 100cqh) !important;
+        width: min(100cqw, 100cqh) !important;
+    }
 }
 
 .comparative-download {
@@ -1020,22 +1153,39 @@ div.rc-slider-mark-text-active {
     padding: clamp(6px, 0.8vw, 10px) !important;
 }
 
+.process-grid-selection-caption {
+    flex: 0 0 auto;
+    font-size: 0.78rem;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 0;
+    white-space: nowrap;
+}
+
 .process-grid-toolbar {
-    align-items: flex-end;
+    align-items: stretch;
     display: flex;
     flex: 0 0 auto;
+    flex-direction: row;
     gap: 6px;
     margin-bottom: 4px;
-    min-height: 0;
     min-width: 0;
 }
 
 .process-grid-metric-group {
-    align-items: center;
     display: flex;
     flex: 1 1 0;
-    gap: 6px;
+    flex-direction: column;
+    gap: 2px;
     min-width: 140px;
+}
+
+.process-grid-metric-label-row {
+    align-items: center;
+    display: flex;
+    flex: 0 0 16px;
+    gap: 6px;
+    min-height: 16px;
 }
 
 .process-grid-metric-label {
@@ -1047,13 +1197,28 @@ div.rc-slider-mark-text-active {
     white-space: nowrap;
 }
 
-.process-grid-metric-dropdown {
+.process-grid-metric-dropdown-wrap {
     flex: 1 1 auto;
     min-width: 0;
 }
 
+.process-grid-metric-dropdown-wrap .process-grid-metric-dropdown,
+.process-grid-metric-dropdown-wrap .dash-dropdown,
+.comparative-metric-dropdown-wrap .dash-dropdown {
+    min-width: 0;
+    width: 100%;
+}
+
+.dash-dropdown-option,
+.dash-dropdown-option-label {
+    height: auto !important;
+    overflow-wrap: anywhere;
+    white-space: normal !important;
+    word-break: break-word;
+}
+
 .process-grid-filters {
-    align-items: flex-end;
+    align-items: stretch;
     display: flex;
     flex: 2 1 0;
     gap: 4px;
@@ -1064,14 +1229,22 @@ div.rc-slider-mark-text-active {
     display: none;
     flex: 1 1 0;
     flex-direction: column;
+    gap: 2px;
     min-width: 0;
 }
 
 .process-grid-filter-label {
     color: var(--app-accent-soft);
+    flex: 0 0 16px;
     font-size: 0.65rem;
-    margin-bottom: 1px;
+    line-height: 16px;
+    margin-bottom: 0;
     white-space: nowrap;
+}
+
+.process-grid-filter-slot .dash-dropdown {
+    min-width: 0;
+    width: 100%;
 }
 
 .process-grid-plot-area {

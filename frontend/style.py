@@ -4,6 +4,9 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import html
 
+from backend.formatting import format_metric_title, split_metric_title
+from backend.metrics import DeviceClass, device_class, device_class_label
+
 
 # ---------------------------------------------------------------------------
 # Color constants (Nord palette)
@@ -100,8 +103,11 @@ GRID_GRAPH_CONFIG = {
     "doubleClick": "autosize",
 }
 
-GRID_PLACEHOLDER_MARGIN = dict(l=40, r=12, t=28, b=22)
-GRID_DATA_MARGIN = dict(l=40, r=12, t=8, b=22)
+# Same left margin on every grid cell so mixed metrics cannot shift the time axis.
+# Non-memory axes use a few plain decimal ticks; memory keeps "928.6 GB" labels.
+GRID_YAXIS_LEFT_MARGIN = 88
+GRID_PLACEHOLDER_MARGIN = {"l": GRID_YAXIS_LEFT_MARGIN, "r": 12, "t": 28, "b": 36}
+GRID_DATA_MARGIN = {"l": GRID_YAXIS_LEFT_MARGIN, "r": 12, "t": 8, "b": 36}
 
 # ---------------------------------------------------------------------------
 # Alert helpers
@@ -147,6 +153,11 @@ def plot_color_palette(use_light_mode: bool = False) -> tuple[str, ...]:
     return PLOT_COLORS_LIGHT if use_light_mode else PLOT_COLORS_DARK
 
 
+# Cumulative X–Y is one relationship path, not a device-class series.
+CUMULATIVE_XY_COLOR_DARK = "#FFFFFF"
+CUMULATIVE_XY_COLOR_LIGHT = "#000000"
+
+
 def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
     """Accent colors for comparative dual-axis, scatter, and cumulative plots."""
     if use_light_mode:
@@ -154,21 +165,156 @@ def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
             "x": "#3E6B8F",
             "y": "#C73E2A",
             "scatter": "#D97706",
-            "cumulative": "#4F7D3B",
+            "cumulative": CUMULATIVE_XY_COLOR_LIGHT,
             "marker_line": "#1F2937",
         }
     return {
         "x": "#88C0D0",
         "y": "#FF6B6B",
         "scatter": "#FF8C42",
-        "cumulative": "#A3BE8C",
+        "cumulative": CUMULATIVE_XY_COLOR_DARK,
         "marker_line": "#FFFFFF",
     }
 
 
-def derived_title_color(use_light_mode: bool = False) -> str:
-    """Title color that marks post-processed series versus native Alumet metrics."""
-    return "#7E5693" if use_light_mode else "#B48EAD"
+DEVICE_CLASS_COLORS_DARK: dict[DeviceClass, str] = {
+    DeviceClass.CPU: "#88C0D0",
+    DeviceClass.GPU: "#EBCB8B",
+    DeviceClass.TOTAL: "#A3BE8C",
+    DeviceClass.OTHER: "#A4AEBC",
+}
+
+DEVICE_CLASS_COLORS_LIGHT: dict[DeviceClass, str] = {
+    DeviceClass.CPU: "#3E6B8F",
+    DeviceClass.GPU: "#B45309",
+    DeviceClass.TOTAL: "#4F7D3B",
+    DeviceClass.OTHER: "#6B7280",
+}
+
+
+def device_class_color(metric_id: str | DeviceClass, use_light_mode: bool = False) -> str:
+    """Theme-aware text color for a device-class token."""
+    cls = metric_id if isinstance(metric_id, DeviceClass) else device_class(metric_id)
+    palette = DEVICE_CLASS_COLORS_LIGHT if use_light_mode else DEVICE_CLASS_COLORS_DARK
+    return palette[cls]
+
+
+def device_class_text_style(metric_id: str | DeviceClass | None, use_light_mode: bool = False) -> dict:
+    """Dash style dict so chips and keys use the same colors as Plotly traces."""
+    if not metric_id:
+        return {}
+    return {"color": device_class_color(metric_id, use_light_mode)}
+
+
+def comparative_series_colors(
+    x_metric_id: str,
+    y_metric_id: str,
+    use_light_mode: bool = False,
+) -> tuple[str, str]:
+    """Device-class colors for a comparative pair. Same class keeps the same theme swatch."""
+    return (
+        device_class_color(x_metric_id, use_light_mode),
+        device_class_color(y_metric_id, use_light_mode),
+    )
+
+
+def comparative_series_line_dash(x_metric_id: str, y_metric_id: str) -> tuple[str, str]:
+    """Dash the Y series only when both metrics share a device-class color."""
+    if device_class(x_metric_id) == device_class(y_metric_id):
+        return "solid", "dash"
+    return "solid", "solid"
+
+
+def format_device_class_title_html(
+    metric_id: str,
+    *,
+    derived: bool = False,
+    use_light_mode: bool = False,
+    body: str | None = None,
+) -> str:
+    """Color the metric name with its device class; ``(derived)`` stays theme text.
+
+    Long titles put the name (and optional derived mark) on the first line and
+    R/C/A metadata on the second so subplot titles are not clipped.
+    """
+    class_color = device_class_color(metric_id, use_light_mode)
+    text = body if body is not None else format_metric_title(metric_id, derived=False)
+    name, meta = (text, "") if body is not None else split_metric_title(text)
+    name_html = f'<span style="color:{class_color};font-size:14px">{name}</span>'
+    if derived:
+        name_html = f'{name_html} <span style="font-size:14px">(derived)</span>'
+    if not meta:
+        return name_html
+    return (
+        f'{name_html}<br>'
+        f'<span style="color:{class_color};font-size:11px">{meta}</span>'
+    )
+
+
+def device_class_inline_name(
+    metric_id: str,
+    *,
+    derived: bool = False,
+    use_light_mode: bool = False,
+    body: str | None = None,
+) -> list:
+    """Colored metric name for headings outside Plotly. ``(derived)`` stays theme text."""
+    class_color = device_class_color(metric_id, use_light_mode)
+    name = body if body is not None else format_metric_title(metric_id, derived=False)
+    if body is None:
+        name, _meta = split_metric_title(name)
+    children = [html.Span(name, style={"color": class_color})]
+    if derived:
+        children.append(html.Span(" (derived)"))
+    return children
+
+
+def device_class_chip(metric_id: str | None = None, use_light_mode: bool = False) -> html.Span:
+    """Colored class token next to a dropdown. Empty when no metric is selected."""
+    if not metric_id:
+        return html.Span("", className="device-class-chip", style={})
+    cls = device_class(metric_id)
+    return html.Span(
+        device_class_label(cls),
+        className=f"device-class-chip device-class-{cls.value}",
+        style=device_class_text_style(cls, use_light_mode),
+    )
+
+
+def device_class_selection_caption(metric_id: str | None = None, use_light_mode: bool = False) -> html.Span:
+    """Process-Specific cell header: colored ``[CPU]`` / ``[GPU]`` / ``[Total]`` / ``[Other]``."""
+    if not metric_id:
+        return html.Span("", className="process-grid-selection-caption", style={})
+    cls = device_class(metric_id)
+    return html.Span(
+        f"[{device_class_label(cls)}]",
+        className=f"process-grid-selection-caption device-class-{cls.value}",
+        style=device_class_text_style(cls, use_light_mode),
+    )
+
+
+def device_class_key(*, include_process_active: bool = False, use_light_mode: bool = False) -> list:
+    """Display the hint of each metric classification coloring in Time Series tab stacked under the Process Active row."""
+    class_items = [
+        html.Span(
+            device_class_label(cls),
+            className=f"device-class-key-item device-class-{cls.value}",
+            style=device_class_text_style(cls, use_light_mode),
+        )
+        for cls in DeviceClass
+    ]
+    if not include_process_active:
+        return class_items
+    return [
+        html.Div(
+            [
+                html.Span(className="timeseries-process-legend-swatch"),
+                html.Span("Process Active", className="timeseries-process-legend-label"),
+            ],
+            className="timeseries-process-legend-row",
+        ),
+        html.Div(class_items, className="device-class-key"),
+    ]
 
 
 def process_active_fill(use_light_mode: bool = False) -> str:
@@ -198,8 +344,8 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
         plot_bgcolor=theme["plot"],
         font=dict(color=theme["font"]),
     )
-    fig.update_xaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"], tickfont=dict(color=theme["font"]))
-    fig.update_yaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"], tickfont=dict(color=theme["font"]))
+    fig.update_xaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"])
+    fig.update_yaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"])
     if fig.layout.legend:
         fig.update_layout(legend=dict(bgcolor=theme["legend"], font=dict(color=theme["legend_font"])))
     return fig

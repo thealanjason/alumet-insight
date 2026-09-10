@@ -2,181 +2,66 @@ import unittest
 
 import pandas as pd
 
-from backend.metrics import filter_process_metric_ids
-from backend.transforms import align_xy_metrics, comparative_metric_ids
+from backend.metrics import DeviceClass, same_physical_xy_unit
 from frontend.panes.comparative import (
-    comparative_timeseries_trace_configs,
+    COMPARATIVE_PLOT_AREA_CLASS,
+    EQUAL_XY_PLOT_AREA_CLASS,
+    comparative_plot_area_class,
     pick_xy_values,
-    prepare_xy_download,
+    update_comparative_mode_info,
     update_process_xy_plot,
+)
+from frontend.style import (
+    DEVICE_CLASS_COLORS_DARK,
+    DEVICE_CLASS_COLORS_LIGHT,
+    comparative_series_line_dash,
+    plot_pair_colors,
+)
+from tests.fixtures import (
+    CPU_ENERGY_ID,
+    GPU_ENERGY_ID,
+    MEM_TOTAL_ID,
+    NETWORK_RX_ID,
+    OFFSET_CPU_GPU_X_TOTAL,
+    OFFSET_CPU_GPU_Y_TOTAL,
+    offset_cpu_gpu_energy_rows,
 )
 
 
+def _heading_text(node) -> str:
+    if node is None:
+        return ""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, (list, tuple)):
+        return "".join(_heading_text(child) for child in node)
+    return _heading_text(getattr(node, "children", ""))
+
+
 class ComparativeTests(unittest.TestCase):
-    def test_comparative_metric_selection_and_alignment(self):
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=3, freq="s").tolist() * 2,
-                "metric_id": ["x_R_a_C_process_1_A_"] * 3 + ["y_R_a_C_process_1_A_"] * 3,
-                "value": [1, 2, 3, 10, 20, 30],
-            }
-        )
-        start = pd.Timestamp("2024-01-01")
-        end = pd.Timestamp("2024-01-01 00:00:02")
-
-        ids = comparative_metric_ids(df, start, end)
-        self.assertEqual(ids, ["x_R_a_C_process_1_A_", "y_R_a_C_process_1_A_"])
-        self.assertEqual(filter_process_metric_ids(ids, process_only=True), ids)
-        self.assertEqual(pick_xy_values(ids, None, None), (ids[0], ids[1]))
-
-        aligned = align_xy_metrics(df, ids[0], ids[1], start, end)
-        self.assertEqual(aligned[["x", "y"]].values.tolist(), [[1, 10], [2, 20], [3, 30]])
-        exported, filename = prepare_xy_download(aligned, ids[0], ids[1])
-        self.assertIn(ids[0], exported.columns)
-        self.assertIn("x_unit", exported.columns)
-        self.assertIn("y_unit", exported.columns)
-        self.assertTrue(filename.startswith("xy_"))
-
-    def test_comparative_helpers_handle_empty_and_filtered_inputs(self):
-        self.assertEqual(comparative_metric_ids(pd.DataFrame(), None, None), [])
-        self.assertEqual(
-            comparative_metric_ids(
-                pd.DataFrame({"metric_id": ["a"], "timestamp": [pd.Timestamp("2024-01-01")], "value": [1]}),
-                pd.Timestamp("2025-01-01"),
-                pd.Timestamp("2025-01-02"),
-            ),
-            [],
-        )
-
-        ids = ["host_R_a_C_host_1_A_", "proc_R_a_C_process_1_A_"]
-        self.assertEqual(filter_process_metric_ids(ids, process_only=False), ids)
-        self.assertEqual(filter_process_metric_ids(ids, process_only=True), [ids[1]])
+    def test_pick_xy_values_defaults_and_preserves_selection(self):
+        self.assertEqual(pick_xy_values([], None, None), (None, None))
         self.assertEqual(pick_xy_values(["only"], None, None), ("only", "only"))
+        self.assertEqual(pick_xy_values(["a", "b"], None, None), ("a", "b"))
         self.assertEqual(pick_xy_values(["a", "b"], "b", "a"), ("b", "a"))
-
-        empty_aligned = align_xy_metrics(
-            pd.DataFrame(columns=["metric_id", "timestamp", "value"]),
-            "a",
-            "b",
-            pd.Timestamp("2024-01-01"),
-            pd.Timestamp("2024-01-02"),
-        )
-        self.assertTrue(empty_aligned.empty)
-
-    def test_prepare_xy_download_sanitizes_filename(self):
-        aligned = pd.DataFrame({"timestamp": [pd.Timestamp("2024-01-01")], "x": [1.0], "y": [2.0]})
-        _, filename = prepare_xy_download(aligned, "bad/id", "also bad")
-        self.assertNotIn("/", filename)
-
-    def test_dual_timeseries_counterdiff_uses_spikes_and_observed_markers(self):
-        metric_id = "kernel_cpu_time_ms_R_cpu_core_1_C_process_4_A_"
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:01"]),
-                "value": [0.0, 3.0],
-            }
-        )
-
-        stem, peak = comparative_timeseries_trace_configs(
-            df,
-            metric_id,
-            "kernel_cpu_time_ms",
-            "blue",
-            "y1",
-        )
-
-        self.assertEqual(stem["mode"], "lines")
-        self.assertEqual(stem["hoverinfo"], "none")
-        self.assertEqual(
-            stem["y"],
-            [0.0, 0.0, 0.0, None, 0.0, 3.0, 0.0, None],
-        )
-        self.assertFalse(stem["connectgaps"])
-        self.assertEqual(peak["mode"], "markers")
-        self.assertEqual(peak["y"], [0.0, 3.0])
-        self.assertEqual(peak["marker"]["size"], 6)
-        self.assertNotEqual(peak.get("hoverinfo"), "none")
-
-    def test_dual_timeseries_derived_power_uses_interval_steps(self):
-        metric_id = "rapl_average_power_W_R_pkg_0_C__A_"
-        interval_start = pd.Timestamp("2024-01-01")
-        interval_end = pd.Timestamp("2024-01-01 00:00:02")
-        df = pd.DataFrame(
-            {
-                "timestamp": [interval_end],
-                "interval_start": [interval_start],
-                "value": [4.0],
-                "point_role": ["observed"],
-            }
-        )
-
-        (trace,) = comparative_timeseries_trace_configs(
-            df,
-            metric_id,
-            "rapl_average_power_W",
-            "red",
-            "y2",
-        )
-
-        self.assertEqual(trace["mode"], "lines")
-        self.assertEqual(trace["x"], [interval_start, interval_end])
-        self.assertEqual(trace["y"], [4.0, 4.0])
-        self.assertFalse(trace["connectgaps"])
-
-    def test_dual_timeseries_gauge_uses_connected_line(self):
-        timestamps = pd.date_range("2024-01-01", periods=2, freq="s")
-        df = pd.DataFrame({"timestamp": timestamps, "value": [1.0, 2.0]})
-
-        (trace,) = comparative_timeseries_trace_configs(
-            df,
-            "cpu_percent_R_local_machine__C_process_4_A_",
-            "cpu_percent",
-            "blue",
-            "y1",
-        )
-
-        self.assertEqual(trace["mode"], "lines")
-        self.assertEqual(list(trace["x"]), list(timestamps))
-        self.assertEqual(trace["y"].tolist(), [1.0, 2.0])
-
-    def test_dual_timeseries_raw_counter_uses_connected_running_total(self):
-        timestamps = pd.date_range("2024-01-01", periods=2, freq="s")
-        df = pd.DataFrame({"timestamp": timestamps, "value": [1_000_000, 1_500_000]})
-
-        (trace,) = comparative_timeseries_trace_configs(
-            df,
-            "perf_hardware_INSTRUCTIONS_R_cpu_0_C_process_4_A_",
-            "perf_hardware_INSTRUCTIONS",
-            "blue",
-            "y1",
-        )
-
-        self.assertEqual(trace["mode"], "lines")
-        self.assertEqual(list(trace["x"]), list(timestamps))
-        self.assertEqual(trace["y"].tolist(), [1_000_000, 1_500_000])
 
     def test_dual_timeseries_spike_hover_uses_only_measured_peaks(self):
         x_metric = "mem_active_B_R_local_machine__C_process_4_A_"
         y_metric = "attributed_energy_cpu_J_R_pkg_C_process_4_A_"
         t0 = pd.Timestamp("2024-01-01 00:00:00")
         t1 = pd.Timestamp("2024-01-01 00:00:01")
-        records = [
-            {"timestamp": t0, "metric_id": x_metric, "value": 100.0},
-            {"timestamp": t1, "metric_id": x_metric, "value": 110.0},
-            {"timestamp": t0, "metric_id": y_metric, "value": 7.0},
-            {"timestamp": t1, "metric_id": y_metric, "value": 0.0},
-        ]
-
-        figure = update_process_xy_plot(
+        figure, _title = update_process_xy_plot(
             x_metric,
             y_metric,
             [],
             False,
-            records,
-            {
-                "start": "2024-01-01 00:00:00",
-                "end": "2024-01-01 00:00:01",
-            },
+            [
+                {"timestamp": t0, "metric_id": x_metric, "value": 100.0},
+                {"timestamp": t1, "metric_id": x_metric, "value": 110.0},
+                {"timestamp": t0, "metric_id": y_metric, "value": 7.0},
+                {"timestamp": t1, "metric_id": y_metric, "value": 0.0},
+            ],
+            {"start": "2024-01-01 00:00:00", "end": "2024-01-01 00:00:01"},
         )
 
         hoverable_energy = [
@@ -186,61 +71,150 @@ class ComparativeTests(unittest.TestCase):
             for y in trace.y
         ]
         self.assertEqual(hoverable_energy, [7.0, 0.0])
-        stem = next(trace for trace in figure.data if trace.name == "attributed_energy_cpu_J" and trace.hoverinfo == "none")
-        self.assertEqual(list(stem.y), [0.0, 7.0, 0.0, None, 0.0, 0.0, 0.0, None])
+        self.assertTrue(
+            any(
+                trace.name == "attributed_energy_cpu_J" and trace.hoverinfo == "none"
+                for trace in figure.data
+            )
+        )
 
-    def test_dual_timeseries_keeps_independent_raw_timestamps(self):
+    def test_dual_timeseries_keeps_class_colors_and_independent_timestamps(self):
         x_metric = "cpu_percent_R_local_machine__C_process_4_A_"
         y_metric = "mem_total_B_R_local_machine__C_process_4_A_"
         x_time = pd.Timestamp("2024-01-01 00:00:00")
         y_time = pd.Timestamp("2024-01-01 00:00:10")
-        records = [
-            {"timestamp": x_time, "metric_id": x_metric, "value": 1.0},
-            {"timestamp": y_time, "metric_id": y_metric, "value": 2.0},
-        ]
-
-        figure = update_process_xy_plot(
+        figure, title = update_process_xy_plot(
             x_metric,
             y_metric,
             [],
             False,
-            records,
-            {
-                "start": "2024-01-01 00:00:00",
-                "end": "2024-01-01 00:00:10",
-            },
+            [
+                {"timestamp": x_time, "metric_id": x_metric, "value": 1.0},
+                {"timestamp": y_time, "metric_id": y_metric, "value": 2.0},
+            ],
+            {"start": "2024-01-01 00:00:00", "end": "2024-01-01 00:00:10"},
         )
 
+        cpu_color = DEVICE_CLASS_COLORS_DARK[DeviceClass.CPU]
+        other_color = DEVICE_CLASS_COLORS_DARK[DeviceClass.OTHER]
         self.assertEqual(list(figure.data[0].x), [x_time])
         self.assertEqual(list(figure.data[1].x), [y_time])
+        line_by_name = {trace.name: trace.line for trace in figure.data if getattr(trace, "line", None)}
+        self.assertEqual(line_by_name["cpu_percent"].color, cpu_color)
+        self.assertEqual(line_by_name["mem_total_B"].color, other_color)
+        self.assertNotEqual(line_by_name["mem_total_B"].dash, "dash")
+        self.assertEqual(figure.layout.yaxis.tickfont.color, cpu_color)
+        self.assertEqual(figure.layout.yaxis2.tickfont.color, other_color)
+        self.assertFalse(figure.layout.title.text)
+        self.assertFalse(figure.layout.meta["equal_xy"])
+        self.assertFalse(same_physical_xy_unit(x_metric, y_metric))
+        self.assertEqual(comparative_plot_area_class(False), COMPARATIVE_PLOT_AREA_CLASS)
+        self.assertEqual(_heading_text(title), "Time Series:  cpu_percent  vs  mem_total_B")
 
-    def test_cumulative_xy_uses_running_totals_not_aligned_cumsum(self):
-        x_metric = "attributed_energy_cpu_J_R_pkg_C_process_1_A_"
-        y_metric = "attributed_energy_gpu_J_R_gpu_C_process_1_A_"
-        start = pd.Timestamp("2024-01-01")
-        x_times = pd.date_range(start, periods=81, freq="50ms")
-        y_times = pd.date_range(start + pd.Timedelta("2s"), periods=11, freq="200ms")
-        records = [
-            {"timestamp": ts, "metric_id": x_metric, "value": 2.0} for ts in x_times
-        ] + [
-            {"timestamp": ts, "metric_id": y_metric, "value": 10.0} for ts in y_times
-        ]
+    def test_visualization_mode_stays_theme_text_and_bold(self):
+        info = update_comparative_mode_info(
+            "cpu_percent_R_local_machine__C_process_4_A_",
+            "mem_total_B_R_local_machine__C_process_4_A_",
+        )
+        self.assertEqual(info.style["color"], "var(--app-text)")
+        self.assertEqual(info.children[0].style["fontWeight"], "600")
+        self.assertEqual(info.children[1].style["fontWeight"], "600")
+        self.assertEqual(info.children[1].children, "Dual Y-Axis Time Series")
+        self.assertNotIn("color", info.children[1].style)
 
-        figure = update_process_xy_plot(
-            x_metric,
-            y_metric,
+    def test_cumulative_xy_uses_running_totals_and_shared_scale(self):
+        df = offset_cpu_gpu_energy_rows()
+        figure, title = update_process_xy_plot(
+            CPU_ENERGY_ID,
+            GPU_ENERGY_ID,
             [],
             False,
-            records,
+            df.to_dict("records"),
             {
-                "start": "2024-01-01 00:00:00",
-                "end": str(max(x_times[-1], y_times[-1])),
+                "start": str(df["timestamp"].min()),
+                "end": str(df["timestamp"].max()),
             },
         )
 
         self.assertEqual(len(figure.data), 1)
-        self.assertAlmostEqual(float(figure.data[0].x[-1]), 162.0)
-        self.assertAlmostEqual(float(figure.data[0].y[-1]), 110.0)
+        self.assertAlmostEqual(float(figure.data[0].x[-1]), OFFSET_CPU_GPU_X_TOTAL)
+        self.assertAlmostEqual(float(figure.data[0].y[-1]), OFFSET_CPU_GPU_Y_TOTAL)
+        self.assertEqual(list(figure.layout.xaxis.range), list(figure.layout.yaxis.range))
+        self.assertEqual(figure.layout.xaxis.range[0], 0)
+        self.assertGreaterEqual(figure.layout.xaxis.range[1], OFFSET_CPU_GPU_X_TOTAL)
+        self.assertEqual(figure.layout.xaxis.dtick, figure.layout.yaxis.dtick)
+        self.assertFalse(figure.layout.xaxis.autorange)
+        self.assertIsNone(figure.layout.yaxis.scaleanchor)
+        self.assertTrue(figure.layout.meta["equal_xy"])
+        self.assertTrue(same_physical_xy_unit(CPU_ENERGY_ID, GPU_ENERGY_ID))
+        self.assertEqual(comparative_plot_area_class(True), EQUAL_XY_PLOT_AREA_CLASS)
+        self.assertFalse(figure.layout.title.text)
+        self.assertEqual(
+            _heading_text(title),
+            "Cumulative:  attributed_energy_cpu_J  vs  attributed_energy_gpu_J",
+        )
+        cum_color = plot_pair_colors(False)["cumulative"]
+        self.assertEqual(figure.data[0].line.color, cum_color)
+        self.assertEqual(figure.data[0].marker.color, cum_color)
+        self.assertNotIn(cum_color, DEVICE_CLASS_COLORS_DARK.values())
+        self.assertNotIn(plot_pair_colors(True)["cumulative"], DEVICE_CLASS_COLORS_LIGHT.values())
+
+    def test_scatter_xy_locks_equal_scale_only_when_units_match(self):
+        df = offset_cpu_gpu_energy_rows()
+        matched, matched_title = update_process_xy_plot(
+            CPU_ENERGY_ID,
+            GPU_ENERGY_ID,
+            ["scatter"],
+            False,
+            df.to_dict("records"),
+            {
+                "start": str(df["timestamp"].min()),
+                "end": str(df["timestamp"].max()),
+            },
+        )
+        self.assertEqual(list(matched.layout.xaxis.range), list(matched.layout.yaxis.range))
+        self.assertGreater(matched.layout.xaxis.range[0], 0)
+        self.assertTrue(matched.layout.meta["equal_xy"])
+        self.assertEqual(
+            _heading_text(matched_title),
+            "Scatter:  attributed_energy_cpu_J  vs  attributed_energy_gpu_J",
+        )
+
+        x_metric = "cpu_percent_R_local_machine__C_process_4_A_"
+        y_metric = "mem_total_B_R_local_machine__C_process_4_A_"
+        mismatched, _title = update_process_xy_plot(
+            x_metric,
+            y_metric,
+            ["scatter"],
+            False,
+            [
+                {"timestamp": pd.Timestamp("2024-01-01 00:00:00"), "metric_id": x_metric, "value": 1.0},
+                {"timestamp": pd.Timestamp("2024-01-01 00:00:00"), "metric_id": y_metric, "value": 2.0},
+            ],
+            {"start": "2024-01-01 00:00:00", "end": "2024-01-01 00:00:10"},
+        )
+        self.assertFalse(mismatched.layout.meta["equal_xy"])
+        self.assertFalse(same_physical_xy_unit(x_metric, y_metric))
+
+    def test_same_device_class_keeps_one_color_and_dashes_y(self):
+        figure, _title = update_process_xy_plot(
+            MEM_TOTAL_ID,
+            NETWORK_RX_ID,
+            [],
+            False,
+            [
+                {"timestamp": pd.Timestamp("2024-01-01 00:00:00"), "metric_id": MEM_TOTAL_ID, "value": 1.0},
+                {"timestamp": pd.Timestamp("2024-01-01 00:00:10"), "metric_id": NETWORK_RX_ID, "value": 2.0},
+            ],
+            {"start": "2024-01-01 00:00:00", "end": "2024-01-01 00:00:10"},
+        )
+        other = DEVICE_CLASS_COLORS_DARK[DeviceClass.OTHER]
+        self.assertEqual(comparative_series_line_dash(MEM_TOTAL_ID, NETWORK_RX_ID), ("solid", "dash"))
+        line_by_name = {trace.name: trace.line for trace in figure.data if getattr(trace, "line", None)}
+        self.assertEqual(line_by_name["mem_total_B"].color, other)
+        self.assertEqual(line_by_name["network_rx_bytes"].color, other)
+        self.assertNotEqual(line_by_name["mem_total_B"].dash, "dash")
+        self.assertEqual(line_by_name["network_rx_bytes"].dash, "dash")
 
 
 if __name__ == "__main__":

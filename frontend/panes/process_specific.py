@@ -12,9 +12,8 @@ import plotly.graph_objects as go
 from dash import ALL, MATCH, Input, Output, State, ctx, dcc, html
 
 from backend.counterdiff import export_observed_measurements
-from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
+from backend.formatting import get_bytes_tickvals_ticktext, metric_choice_option
 from backend.metrics import (
-    attach_unit_column,
     derived_base_metrics,
     get_metric_unit,
     is_memory_metric,
@@ -52,6 +51,8 @@ from frontend.style import (
     STYLE_HIDDEN,
     STYLE_VISIBLE,
     apply_figure_theme,
+    device_class_selection_caption,
+    device_class_key,
     set_plotly_rgba,
     status_alert_class,
 )
@@ -247,7 +248,7 @@ def prepare_download_df(
         if orig_col in dfm.columns and dfm[orig_col].notna().any():
             export_cols.append(orig_col)
 
-    return attach_unit_column(dfm[export_cols].copy())
+    return dfm[export_cols].copy()
 
 
 def build_filter_callback_response(cascade: dict) -> tuple:
@@ -265,13 +266,34 @@ def build_filter_callback_response(cascade: dict) -> tuple:
     return (filters_row_style, *slot_outputs)
 
 
+def grid_yaxis_tick_style(is_memory: bool) -> dict:
+    """Keep non-memory ticks as a few plain decimals. Memory uses short byte labels."""
+    if is_memory:
+        return {}
+    return {"nticks": 5}
+
+
+def lock_grid_left_margin(fig: go.Figure | dict, *, placeholder: bool = False) -> None:
+    """Keep every grid plot's time strip the same width, regardless of y-tick length."""
+    margin = GRID_PLACEHOLDER_MARGIN if placeholder else GRID_DATA_MARGIN
+    if isinstance(fig, go.Figure):
+        fig.update_layout(margin=margin)
+        fig.update_xaxes(automargin=False)
+        fig.update_yaxes(automargin=False)
+        return
+    layout = fig.setdefault("layout", {})
+    layout["margin"] = dict(margin)
+    layout.setdefault("xaxis", {})["automargin"] = False
+    layout.setdefault("yaxis", {})["automargin"] = False
+
+
 def grid_message_figure(fig: go.Figure, title: str, use_light_mode: bool) -> go.Figure:
     """Compact placeholder figure for empty, incomplete, or invalid grid states."""
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=11)),
-        margin=GRID_PLACEHOLDER_MARGIN,
         autosize=True,
     )
+    lock_grid_left_margin(fig, placeholder=True)
     apply_figure_theme(fig, use_light_mode)
     return fig
 
@@ -359,6 +381,8 @@ def apply_visible_yaxis_range(fig: dict, x0, x1) -> None:
     y_bottom, y_top = _padded_range(min(values), max(values), clamp_zero=is_memory)
     layout["yaxis"]["range"] = [y_bottom, y_top]
     layout["yaxis"]["autorange"] = False
+    layout["yaxis"]["automargin"] = False
+    layout["yaxis"].update(grid_yaxis_tick_style(is_memory))
     if is_memory:
         tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
         layout["yaxis"]["tickvals"] = list(tickvals)
@@ -385,6 +409,7 @@ def _filter_slot(cell_index: str, label: str, dropdown_type: str, container_type
         id={"type": container_type, "index": cell_index},
         className="process-grid-filter-slot",
         style=STYLE_HIDDEN,
+        title="",
     )
 
 
@@ -393,7 +418,7 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
     cell_index = f"{i}-{j}"
     derived_metrics = derived_metrics or set()
     metric_options = [
-        {"label": format_metric_choice_label(metric, derived=metric in derived_metrics), "value": metric}
+        metric_choice_option(metric, derived=metric in derived_metrics)
         for metric in unique_metrics
     ]
 
@@ -406,14 +431,28 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
                             [
                                 html.Div(
                                     [
-                                        html.Label("Metric:", className="process-grid-metric-label"),
-                                        dcc.Dropdown(
-                                            id={"type": "metric-dropdown", "index": cell_index},
-                                            options=metric_options,
-                                            placeholder="Select metric",
-                                            style=DROPDOWN_STYLE,
-                                            className="dark-dropdown process-grid-metric-dropdown",
-                                            clearable=True,
+                                        html.Div(
+                                            [
+                                                html.Label("Metric:", className="process-grid-metric-label"),
+                                                html.Span(
+                                                    id={"type": "device-class-chip", "index": cell_index},
+                                                    className="process-grid-selection-caption",
+                                                ),
+                                            ],
+                                            className="process-grid-metric-label-row",
+                                        ),
+                                        html.Div(
+                                            dcc.Dropdown(
+                                                id={"type": "metric-dropdown", "index": cell_index},
+                                                options=metric_options,
+                                                placeholder="Select metric",
+                                                style=DROPDOWN_STYLE,
+                                                className="dark-dropdown process-grid-metric-dropdown",
+                                                clearable=True,
+                                            ),
+                                            id={"type": "metric-dropdown-wrap", "index": cell_index},
+                                            className="process-grid-metric-dropdown-wrap",
+                                            title="",
                                         ),
                                     ],
                                     className="process-grid-metric-group",
@@ -465,7 +504,11 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
     )
 
 
-def build_process_grid_card(unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> dbc.Card:
+def build_process_grid_card(
+    unique_metrics: list[str],
+    derived_metrics: Optional[set[str]] = None,
+    use_light_mode: bool = False,
+) -> dbc.Card:
     """Build the viewport-fitted 2x2 process-specific comparison card."""
     grid_cells = [
         _build_grid_cell(i, j, unique_metrics, derived_metrics)
@@ -475,7 +518,14 @@ def build_process_grid_card(unique_metrics: list[str], derived_metrics: Optional
     return dbc.Card(
         [
             dbc.CardBody(
-                html.Div(grid_cells, className="process-grid-viewport"),
+                [
+                    html.Div(
+                        device_class_key(use_light_mode=use_light_mode),
+                        id="process-device-key",
+                        className="device-class-key process-grid-device-key",
+                    ),
+                    html.Div(grid_cells, className="process-grid-viewport"),
+                ],
                 className="viewport-card-body process-grid-card-body",
                 style={"backgroundColor": "var(--app-card-bg)"},
             ),
@@ -489,14 +539,67 @@ def build_process_grid_card(unique_metrics: list[str], derived_metrics: Optional
 # Callbacks
 # ---------------------------------------------------------------------------
 
+def _hover_text(value: Any) -> str:
+    """Raw dropdown value for native hover; no device-class prefix."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text
+
+
+@app.callback(
+    Output({"type": "device-class-chip", "index": MATCH}, "children"),
+    Output({"type": "device-class-chip", "index": MATCH}, "className"),
+    Output({"type": "device-class-chip", "index": MATCH}, "style"),
+    Output({"type": "metric-dropdown-wrap", "index": MATCH}, "title"),
+    Output({"type": "rk-container", "index": MATCH}, "title"),
+    Output({"type": "rid-container", "index": MATCH}, "title"),
+    Output({"type": "ck-container", "index": MATCH}, "title"),
+    Output({"type": "cid-container", "index": MATCH}, "title"),
+    Output({"type": "la-container", "index": MATCH}, "title"),
+    Input({"type": "metric-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    Input("theme-switch", "value"),
+)
+def update_process_device_class_chip(metric, rk, rid, ck, cid, la, use_light_mode):
+    caption = device_class_selection_caption(metric, use_light_mode=bool(use_light_mode))
+    return (
+        caption.children,
+        caption.className,
+        caption.style,
+        _hover_text(metric),
+        _hover_text(rk),
+        _hover_text(rid),
+        _hover_text(ck),
+        _hover_text(cid),
+        _hover_text(la),
+    )
+
+
+@app.callback(
+    Output("process-device-key", "children"),
+    Input("theme-switch", "value"),
+    prevent_initial_call=True,
+)
+def update_process_device_key(use_light_mode):
+    return device_class_key(use_light_mode=bool(use_light_mode))
+
+
 @app.callback(
     Output("process-specific-content", "children"),
     Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
     State("process-specific-content", "children"),
+    State("theme-switch", "value"),
 )
-def build_process_specific_tab(tab_value, processed_df_data, process_time_range, current_children):
+def build_process_specific_tab(
+    tab_value, processed_df_data, process_time_range, current_children, use_light_mode
+):
     triggered_id = ctx.triggered_id
     is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
 
@@ -532,7 +635,11 @@ def build_process_specific_tab(tab_value, processed_df_data, process_time_range,
 
     metric_col = _metric_column(df_processed)
     unique_metrics = sorted(df_processed[metric_col].dropna().astype(str).unique().tolist())
-    return build_process_grid_card(unique_metrics, derived_base_metrics(df_processed))
+    return build_process_grid_card(
+        unique_metrics,
+        derived_base_metrics(df_processed),
+        use_light_mode=bool(use_light_mode),
+    )
 
 
 # MATCH callback: update filter dropdowns
@@ -621,7 +728,6 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     dff, cascade = filter_single_series(dfm, rk, rid, ck, cid, la)
 
     if dff.empty:
-        fig.update_layout(title=dict(text="No data available", x=0.5))
         return grid_message_figure(fig, "No data available", use_light_mode)
 
     combos = dff.groupby(["rk", "rid", "ck", "cid", "la"]).size()
@@ -666,10 +772,13 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
         title=y_axis_title,
         range=[y_bottom, y_top],
         autorange=False,
+        automargin=False,
+        **grid_yaxis_tick_style(is_memory),
     )
     yaxis_defaults = {
         "range": [float(y_bottom), float(y_top)],
         "autorange": False,
+        **grid_yaxis_tick_style(is_memory),
     }
 
     if is_memory:
@@ -691,17 +800,18 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
 
     fig.update_layout(
         hovermode="closest",
-        margin=GRID_DATA_MARGIN,
         xaxis=dict(
             gridcolor="rgba(76, 86, 106, 0.2)",
             range=xaxis_defaults["range"],
             autorange=False,
+            automargin=False,
         ),
         yaxis=yaxis_config,
         meta={"axis_defaults": {"xaxis": xaxis_defaults, "yaxis": yaxis_defaults}, "is_memory": is_memory},
         showlegend=False,
         autosize=True,
     )
+    lock_grid_left_margin(fig)
     apply_figure_theme(fig, use_light_mode)
     return fig
 
@@ -799,6 +909,8 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
             new_fig["layout"]["xaxis"]["autorange"] = False
             apply_visible_yaxis_range(new_fig, shared_range["x0"], shared_range["x1"])
 
+        meta = new_fig["layout"].get("meta") or {}
+        lock_grid_left_margin(new_fig, placeholder="axis_defaults" not in meta)
         updated_figures.append(new_fig)
 
     return updated_figures
