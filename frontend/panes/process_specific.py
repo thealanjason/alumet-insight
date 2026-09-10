@@ -266,13 +266,34 @@ def build_filter_callback_response(cascade: dict) -> tuple:
     return (filters_row_style, *slot_outputs)
 
 
+def grid_yaxis_tick_style(is_memory: bool) -> dict:
+    """Keep non-memory ticks as a few plain decimals. Memory uses short byte labels."""
+    if is_memory:
+        return {}
+    return {"nticks": 5}
+
+
+def lock_grid_left_margin(fig: go.Figure | dict, *, placeholder: bool = False) -> None:
+    """Keep every grid plot's time strip the same width, regardless of y-tick length."""
+    margin = GRID_PLACEHOLDER_MARGIN if placeholder else GRID_DATA_MARGIN
+    if isinstance(fig, go.Figure):
+        fig.update_layout(margin=margin)
+        fig.update_xaxes(automargin=False)
+        fig.update_yaxes(automargin=False)
+        return
+    layout = fig.setdefault("layout", {})
+    layout["margin"] = dict(margin)
+    layout.setdefault("xaxis", {})["automargin"] = False
+    layout.setdefault("yaxis", {})["automargin"] = False
+
+
 def grid_message_figure(fig: go.Figure, title: str, use_light_mode: bool) -> go.Figure:
     """Compact placeholder figure for empty, incomplete, or invalid grid states."""
     fig.update_layout(
         title=dict(text=title, x=0.5, font=dict(size=11)),
-        margin=GRID_PLACEHOLDER_MARGIN,
         autosize=True,
     )
+    lock_grid_left_margin(fig, placeholder=True)
     apply_figure_theme(fig, use_light_mode)
     return fig
 
@@ -360,6 +381,8 @@ def apply_visible_yaxis_range(fig: dict, x0, x1) -> None:
     y_bottom, y_top = _padded_range(min(values), max(values), clamp_zero=is_memory)
     layout["yaxis"]["range"] = [y_bottom, y_top]
     layout["yaxis"]["autorange"] = False
+    layout["yaxis"]["automargin"] = False
+    layout["yaxis"].update(grid_yaxis_tick_style(is_memory))
     if is_memory:
         tickvals, ticktext = get_bytes_tickvals_ticktext(y_bottom, y_top, num_ticks=5)
         layout["yaxis"]["tickvals"] = list(tickvals)
@@ -404,15 +427,20 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
             [
                 dbc.CardBody(
                     [
-                        html.Span(
-                            id={"type": "device-class-chip", "index": cell_index},
-                            className="process-grid-selection-caption",
-                        ),
                         html.Div(
                             [
                                 html.Div(
                                     [
-                                        html.Label("Metric:", className="process-grid-metric-label"),
+                                        html.Div(
+                                            [
+                                                html.Label("Metric:", className="process-grid-metric-label"),
+                                                html.Span(
+                                                    id={"type": "device-class-chip", "index": cell_index},
+                                                    className="process-grid-selection-caption",
+                                                ),
+                                            ],
+                                            className="process-grid-metric-label-row",
+                                        ),
                                         html.Div(
                                             dcc.Dropdown(
                                                 id={"type": "metric-dropdown", "index": cell_index},
@@ -745,10 +773,13 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
         title=y_axis_title,
         range=[y_bottom, y_top],
         autorange=False,
+        automargin=False,
+        **grid_yaxis_tick_style(is_memory),
     )
     yaxis_defaults = {
         "range": [float(y_bottom), float(y_top)],
         "autorange": False,
+        **grid_yaxis_tick_style(is_memory),
     }
 
     if is_memory:
@@ -770,17 +801,18 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
 
     fig.update_layout(
         hovermode="closest",
-        margin=GRID_DATA_MARGIN,
         xaxis=dict(
             gridcolor="rgba(76, 86, 106, 0.2)",
             range=xaxis_defaults["range"],
             autorange=False,
+            automargin=False,
         ),
         yaxis=yaxis_config,
         meta={"axis_defaults": {"xaxis": xaxis_defaults, "yaxis": yaxis_defaults}, "is_memory": is_memory},
         showlegend=False,
         autosize=True,
     )
+    lock_grid_left_margin(fig)
     apply_figure_theme(fig, use_light_mode)
     return fig
 
@@ -878,6 +910,7 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
             new_fig["layout"]["xaxis"]["autorange"] = False
             apply_visible_yaxis_range(new_fig, shared_range["x0"], shared_range["x1"])
 
+        lock_grid_left_margin(new_fig)
         updated_figures.append(new_fig)
 
     return updated_figures

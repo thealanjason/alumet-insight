@@ -428,6 +428,11 @@ def restore_axis_defaults(axis: dict, defaults: dict) -> None:
             axis[key] = list(defaults[key])
         else:
             axis.pop(key, None)
+    for key in ("tickformat", "nticks"):
+        if key in defaults:
+            axis[key] = defaults[key]
+        else:
+            axis.pop(key, None)
 
 
 def update_yaxis_ranges_in_layout(

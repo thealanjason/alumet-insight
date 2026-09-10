@@ -1088,33 +1088,38 @@ div.rc-slider-mark-text-active {
 }
 
 .process-grid-selection-caption {
-    align-self: flex-start;
     flex: 0 0 auto;
     font-size: 0.78rem;
     font-weight: 700;
     line-height: 1.1;
-    margin-bottom: 2px;
-    min-height: 1em;
+    margin-bottom: 0;
     white-space: nowrap;
 }
 
 .process-grid-toolbar {
-    align-items: flex-end;
+    align-items: stretch;
     display: flex;
     flex: 0 0 auto;
     flex-direction: row;
     gap: 6px;
     margin-bottom: 4px;
-    min-height: 0;
     min-width: 0;
 }
 
 .process-grid-metric-group {
-    align-items: center;
     display: flex;
     flex: 1 1 0;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 140px;
+}
+
+.process-grid-metric-label-row {
+    align-items: center;
+    display: flex;
+    flex: 0 0 16px;
     gap: 6px;
-    min-width: 160px;
+    min-height: 16px;
 }
 
 .process-grid-metric-label {
@@ -1147,7 +1152,7 @@ div.rc-slider-mark-text-active {
 }
 
 .process-grid-filters {
-    align-items: flex-end;
+    align-items: stretch;
     display: flex;
     flex: 2 1 0;
     gap: 4px;
@@ -1158,14 +1163,22 @@ div.rc-slider-mark-text-active {
     display: none;
     flex: 1 1 0;
     flex-direction: column;
+    gap: 2px;
     min-width: 0;
 }
 
 .process-grid-filter-label {
     color: var(--app-accent-soft);
+    flex: 0 0 16px;
     font-size: 0.65rem;
-    margin-bottom: 1px;
+    line-height: 16px;
+    margin-bottom: 0;
     white-space: nowrap;
+}
+
+.process-grid-filter-slot .dash-dropdown {
+    min-width: 0;
+    width: 100%;
 }
 
 .process-grid-plot-area {

@@ -103,8 +103,11 @@ GRID_GRAPH_CONFIG = {
     "doubleClick": "autosize",
 }
 
-GRID_PLACEHOLDER_MARGIN = dict(l=40, r=12, t=28, b=22)
-GRID_DATA_MARGIN = dict(l=40, r=12, t=8, b=22)
+# Same left margin on every grid cell so mixed metrics cannot shift the time axis.
+# Non-memory axes use a few plain decimal ticks; memory keeps "928.6 GB" labels.
+GRID_YAXIS_LEFT_MARGIN = 88
+GRID_PLACEHOLDER_MARGIN = {"l": GRID_YAXIS_LEFT_MARGIN, "r": 12, "t": 28, "b": 36}
+GRID_DATA_MARGIN = {"l": GRID_YAXIS_LEFT_MARGIN, "r": 12, "t": 8, "b": 36}
 
 # ---------------------------------------------------------------------------
 # Alert helpers
