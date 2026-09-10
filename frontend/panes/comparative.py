@@ -8,7 +8,12 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 
-from backend.formatting import get_bytes_tickvals_ticktext, metric_choice_option
+from backend.formatting import (
+    get_bytes_tickvals_ticktext,
+    metric_choice_option,
+    shared_xy_axis_dtick,
+    shared_xy_axis_range,
+)
 from backend.metrics import (
     base_metric_from_id,
     derived_metric_ids,
@@ -16,13 +21,13 @@ from backend.metrics import (
     get_metric_unit,
     is_cumulative_xy_pair,
     is_memory_metric,
+    same_physical_xy_unit,
 )
 from backend.transforms import (
     comparative_download_table,
     comparative_metric_ids,
     comparative_xy_frame,
     filter_to_time_range,
-    prepare_xy_download,
 )
 from frontend.app import app
 from frontend.cache import df_from_store
@@ -34,9 +39,10 @@ from frontend.style import (
     DROPDOWN_STYLE,
     apply_figure_theme,
     comparative_series_colors,
+    comparative_series_line_dash,
     device_class_chip,
+    device_class_inline_name,
     device_class_key,
-    format_device_class_title_html,
     plot_pair_colors,
 )
 
@@ -73,6 +79,7 @@ def comparative_timeseries_trace_configs(
     name: str,
     color: str,
     yaxis: str,
+    line_dash: str = "solid",
 ) -> list[dict]:
     """Build dual-axis traces using the shared metric rendering policy."""
     return build_metric_trace_configs(
@@ -83,7 +90,63 @@ def comparative_timeseries_trace_configs(
         show_default_markers=False,
         fill_to_zero=False,
         yaxis=yaxis,
+        line_dash=line_dash,
     )
+
+
+COMPARATIVE_PLOT_AREA_CLASS = "comparative-plot-area"
+EQUAL_XY_PLOT_AREA_CLASS = f"{COMPARATIVE_PLOT_AREA_CLASS} equal-xy"
+
+
+def comparative_plot_area_class(equal_xy: bool) -> str:
+    """Square the graph widget when X-Y must stay 1:1; otherwise fill the card."""
+    return EQUAL_XY_PLOT_AREA_CLASS if equal_xy else COMPARATIVE_PLOT_AREA_CLASS
+
+
+def comparative_plot_title(prefix: str, left_name, right_name):
+    """One centered line for ``#ps-xy-title``. Double spaces stay inside the wrapper."""
+    return html.Span(
+        [html.Span(f"{prefix}:  "), *left_name, html.Span("  vs  "), *right_name],
+        className="comparative-plot-title-text",
+    )
+
+
+def comparative_plot_message(text: str) -> str:
+    """Status line in the same slot as the plot heading."""
+    return text
+
+
+def apply_equal_xy_scale(
+    fig: go.Figure,
+    dfxy: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    *,
+    include_zero: bool,
+) -> bool:
+    """Share numeric limits and tick steps when X and Y are the same physical unit.
+
+    The dashboard sizes the graph as the largest square that fits the card, so
+    one unit is the same length on both axes without Plotly letterboxing the
+    plot inside a wide figure.
+    """
+    if not same_physical_xy_unit(x_metric_id, y_metric_id):
+        return False
+    shared = shared_xy_axis_range(dfxy["x"], dfxy["y"], include_zero=include_zero)
+    if shared is None:
+        return False
+    lo, hi = shared
+    axis_lock: dict[str, Any] = {"range": [lo, hi], "autorange": False}
+    if is_memory_metric(x_metric_id) or is_memory_metric(y_metric_id):
+        tickvals, ticktext = get_bytes_tickvals_ticktext(lo, hi, num_ticks=5)
+        axis_lock["tickvals"] = tickvals
+        axis_lock["ticktext"] = ticktext
+    else:
+        axis_lock["dtick"] = shared_xy_axis_dtick(lo, hi)
+    fig.update_xaxes(**axis_lock)
+    fig.update_yaxes(**axis_lock)
+    fig.update_layout(margin=dict(l=56, r=16, t=16, b=52))
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +202,7 @@ def build_comparative_tab(
                                                 [
                                                     html.Label(
                                                         "Metric 1 (X-axis / Left Y-axis):",
-                                                        style={"color": "var(--app-text)", "fontWeight": "600"},
+                                                        style={"color": "var(--app-text)", "fontWeight": "600", "fontSize": "1rem"},
                                                     ),
                                                     html.Span(id="ps-xmetric-device-chip", className="device-class-chip"),
                                                 ],
@@ -170,7 +233,7 @@ def build_comparative_tab(
                                                 [
                                                     html.Label(
                                                         "Metric 2 (Y-axis / Right Y-axis):",
-                                                        style={"color": "var(--app-text)", "fontWeight": "600"},
+                                                        style={"color": "var(--app-text)", "fontWeight": "600", "fontSize": "1rem"},
                                                     ),
                                                     html.Span(id="ps-ymetric-device-chip", className="device-class-chip"),
                                                 ],
@@ -249,13 +312,15 @@ def build_comparative_tab(
                         id="comparative-device-key",
                         className="device-class-key comparative-device-key",
                     ),
+                    html.Div(id="ps-xy-title", className="comparative-plot-title"),
                     html.Div(
                         dcc.Graph(
                             id="ps-xy-graph",
                             style={"height": "100%", "width": "100%"},
                             config={"responsive": True, "displaylogo": False},
                         ),
-                        className="comparative-plot-area",
+                        id="comparative-plot-area",
+                        className=COMPARATIVE_PLOT_AREA_CLASS,
                     ),
                     html.Div(
                         [
@@ -378,6 +443,8 @@ def update_comparative_metric_dropdowns(
 # X-Y plot
 @app.callback(
     Output("ps-xy-graph", "figure"),
+    Output("comparative-plot-area", "className"),
+    Output("ps-xy-title", "children"),
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
     Input("scatter-toggle", "value"),
@@ -386,35 +453,44 @@ def update_comparative_metric_dropdowns(
     State("process-time-range-store", "data"),
     prevent_initial_call=True,
 )
+def render_comparative_xy_plot(
+    x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
+):
+    fig, title = update_process_xy_plot(
+        x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
+    )
+    meta = fig.layout.meta or {}
+    equal_xy = bool(meta.get("equal_xy") if isinstance(meta, dict) else getattr(meta, "equal_xy", False))
+    return fig, comparative_plot_area_class(equal_xy), title
+
+
 def update_process_xy_plot(
     x_metric_id, y_metric_id, scatter_toggle, use_light_mode, processed_df_data, process_time_range
 ):
     fig = go.Figure()
-    fig.update_layout(margin=dict(l=70, r=70, t=60, b=60), autosize=True)
+    fig.update_layout(margin=dict(l=70, r=70, t=16, b=60), autosize=True, title=None)
     apply_figure_theme(fig, use_light_mode)
 
     if not processed_df_data or not process_time_range or not x_metric_id or not y_metric_id:
-        fig.update_layout(title=dict(text="Select both metrics", x=0.5))
-        return fig
+        return fig, comparative_plot_message("Select both metrics")
 
     dfp = df_from_store(processed_df_data)
     ensure_timestamp_datetime(dfp)
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
     if proc_start is None or proc_end is None:
-        fig.update_layout(title=dict(text="Process time range not available", x=0.5))
-        return fig
+        return fig, comparative_plot_message("Process time range not available")
 
     x_abbrev = base_metric_from_id(x_metric_id)
     y_abbrev = base_metric_from_id(y_metric_id)
     derived_ids = derived_metric_ids(dfp)
-    x_named = format_device_class_title_html(
+    x_named = device_class_inline_name(
         x_metric_id,
         derived=x_metric_id in derived_ids,
         use_light_mode=use_light_mode,
         body=x_abbrev,
     )
-    y_named = format_device_class_title_html(
+    y_named = device_class_inline_name(
         y_metric_id,
         derived=y_metric_id in derived_ids,
         use_light_mode=use_light_mode,
@@ -432,6 +508,8 @@ def update_process_xy_plot(
 
     accents = plot_pair_colors(use_light_mode)
     color_x, color_y = comparative_series_colors(x_metric_id, y_metric_id, use_light_mode)
+    dash_x, dash_y = comparative_series_line_dash(x_metric_id, y_metric_id)
+    dfxy = None
 
     if show_scatter:
         dfxy = comparative_xy_frame(
@@ -443,13 +521,7 @@ def update_process_xy_plot(
             scatter=True,
         )
         if dfxy.empty:
-            fig.update_layout(
-                title=dict(
-                    text="Could not align metrics in time (no matches within tolerance)",
-                    x=0.5,
-                )
-            )
-            return fig
+            return fig, comparative_plot_message("Could not align metrics in time (no matches within tolerance)")
         hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
         fig.add_trace(
             go.Scatter(
@@ -493,19 +565,16 @@ def update_process_xy_plot(
             yaxis_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Scatter plot: {y_named} vs {x_named}", x=0.5, font=dict(size=14)),
             xaxis=xaxis_config,
             yaxis=yaxis_config,
             hovermode="closest",
         )
+        heading = comparative_plot_title("Scatter", x_named, y_named)
 
     elif both_cumulative:
         dfxy = comparative_xy_frame(dfp, x_metric_id, y_metric_id, proc_start, proc_end)
         if dfxy.empty:
-            fig.update_layout(
-                title=dict(text="Could not compute running totals (one or both series empty)", x=0.5)
-            )
-            return fig
+            return fig, comparative_plot_message("Could not compute running totals (one or both series empty)")
         hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
 
         fig.add_trace(
@@ -553,11 +622,11 @@ def update_process_xy_plot(
             yaxis_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Cumulative {y_named} vs Cumulative {x_named}", x=0.5, font=dict(size=14)),
             xaxis=xaxis_config,
             yaxis=yaxis_config,
             hovermode="closest",
         )
+        heading = comparative_plot_title("Cumulative", x_named, y_named)
 
     else:
         df_window = filter_to_time_range(dfp, proc_start, proc_end)
@@ -570,6 +639,7 @@ def update_process_xy_plot(
             x_abbrev,
             color_x,
             "y1",
+            dash_x,
         ):
             fig.add_trace(go.Scatter(**trace_config))
 
@@ -579,6 +649,7 @@ def update_process_xy_plot(
             y_abbrev,
             color_y,
             "y2",
+            dash_y,
         ):
             fig.add_trace(go.Scatter(**trace_config))
 
@@ -614,7 +685,6 @@ def update_process_xy_plot(
             yaxis2_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"<b>Time Series: {x_named} & {y_named}</b>", x=0.5, font=dict(size=14)),
             xaxis=dict(
                 title=dict(text="Time", font=dict(size=12)),
                 gridcolor="rgba(76, 86, 106, 0.2)",
@@ -624,12 +694,23 @@ def update_process_xy_plot(
             yaxis=yaxis_config,
             yaxis2=yaxis2_config,
             legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5, bgcolor="rgba(59, 66, 82, 0.8)"),
-            margin=dict(b=100),
+            margin=dict(t=16, b=100),
             hovermode="x unified",
         )
+        heading = comparative_plot_title("Time Series", x_named, y_named)
 
     apply_figure_theme(fig, use_light_mode)
-    return fig
+    equal_xy = False
+    if dfxy is not None:
+        equal_xy = apply_equal_xy_scale(
+            fig,
+            dfxy,
+            x_metric_id,
+            y_metric_id,
+            include_zero=both_cumulative and not show_scatter,
+        )
+    fig.update_layout(meta={"equal_xy": equal_xy})
+    return fig, heading
 
 
 # CSV download for X-Y plot

@@ -107,6 +107,8 @@ def empty_comparative_content(message: str = "No data available. Please load dat
                     dbc.Checklist(id="comparative-process-only-toggle", options=[], value=[]),
                     html.Div(id="comparative-mode-info"),
                     dbc.Checklist(id="scatter-toggle", options=[], value=[]),
+                    html.Div(id="ps-xy-title", className="comparative-plot-title"),
+                    html.Div(id="comparative-plot-area", className="comparative-plot-area"),
                     dcc.Graph(id="ps-xy-graph"),
                 ],
                 style={"display": "none"},

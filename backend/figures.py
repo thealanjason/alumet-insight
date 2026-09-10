@@ -11,6 +11,7 @@ matplotlib.use("Agg")
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 
@@ -21,12 +22,18 @@ from backend.counterdiff import (
     counterdiff_spike_marker_sizes,
     sort_for_plotting,
 )
-from backend.formatting import format_bytes_ticklabel, get_bytes_tickvals_ticktext
+from backend.formatting import (
+    format_bytes_ticklabel,
+    get_bytes_tickvals_ticktext,
+    shared_xy_axis_dtick,
+    shared_xy_axis_range,
+)
 from backend.metrics import (
     base_metric_from_id,
     get_metric_unit,
     is_cumulative_xy_pair,
     is_memory_metric,
+    same_physical_xy_unit,
     is_spike_metric,
     is_step_power_metric,
 )
@@ -38,7 +45,7 @@ _COMPARATIVE_COLORS = {
     "x": "#3E6B8F",
     "y": "#C73E2A",
     "scatter": "#D97706",
-    "cumulative": "#4F7D3B",
+    "cumulative": "#000000",
 }
 
 SUPPORTED_FIGURE_FORMATS = ("png", "pdf", "svg")
@@ -139,6 +146,37 @@ def _apply_memory_ticks(ax, values: pd.Series, metric_id: str, *, axis: str = "y
         ax.set_yticklabels(ticktext)
 
 
+def _apply_equal_xy_scale(
+    ax,
+    x_values,
+    y_values,
+    x_metric_id: str,
+    y_metric_id: str,
+    *,
+    include_zero: bool,
+) -> None:
+    """Lock 1:1 visual scale when X and Y share a physical unit."""
+    if not same_physical_xy_unit(x_metric_id, y_metric_id):
+        return
+    shared = shared_xy_axis_range(x_values, y_values, include_zero=include_zero)
+    if shared is None:
+        return
+    lo, hi = shared
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_aspect("equal", adjustable="box")
+    if is_memory_metric(x_metric_id) or is_memory_metric(y_metric_id):
+        tickvals, ticktext = get_bytes_tickvals_ticktext(lo, hi, num_ticks=5)
+        ax.set_xticks(tickvals)
+        ax.set_xticklabels(ticktext)
+        ax.set_yticks(tickvals)
+        ax.set_yticklabels(ticktext)
+    else:
+        dtick = shared_xy_axis_dtick(lo, hi)
+        ax.xaxis.set_major_locator(mticker.MultipleLocator(dtick))
+        ax.yaxis.set_major_locator(mticker.MultipleLocator(dtick))
+
+
 def save_metric_time_series_figure(
     df_metric: pd.DataFrame,
     path: Path,
@@ -196,8 +234,9 @@ def save_comparative_figure(
     x_label = f"{x_name} ({x_unit})" if x_unit else x_name
     y_label = f"{y_name} ({y_unit})" if y_unit else y_name
     cumulative = is_cumulative_xy_pair(x_metric_id, y_metric_id)
+    equal_xy = (scatter or cumulative) and same_physical_xy_unit(x_metric_id, y_metric_id)
 
-    fig, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(6.5, 6.5) if equal_xy else (8, 5))
 
     if scatter:
         aligned = comparative_xy_frame(
@@ -211,6 +250,9 @@ def save_comparative_figure(
         ax.set_ylabel(y_label)
         _apply_memory_ticks(ax, aligned["x"], x_metric_id, axis="x")
         _apply_memory_ticks(ax, aligned["y"], y_metric_id, axis="y")
+        _apply_equal_xy_scale(
+            ax, aligned["x"], aligned["y"], x_metric_id, y_metric_id, include_zero=False
+        )
         ax.set_title(f"Scatter plot: {y_name} vs {x_name}")
     elif cumulative:
         totals = comparative_xy_frame(df_processed, x_metric_id, y_metric_id, start, end)
@@ -229,6 +271,9 @@ def save_comparative_figure(
         ax.set_ylabel(f"Cumulative {y_label}")
         _apply_memory_ticks(ax, totals["x"], x_metric_id, axis="x")
         _apply_memory_ticks(ax, totals["y"], y_metric_id, axis="y")
+        _apply_equal_xy_scale(
+            ax, totals["x"], totals["y"], x_metric_id, y_metric_id, include_zero=True
+        )
         ax.set_title(f"Cumulative {y_name} vs Cumulative {x_name}")
     else:
         dfw = filter_to_time_range(df_processed, start, end)

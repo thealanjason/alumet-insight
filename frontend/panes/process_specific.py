@@ -728,7 +728,6 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     dff, cascade = filter_single_series(dfm, rk, rid, ck, cid, la)
 
     if dff.empty:
-        fig.update_layout(title=dict(text="No data available", x=0.5))
         return grid_message_figure(fig, "No data available", use_light_mode)
 
     combos = dff.groupby(["rk", "rid", "ck", "cid", "la"]).size()
@@ -910,7 +909,8 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
             new_fig["layout"]["xaxis"]["autorange"] = False
             apply_visible_yaxis_range(new_fig, shared_range["x0"], shared_range["x1"])
 
-        lock_grid_left_margin(new_fig)
+        meta = new_fig["layout"].get("meta") or {}
+        lock_grid_left_margin(new_fig, placeholder="axis_defaults" not in meta)
         updated_figures.append(new_fig)
 
     return updated_figures

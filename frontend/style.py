@@ -153,6 +153,11 @@ def plot_color_palette(use_light_mode: bool = False) -> tuple[str, ...]:
     return PLOT_COLORS_LIGHT if use_light_mode else PLOT_COLORS_DARK
 
 
+# Cumulative X–Y is one relationship path, not a device-class series.
+CUMULATIVE_XY_COLOR_DARK = "#FFFFFF"
+CUMULATIVE_XY_COLOR_LIGHT = "#000000"
+
+
 def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
     """Accent colors for comparative dual-axis, scatter, and cumulative plots."""
     if use_light_mode:
@@ -160,14 +165,14 @@ def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
             "x": "#3E6B8F",
             "y": "#C73E2A",
             "scatter": "#D97706",
-            "cumulative": "#4F7D3B",
+            "cumulative": CUMULATIVE_XY_COLOR_LIGHT,
             "marker_line": "#1F2937",
         }
     return {
         "x": "#88C0D0",
         "y": "#FF6B6B",
         "scatter": "#FF8C42",
-        "cumulative": "#A3BE8C",
+        "cumulative": CUMULATIVE_XY_COLOR_DARK,
         "marker_line": "#FFFFFF",
     }
 
@@ -176,7 +181,7 @@ DEVICE_CLASS_COLORS_DARK: dict[DeviceClass, str] = {
     DeviceClass.CPU: "#88C0D0",
     DeviceClass.GPU: "#EBCB8B",
     DeviceClass.TOTAL: "#A3BE8C",
-    DeviceClass.OTHER: "#C5CDD8",
+    DeviceClass.OTHER: "#A4AEBC",
 }
 
 DEVICE_CLASS_COLORS_LIGHT: dict[DeviceClass, str] = {
@@ -206,12 +211,18 @@ def comparative_series_colors(
     y_metric_id: str,
     use_light_mode: bool = False,
 ) -> tuple[str, str]:
-    """Device-class colors for a comparative pair. Same-class Y uses the other theme shade."""
-    color_x = device_class_color(x_metric_id, use_light_mode)
-    color_y = device_class_color(y_metric_id, use_light_mode)
-    if color_x == color_y:
-        color_y = device_class_color(y_metric_id, not use_light_mode)
-    return color_x, color_y
+    """Device-class colors for a comparative pair. Same class keeps the same theme swatch."""
+    return (
+        device_class_color(x_metric_id, use_light_mode),
+        device_class_color(y_metric_id, use_light_mode),
+    )
+
+
+def comparative_series_line_dash(x_metric_id: str, y_metric_id: str) -> tuple[str, str]:
+    """Dash the Y series only when both metrics share a device-class color."""
+    if device_class(x_metric_id) == device_class(y_metric_id):
+        return "solid", "dash"
+    return "solid", "solid"
 
 
 def format_device_class_title_html(
@@ -238,6 +249,24 @@ def format_device_class_title_html(
         f'{name_html}<br>'
         f'<span style="color:{class_color};font-size:11px">{meta}</span>'
     )
+
+
+def device_class_inline_name(
+    metric_id: str,
+    *,
+    derived: bool = False,
+    use_light_mode: bool = False,
+    body: str | None = None,
+) -> list:
+    """Colored metric name for headings outside Plotly. ``(derived)`` stays theme text."""
+    class_color = device_class_color(metric_id, use_light_mode)
+    name = body if body is not None else format_metric_title(metric_id, derived=False)
+    if body is None:
+        name, _meta = split_metric_title(name)
+    children = [html.Span(name, style={"color": class_color})]
+    if derived:
+        children.append(html.Span(" (derived)"))
+    return children
 
 
 def device_class_chip(metric_id: str | None = None, use_light_mode: bool = False) -> html.Span:
@@ -315,8 +344,8 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
         plot_bgcolor=theme["plot"],
         font=dict(color=theme["font"]),
     )
-    fig.update_xaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"], tickfont=dict(color=theme["font"]))
-    fig.update_yaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"], tickfont=dict(color=theme["font"]))
+    fig.update_xaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"])
+    fig.update_yaxes(gridcolor=theme["grid"], zerolinecolor=theme["grid"])
     if fig.layout.legend:
         fig.update_layout(legend=dict(bgcolor=theme["legend"], font=dict(color=theme["legend_font"])))
     return fig

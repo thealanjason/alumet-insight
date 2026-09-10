@@ -40,7 +40,7 @@
     --device-class-cpu: #88C0D0;
     --device-class-gpu: #EBCB8B;
     --device-class-total: #A3BE8C;
-    --device-class-other: #C5CDD8;
+    --device-class-other: #A4AEBC;
 }
 
 .app-shell.theme-light {
@@ -938,6 +938,33 @@ div.rc-slider-mark-text-active {
     margin-bottom: clamp(4px, 0.8vh, 8px);
 }
 
+#ps-xy-title,
+.comparative-plot-title {
+    align-self: stretch;
+    color: var(--app-text);
+    display: flex;
+    flex: 0 0 auto;
+    font-size: 0.92rem;
+    font-weight: 700;
+    justify-content: center;
+    line-height: 1.35;
+    margin: 0 0 8px;
+    min-height: 1.35em;
+    overflow-wrap: anywhere;
+    text-align: center;
+    width: 100%;
+}
+
+#ps-xy-title span,
+.comparative-plot-title span,
+.comparative-plot-title-text {
+    font-weight: 700;
+}
+
+.comparative-plot-title-text {
+    white-space: pre-wrap;
+}
+
 .timeseries-process-legend .device-class-key {
     font-size: inherit;
     gap: 6px 10px;
@@ -953,6 +980,11 @@ div.rc-slider-mark-text-active {
 .device-class-chip {
     font-size: 0.75rem;
     min-width: 2.4rem;
+}
+
+.comparative-controls .device-class-chip {
+    font-size: 1rem;
+    min-width: 0;
 }
 
 .device-class-cpu {
@@ -1016,6 +1048,40 @@ div.rc-slider-mark-text-active {
     max-height: 100% !important;
     min-height: 0 !important;
     width: 100% !important;
+}
+
+/* Largest square that fits the card: 1:1 units without shrinking the plot inside a wide figure. */
+.comparative-plot-area.equal-xy {
+    align-items: center;
+    container-type: size;
+    flex-direction: row;
+    justify-content: center;
+}
+
+.comparative-plot-area.equal-xy #ps-xy-graph {
+    flex: 0 0 auto !important;
+    aspect-ratio: 1 / 1;
+    height: 100% !important;
+    max-height: 100% !important;
+    max-width: 100% !important;
+    width: auto !important;
+}
+
+.comparative-plot-area.equal-xy #ps-xy-graph .js-plotly-plot,
+.comparative-plot-area.equal-xy #ps-xy-graph .plotly,
+.comparative-plot-area.equal-xy #ps-xy-graph .plot-container {
+    flex: none !important;
+    height: 100% !important;
+    max-height: none !important;
+    width: 100% !important;
+}
+
+@supports (width: 1cqh) {
+    .comparative-plot-area.equal-xy #ps-xy-graph {
+        aspect-ratio: auto;
+        height: min(100cqw, 100cqh) !important;
+        width: min(100cqw, 100cqh) !important;
+    }
 }
 
 .comparative-download {

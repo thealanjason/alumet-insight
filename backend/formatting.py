@@ -213,3 +213,37 @@ def get_bytes_tickvals_ticktext(y_min: float, y_max: float, num_ticks: int = 5) 
             format_bytes_ticklabel(y_max, decimals=4),
         ],
     )
+
+
+def shared_xy_axis_range(x_values, y_values, *, include_zero: bool = True) -> tuple[float, float] | None:
+    """Shared numeric limits so one unit is the same length on both X–Y axes."""
+    xs = np.asarray(list(x_values), dtype=float)
+    ys = np.asarray(list(y_values), dtype=float)
+    xs = xs[np.isfinite(xs)]
+    ys = ys[np.isfinite(ys)]
+    if xs.size == 0 or ys.size == 0:
+        return None
+    lo = float(min(xs.min(), ys.min()))
+    hi = float(max(xs.max(), ys.max()))
+    if include_zero:
+        lo = min(lo, 0.0)
+        hi = max(hi, 0.0)
+    if hi == lo:
+        hi = lo + 1.0
+    pad = 0.05 * (hi - lo)
+    if include_zero and lo >= 0:
+        return 0.0, hi + pad
+    return lo - pad, hi + pad
+
+
+def shared_xy_axis_dtick(lo: float, hi: float) -> float:
+    """Nice shared tick step so an equal-scale X–Y grid stays square."""
+    span = float(hi) - float(lo)
+    if span <= 0:
+        return 1.0
+    raw = span / 5.0
+    exp = 10 ** np.floor(np.log10(raw))
+    for mult in (1.0, 2.0, 2.5, 5.0, 10.0):
+        if raw <= mult * exp:
+            return float(mult * exp)
+    return float(10.0 * exp)

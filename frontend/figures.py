@@ -107,6 +107,7 @@ def build_metric_trace_configs(
     marker_outline: bool = False,
     yaxis: str | None = None,
     showlegend: bool | None = None,
+    line_dash: str | None = None,
     x_values: list | pd.Series | None = None,
     y_values: list | pd.Series | None = None,
 ) -> list[dict]:
@@ -126,9 +127,12 @@ def build_metric_trace_configs(
     if x_values is None or y_values is None:
         x_values, y_values = prepare_trace_coordinates(df_series, metric_id)
 
+    line_style: dict = {"color": color, "width": 2}
+    if line_dash and line_dash != "solid":
+        line_style["dash"] = line_dash
     config: dict = {
         "name": name,
-        "line": {"color": color, "width": 2},
+        "line": dict(line_style),
         "hovertemplate": (f"<b>{name}</b><br>Time: %{{x|%H:%M:%S.%L}}<br>Value: %{{y:.4f}}<extra></extra>"),
     }
     if yaxis is not None:
@@ -145,7 +149,7 @@ def build_metric_trace_configs(
             "x": x_values,
             "y": y_values,
             "mode": "lines",
-            "line": {"color": color, "width": 2},
+            "line": dict(line_style),
             "connectgaps": False,
             "hoverinfo": "none",
             "showlegend": False,
@@ -173,7 +177,7 @@ def build_metric_trace_configs(
         return [stem, peak]
 
     if is_step_power_metric(metric_id):
-        line = {"color": color, "width": 2}
+        line = dict(line_style)
         if step_line_shape is not None:
             line["shape"] = step_line_shape
         config.update(

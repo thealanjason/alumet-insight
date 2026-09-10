@@ -615,6 +615,12 @@ def get_metric_unit(metric_name: str) -> str:
     return ""
 
 
+def same_physical_xy_unit(x_metric_id: str, y_metric_id: str) -> bool:
+    """True when both series have the same non-empty physical unit."""
+    x_unit = get_metric_unit(x_metric_id)
+    return bool(x_unit) and x_unit == get_metric_unit(y_metric_id)
+
+
 def is_memory_metric(metric_name: str) -> bool:
     """
     Return whether this metric is a byte-valued memory gauge.
