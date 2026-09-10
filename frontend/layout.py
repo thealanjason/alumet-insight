@@ -100,8 +100,10 @@ def empty_comparative_content(message: str = "No data available. Please load dat
         [
             html.Div(
                 [
-                    dcc.Dropdown(id="ps-xmetric-dropdown", options=[], value=None),
-                    dcc.Dropdown(id="ps-ymetric-dropdown", options=[], value=None),
+                    html.Div(dcc.Dropdown(id="ps-xmetric-dropdown", options=[], value=None), id="ps-xmetric-dropdown-wrap"),
+                    html.Span(id="ps-xmetric-device-chip", className="device-class-chip"),
+                    html.Div(dcc.Dropdown(id="ps-ymetric-dropdown", options=[], value=None), id="ps-ymetric-dropdown-wrap"),
+                    html.Span(id="ps-ymetric-device-chip", className="device-class-chip"),
                     dbc.Checklist(id="comparative-process-only-toggle", options=[], value=[]),
                     html.Div(id="comparative-mode-info"),
                     dbc.Checklist(id="scatter-toggle", options=[], value=[]),

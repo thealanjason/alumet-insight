@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 
-from backend.formatting import format_metric_choice_label, get_bytes_tickvals_ticktext
+from backend.formatting import get_bytes_tickvals_ticktext, metric_choice_option
 from backend.metrics import (
     base_metric_from_id,
     derived_metric_ids,
@@ -29,7 +29,16 @@ from frontend.cache import df_from_store
 from frontend.figures import build_metric_trace_configs
 from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
 from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
-from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, plot_pair_colors
+from frontend.style import (
+    CARD_STYLE,
+    DROPDOWN_STYLE,
+    apply_figure_theme,
+    comparative_series_colors,
+    device_class_chip,
+    device_class_key,
+    format_device_class_title_html,
+    plot_pair_colors,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,8 +98,11 @@ def comparative_timeseries_trace_configs(
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
     State("comparative-content", "children"),
+    State("theme-switch", "value"),
 )
-def build_comparative_tab(tab_value, processed_df_data, process_time_range, current_children):
+def build_comparative_tab(
+    tab_value, processed_df_data, process_time_range, current_children, use_light_mode
+):
     triggered_id = ctx.triggered_id
     is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
 
@@ -110,6 +122,9 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     if len(metric_ids) < 2:
         return empty_comparative_content("Need at least 2 metrics inside process window.")
 
+    derived_ids = derived_metric_ids(df_from_store(processed_df_data))
+    metric_options = [metric_choice_option(m, derived=m in derived_ids) for m in metric_ids]
+
     return dbc.Card(
         [
             dbc.CardBody(
@@ -120,18 +135,29 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                 [
                                     dbc.Col(
                                         [
-                                            html.Label(
-                                                "Metric 1 (X-axis / Left Y-axis):",
-                                                style={"color": "var(--app-text)", "fontWeight": "600"},
+                                            html.Div(
+                                                [
+                                                    html.Label(
+                                                        "Metric 1 (X-axis / Left Y-axis):",
+                                                        style={"color": "var(--app-text)", "fontWeight": "600"},
+                                                    ),
+                                                    html.Span(id="ps-xmetric-device-chip", className="device-class-chip"),
+                                                ],
+                                                style={"display": "flex", "alignItems": "center", "gap": "8px"},
                                             ),
-                                            dcc.Dropdown(
-                                                id="ps-xmetric-dropdown",
-                                                options=[{"label": m, "value": m} for m in metric_ids],
-                                                value=metric_ids[0],
-                                                clearable=False,
-                                                persistence=True,
-                                                className="dark-dropdown",
-                                                style=DROPDOWN_STYLE,
+                                            html.Div(
+                                                dcc.Dropdown(
+                                                    id="ps-xmetric-dropdown",
+                                                    options=metric_options,
+                                                    value=metric_ids[0],
+                                                    clearable=False,
+                                                    persistence=True,
+                                                    className="dark-dropdown",
+                                                    style=DROPDOWN_STYLE,
+                                                ),
+                                                id="ps-xmetric-dropdown-wrap",
+                                                className="comparative-metric-dropdown-wrap",
+                                                title=str(metric_ids[0]),
                                             ),
                                         ],
                                         width=12,
@@ -140,18 +166,29 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                                     ),
                                     dbc.Col(
                                         [
-                                            html.Label(
-                                                "Metric 2 (Y-axis / Right Y-axis):",
-                                                style={"color": "var(--app-text)", "fontWeight": "600"},
+                                            html.Div(
+                                                [
+                                                    html.Label(
+                                                        "Metric 2 (Y-axis / Right Y-axis):",
+                                                        style={"color": "var(--app-text)", "fontWeight": "600"},
+                                                    ),
+                                                    html.Span(id="ps-ymetric-device-chip", className="device-class-chip"),
+                                                ],
+                                                style={"display": "flex", "alignItems": "center", "gap": "8px"},
                                             ),
-                                            dcc.Dropdown(
-                                                id="ps-ymetric-dropdown",
-                                                options=[{"label": m, "value": m} for m in metric_ids],
-                                                value=metric_ids[1],
-                                                clearable=False,
-                                                persistence=True,
-                                                className="dark-dropdown",
-                                                style=DROPDOWN_STYLE,
+                                            html.Div(
+                                                dcc.Dropdown(
+                                                    id="ps-ymetric-dropdown",
+                                                    options=metric_options,
+                                                    value=metric_ids[1],
+                                                    clearable=False,
+                                                    persistence=True,
+                                                    className="dark-dropdown",
+                                                    style=DROPDOWN_STYLE,
+                                                ),
+                                                id="ps-ymetric-dropdown-wrap",
+                                                className="comparative-metric-dropdown-wrap",
+                                                title=str(metric_ids[1]),
                                             ),
                                         ],
                                         width=12,
@@ -208,6 +245,11 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                         className="comparative-controls",
                     ),
                     html.Div(
+                        device_class_key(use_light_mode=bool(use_light_mode)),
+                        id="comparative-device-key",
+                        className="device-class-key comparative-device-key",
+                    ),
+                    html.Div(
                         dcc.Graph(
                             id="ps-xy-graph",
                             style={"height": "100%", "width": "100%"},
@@ -238,6 +280,45 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
     )
 
 
+@app.callback(
+    Output("ps-xmetric-device-chip", "children"),
+    Output("ps-xmetric-device-chip", "className"),
+    Output("ps-xmetric-device-chip", "style"),
+    Output("ps-ymetric-device-chip", "children"),
+    Output("ps-ymetric-device-chip", "className"),
+    Output("ps-ymetric-device-chip", "style"),
+    Output("ps-xmetric-dropdown-wrap", "title"),
+    Output("ps-ymetric-dropdown-wrap", "title"),
+    Input("ps-xmetric-dropdown", "value"),
+    Input("ps-ymetric-dropdown", "value"),
+    Input("theme-switch", "value"),
+)
+def update_comparative_device_chips(x_metric_id, y_metric_id, use_light_mode):
+    x_chip = device_class_chip(x_metric_id, use_light_mode=bool(use_light_mode))
+    y_chip = device_class_chip(y_metric_id, use_light_mode=bool(use_light_mode))
+    x_title = str(x_metric_id) if x_metric_id else ""
+    y_title = str(y_metric_id) if y_metric_id else ""
+    return (
+        x_chip.children,
+        x_chip.className,
+        x_chip.style,
+        y_chip.children,
+        y_chip.className,
+        y_chip.style,
+        x_title,
+        y_title,
+    )
+
+
+@app.callback(
+    Output("comparative-device-key", "children"),
+    Input("theme-switch", "value"),
+    prevent_initial_call=True,
+)
+def update_comparative_device_key(use_light_mode):
+    return device_class_key(use_light_mode=bool(use_light_mode))
+
+
 # Mode info
 @app.callback(
     Output("comparative-mode-info", "children"),
@@ -250,22 +331,14 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
     if not x_metric_id or not y_metric_id:
         return html.Span("")
 
-    if is_cumulative_xy_pair(x_metric_id, y_metric_id):
-        return html.Div(
-            [
-                html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
-                html.Span("Cumulative X-Y Plot", style={"color": "var(--app-success)", "fontWeight": "600"}),
-            ],
-            style={"color": "var(--app-text)"},
-        )
-    else:
-        return html.Div(
-            [
-                html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
-                html.Span("Dual Y-Axis Time Series", style={"color": "var(--app-warning)", "fontWeight": "600"}),
-            ],
-            style={"color": "var(--app-text)"},
-        )
+    mode = "Cumulative X-Y Plot" if is_cumulative_xy_pair(x_metric_id, y_metric_id) else "Dual Y-Axis Time Series"
+    return html.Div(
+        [
+            html.Span("Visualization Mode: ", style={"fontWeight": "600"}),
+            html.Span(mode, style={"fontWeight": "600"}),
+        ],
+        style={"color": "var(--app-text)"},
+    )
 
 
 # Metric dropdowns
@@ -297,10 +370,7 @@ def update_comparative_metric_dropdowns(
 
     dfp = df_from_store(processed_df_data)
     derived_ids = derived_metric_ids(dfp)
-    opts = [
-        {"label": format_metric_choice_label(m, derived=m in derived_ids), "value": m}
-        for m in filtered
-    ]
+    opts = [metric_choice_option(m, derived=m in derived_ids) for m in filtered]
     x_val, y_val = pick_xy_values(filtered, cur_x, cur_y)
     return opts, x_val, opts, y_val
 
@@ -337,6 +407,19 @@ def update_process_xy_plot(
 
     x_abbrev = base_metric_from_id(x_metric_id)
     y_abbrev = base_metric_from_id(y_metric_id)
+    derived_ids = derived_metric_ids(dfp)
+    x_named = format_device_class_title_html(
+        x_metric_id,
+        derived=x_metric_id in derived_ids,
+        use_light_mode=use_light_mode,
+        body=x_abbrev,
+    )
+    y_named = format_device_class_title_html(
+        y_metric_id,
+        derived=y_metric_id in derived_ids,
+        use_light_mode=use_light_mode,
+        body=y_abbrev,
+    )
 
     x_unit = get_metric_unit(x_metric_id)
     y_unit = get_metric_unit(y_metric_id)
@@ -348,8 +431,7 @@ def update_process_xy_plot(
     show_scatter = scatter_toggle and "scatter" in scatter_toggle
 
     accents = plot_pair_colors(use_light_mode)
-    color_x = accents["x"]
-    color_y = accents["y"]
+    color_x, color_y = comparative_series_colors(x_metric_id, y_metric_id, use_light_mode)
 
     if show_scatter:
         dfxy = comparative_xy_frame(
@@ -391,8 +473,16 @@ def update_process_xy_plot(
             )
         )
 
-        xaxis_config = dict(title=dict(text=x_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
-        yaxis_config = dict(title=dict(text=y_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        xaxis_config = dict(
+            title=dict(text=x_label, font=dict(size=11, color=color_x)),
+            tickfont=dict(color=color_x),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
+        yaxis_config = dict(
+            title=dict(text=y_label, font=dict(size=11, color=color_y)),
+            tickfont=dict(color=color_y),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
         if is_memory_metric(x_metric_id):
             x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(dfxy["x"].min(), dfxy["x"].max(), num_ticks=5)
             xaxis_config["tickvals"] = x_tickvals
@@ -403,7 +493,7 @@ def update_process_xy_plot(
             yaxis_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Scatter plot: {y_abbrev} vs {x_abbrev}", x=0.5, font=dict(size=14)),
+            title=dict(text=f"Scatter plot: {y_named} vs {x_named}", x=0.5, font=dict(size=14)),
             xaxis=xaxis_config,
             yaxis=yaxis_config,
             hovermode="closest",
@@ -438,8 +528,16 @@ def update_process_xy_plot(
         x_cum_label = f"Cumulative {x_abbrev} ({x_unit})" if x_unit else f"Cumulative {x_abbrev}"
         y_cum_label = f"Cumulative {y_abbrev} ({y_unit})" if y_unit else f"Cumulative {y_abbrev}"
 
-        xaxis_config = dict(title=dict(text=x_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
-        yaxis_config = dict(title=dict(text=y_cum_label, font=dict(size=11)), gridcolor="rgba(76, 86, 106, 0.2)")
+        xaxis_config = dict(
+            title=dict(text=x_cum_label, font=dict(size=11, color=color_x)),
+            tickfont=dict(color=color_x),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
+        yaxis_config = dict(
+            title=dict(text=y_cum_label, font=dict(size=11, color=color_y)),
+            tickfont=dict(color=color_y),
+            gridcolor="rgba(76, 86, 106, 0.2)",
+        )
 
         if is_memory_metric(x_metric_id):
             x_tickvals, x_ticktext = get_bytes_tickvals_ticktext(
@@ -455,7 +553,7 @@ def update_process_xy_plot(
             yaxis_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Cumulative {y_abbrev} vs Cumulative {x_abbrev}", x=0.5, font=dict(size=14)),
+            title=dict(text=f"Cumulative {y_named} vs Cumulative {x_named}", x=0.5, font=dict(size=14)),
             xaxis=xaxis_config,
             yaxis=yaxis_config,
             hovermode="closest",
@@ -516,7 +614,7 @@ def update_process_xy_plot(
             yaxis2_config["ticktext"] = y_ticktext
 
         fig.update_layout(
-            title=dict(text=f"Time Series: {x_abbrev} & {y_abbrev}", x=0.5, font=dict(size=14)),
+            title=dict(text=f"<b>Time Series: {x_named} & {y_named}</b>", x=0.5, font=dict(size=14)),
             xaxis=dict(
                 title=dict(text="Time", font=dict(size=12)),
                 gridcolor="rgba(76, 86, 106, 0.2)",

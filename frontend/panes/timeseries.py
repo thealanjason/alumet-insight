@@ -31,7 +31,13 @@ from frontend.figures import (
 )
 from frontend.helpers import available_category_options, ensure_timestamp_datetime, parse_process_time_range_store
 from frontend.layout import empty_time_series_content
-from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, status_alert_class
+from frontend.style import (
+    CARD_STYLE,
+    DROPDOWN_STYLE,
+    apply_figure_theme,
+    device_class_key,
+    status_alert_class,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +49,9 @@ from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, statu
     Output("time-series-content", "children"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    State("theme-switch", "value"),
 )
-def build_time_series_tab(processed_df_data, process_time_range):
+def build_time_series_tab(processed_df_data, process_time_range, use_light_mode):
     if not processed_df_data:
         return empty_time_series_content()
 
@@ -133,10 +140,10 @@ def build_time_series_tab(processed_df_data, process_time_range):
                         className="time-series-controls",
                     ),
                     html.Div(
-                        [
-                            html.Span(className="timeseries-process-legend-swatch"),
-                            html.Span("Process Active"),
-                        ],
+                        device_class_key(
+                            include_process_active=True,
+                            use_light_mode=bool(use_light_mode),
+                        ),
                         id="timeseries-process-legend",
                         className="timeseries-process-legend",
                         style={"display": "none"},
@@ -189,6 +196,15 @@ def update_cpu_core_selector(selected_category, processed_df_data):
     )
     visible_style = {"backgroundColor": "var(--app-control-bg)", "color": "var(--app-text)"}
     return selector_children, options, visible_style
+
+
+@app.callback(
+    Output("timeseries-process-legend", "children"),
+    Input("theme-switch", "value"),
+    prevent_initial_call=True,
+)
+def update_timeseries_device_key(use_light_mode):
+    return device_class_key(include_process_active=True, use_light_mode=bool(use_light_mode))
 
 
 @app.callback(

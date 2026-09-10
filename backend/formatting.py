@@ -9,7 +9,6 @@ import re
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Metric ID → display string
 # ---------------------------------------------------------------------------
@@ -42,9 +41,31 @@ def _format_id(id_str: str) -> str:
 
 
 def format_metric_choice_label(name: str, *, derived: bool = False) -> str:
-    """Dropdown label; append ``(derived)`` for post-processed series."""
+    """Dropdown label. Class color lives on the chip or title, not in this string."""
     label = str(name)
-    return f"{label} (derived)" if derived else label
+    if derived:
+        label = f"{label} (derived)"
+    return label
+
+
+def metric_choice_option(metric_id: str, *, derived: bool = False) -> dict[str, str]:
+    """Dropdown option. Class prefix lives on the Process-Specific cell caption."""
+    return {
+        "label": format_metric_choice_label(metric_id, derived=derived),
+        "value": metric_id,
+    }
+
+
+def split_metric_title(text: str) -> tuple[str, str]:
+    """Split ``name R: … C: … A: …`` into the metric name and a metadata line."""
+    earliest = -1
+    for marker in (" R:", " C:", " A:"):
+        idx = text.find(marker)
+        if idx != -1 and (earliest == -1 or idx < earliest):
+            earliest = idx
+    if earliest == -1:
+        return text, ""
+    return text[:earliest], text[earliest + 1 :]
 
 
 def format_metric_title(metric_id: str, *, derived: bool = False) -> str:
@@ -97,9 +118,14 @@ def format_metric_title(metric_id: str, *, derived: bool = False) -> str:
             title_parts.append(f"A: {late_attr.replace('_', ' ')}")
 
         title = " ".join(title_parts)
-        return format_metric_choice_label(title, derived=derived)
+        if derived:
+            title = f"{title} (derived)"
+        return title
     except Exception:
-        return format_metric_choice_label(metric_id.replace("_", " "), derived=derived)
+        fallback = str(metric_id).replace("_", " ")
+        if derived:
+            fallback = f"{fallback} (derived)"
+        return fallback
 
 
 def metric_id_to_plot_label(metric_id: str, max_len: int = 60) -> str:

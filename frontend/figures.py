@@ -15,10 +15,9 @@ from backend.counterdiff import (
     counterdiff_spike_peaks,
     sort_for_plotting,
 )
-from backend.formatting import format_metric_title
 from backend.metrics import MetricOrigin, is_spike_metric, is_step_power_metric
 from backend.transforms import compute_yaxis_ranges, get_time_range_from_df
-from frontend.style import derived_title_color, plot_color_palette, process_active_fill, set_plotly_rgba
+from frontend.style import format_device_class_title_html, plot_color_palette, process_active_fill, set_plotly_rgba
 
 _WEBGL_COORDINATE_THRESHOLD = 10000
 
@@ -241,9 +240,8 @@ def create_all_timeseries_plots(
     colors = get_color_palette(n_metrics, use_light_mode)
     color_map = {metric: colors[i] for i, metric in enumerate(unique_metrics)}
 
-    MIN_SUBPLOT_HEIGHT = 175
-    # Room for two-line date ticks on the plot above plus the next subplot title.
-    SUBPLOT_GAP_PX = 64
+    MIN_SUBPLOT_HEIGHT = 145
+    SUBPLOT_GAP_PX = 66
     MARGIN_T = 36
     MARGIN_B = 36
     plot_area = MIN_SUBPLOT_HEIGHT * n_metrics + SUBPLOT_GAP_PX * max(n_metrics - 1, 0)
@@ -256,12 +254,12 @@ def create_all_timeseries_plots(
         derived = False
         if not metric_rows.empty and "metric_origin" in metric_rows.columns:
             derived = (metric_rows["metric_origin"].astype(str) == MetricOrigin.DERIVED.value).any()
-        title = format_metric_title(str(metric_id), derived=derived)
-        if derived:
-            color = derived_title_color(use_light_mode)
-            formatted_titles.append(f'<b><span style="color:{color}">{title}</span></b>')
-        else:
-            formatted_titles.append(f"<b>{title}</b>")
+        title_html = format_device_class_title_html(
+            str(metric_id),
+            derived=derived,
+            use_light_mode=use_light_mode,
+        )
+        formatted_titles.append(f"<b>{title_html}</b>")
     fig = make_subplots(
         rows=n_metrics,
         cols=1,
@@ -388,6 +386,7 @@ def create_all_timeseries_plots(
         width=None,
         showlegend=False,
     )
+    fig.update_annotations(font=dict(size=14), yshift=1)
     fig.update_xaxes(type="date", rangeslider=dict(visible=False), row=n_metrics, col=1)
 
     return fig
