@@ -326,25 +326,94 @@ class MetricUnitTests(unittest.TestCase):
         self.assertEqual(device_class(CPU_ENERGY_ID), DeviceClass.CPU)
         self.assertEqual(device_class(KERNEL_CPU_TIME_ID), DeviceClass.CPU)
         self.assertEqual(device_class(CPU_PERCENT_ID), DeviceClass.CPU)
+        self.assertEqual(device_class("cpu_time_delta_ns_R_local_machine__C_process_1_A_"), DeviceClass.CPU)
         self.assertEqual(device_class("perf_hardware_INSTRUCTIONS_R_cpu_0_C_process_1_A_"), DeviceClass.CPU)
         self.assertEqual(device_class(NVML_POWER_ID), DeviceClass.GPU)
         self.assertEqual(device_class(GPU_ENERGY_ID), DeviceClass.GPU)
         self.assertEqual(device_class("amd_gpu_energy_consumption_J_R_gpu_0_C__A_"), DeviceClass.GPU)
-        self.assertEqual(device_class("grace_energy_consumption_J_R_gpu_0_C__A_"), DeviceClass.GPU)
         self.assertEqual(device_class(ENERGY_TOTAL_ID), DeviceClass.TOTAL)
-        self.assertEqual(device_class(GPU_ENERGY_TOTAL_ID), DeviceClass.TOTAL)
         self.assertEqual(device_class("attributed_power_total_W"), DeviceClass.TOTAL)
         self.assertEqual(device_class("attributed_energy_total_cumulative_J"), DeviceClass.TOTAL)
-        self.assertEqual(device_class("attributed_energy_gpu_total_cumulative_J"), DeviceClass.TOTAL)
+        self.assertEqual(device_class(GPU_ENERGY_TOTAL_ID), DeviceClass.GPU)
+        self.assertEqual(device_class("attributed_power_gpu_total_W"), DeviceClass.GPU)
+        self.assertEqual(device_class("attributed_energy_gpu_total_cumulative_J"), DeviceClass.GPU)
+        self.assertEqual(device_class(MEM_TOTAL_ID), DeviceClass.CPU)
+        self.assertEqual(device_class("memory_usage_B_R_local_machine__C_process_1_A_"), DeviceClass.CPU)
+        self.assertEqual(device_class("active_B_R_local_machine__C__A_"), DeviceClass.CPU)
+        self.assertEqual(device_class("nvml_gpu_memory_info_B_R_gpu_0_C__A_"), DeviceClass.GPU)
+        self.assertEqual(device_class("nvml_used_gpu_memory_B_R_gpu_0_C_process_1_A_"), DeviceClass.GPU)
+        self.assertEqual(device_class("amd_gpu_memory_usage_B_R_gpu_0_C__A_"), DeviceClass.GPU)
+        self.assertEqual(
+            device_class("amd_gpu_process_memory_usage_cpu_B_R_gpu_0_C_process_1_A_"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("amd_gpu_process_memory_usage_gtt_B_R_gpu_0_C_process_1_A_"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("amd_gpu_process_memory_usage_vram_B_R_gpu_0_C_process_1_A_"),
+            DeviceClass.GPU,
+        )
         self.assertEqual(device_class(ATTRIBUTED_ENERGY_ID), DeviceClass.OTHER)
-        self.assertEqual(device_class(MEM_TOTAL_ID), DeviceClass.OTHER)
         self.assertEqual(device_class(NETWORK_RX_ID), DeviceClass.OTHER)
         self.assertEqual(device_class(CUSTOM_COUNTER_ID), DeviceClass.OTHER)
+        self.assertEqual(device_class("kernel_n_procs_running_R_local__C__A_"), DeviceClass.OTHER)
+        self.assertEqual(device_class("kernel_context_switches_R_local__C__A_"), DeviceClass.OTHER)
+        self.assertEqual(device_class("input_power_mW_R_local_machine__C__A_"), DeviceClass.OTHER)
         self.assertEqual(device_class("custom_sensor_R_gpu_1_C__A_"), DeviceClass.GPU)
         self.assertEqual(device_class("custom_sensor_R_pkg_0_C__A_"), DeviceClass.CPU)
         self.assertTrue(same_physical_xy_unit(CPU_ENERGY_ID, GPU_ENERGY_ID))
         self.assertFalse(same_physical_xy_unit(CPU_PERCENT_ID, MEM_TOTAL_ID))
         self.assertFalse(same_physical_xy_unit(CUSTOM_COUNTER_ID, CUSTOM_COUNTER_ID))
+
+    def test_device_class_rapl_stays_on_the_cpu_package(self):
+        self.assertEqual(
+            device_class("rapl_consumed_energy_J_R_pkg_0_C__A_domain=pp0"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("rapl_consumed_energy_J_R_pkg_0_C__A_domain=package_total"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("rapl_consumed_energy_J_R_dram_0_C__A_domain=dram"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("rapl_consumed_energy_J_R_pkg_0_C__A_domain=pp1"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("rapl_consumed_energy_J_R_local_machine__C__A_domain=platform"),
+            DeviceClass.CPU,
+        )
+
+    def test_device_class_grace_sensors_follow_hwmon_telemetry(self):
+        self.assertEqual(
+            device_class("grace_energy_consumption_mJ_R_cpu_package_0_C_local_machine_A_sensor=cpu"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("grace_instant_power_μW_R_cpu_package_0_C_local_machine_A_sensor=grace"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("grace_energy_consumption_mJ_R_dram_0_C_local_machine_A_sensor=dram"),
+            DeviceClass.CPU,
+        )
+        self.assertEqual(
+            device_class("grace_instant_power_μW_R_local_machine__C_local_machine_A_sensor=module"),
+            DeviceClass.TOTAL,
+        )
+        self.assertEqual(
+            device_class("grace_energy_consumption_mJ_R_local_machine__C_local_machine_A_sensor=module_total"),
+            DeviceClass.TOTAL,
+        )
+        self.assertEqual(
+            device_class("grace_instant_power_μW_R_cpu_package_0_C_local_machine_A_sensor=sysio"),
+            DeviceClass.OTHER,
+        )
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,9 +38,8 @@ from frontend.style import (
     CARD_STYLE,
     DROPDOWN_STYLE,
     apply_figure_theme,
-    comparative_series_colors,
-    comparative_series_line_dash,
     device_class_chip,
+    device_class_color,
     device_class_inline_name,
     device_class_key,
     plot_pair_colors,
@@ -507,8 +506,9 @@ def update_process_xy_plot(
     show_scatter = scatter_toggle and "scatter" in scatter_toggle
 
     accents = plot_pair_colors(use_light_mode)
-    color_x, color_y = comparative_series_colors(x_metric_id, y_metric_id, use_light_mode)
-    dash_x, dash_y = comparative_series_line_dash(x_metric_id, y_metric_id)
+    line_x, line_y = accents["x"], accents["y"]
+    class_x = device_class_color(x_metric_id, use_light_mode)
+    class_y = device_class_color(y_metric_id, use_light_mode)
     dfxy = None
 
     if show_scatter:
@@ -546,13 +546,11 @@ def update_process_xy_plot(
         )
 
         xaxis_config = dict(
-            title=dict(text=x_label, font=dict(size=11, color=color_x)),
-            tickfont=dict(color=color_x),
+            title=dict(text=x_label, font=dict(size=11, color=class_x)),
             gridcolor="rgba(76, 86, 106, 0.2)",
         )
         yaxis_config = dict(
-            title=dict(text=y_label, font=dict(size=11, color=color_y)),
-            tickfont=dict(color=color_y),
+            title=dict(text=y_label, font=dict(size=11, color=class_y)),
             gridcolor="rgba(76, 86, 106, 0.2)",
         )
         if is_memory_metric(x_metric_id):
@@ -577,13 +575,14 @@ def update_process_xy_plot(
             return fig, comparative_plot_message("Could not compute running totals (one or both series empty)")
         hover_times = dfxy["timestamp"].dt.strftime("%H:%M:%S.%f").str[:-3]
 
+        path_color = accents["cumulative"]
         fig.add_trace(
             go.Scatter(
                 x=dfxy["x"],
                 y=dfxy["y"],
                 mode="lines+markers",
-                line=dict(color=accents["cumulative"], width=2),
-                marker=dict(color=accents["cumulative"], size=6),
+                line=dict(color=path_color, width=2),
+                marker=dict(color=path_color, size=6),
                 hovertemplate=(
                     "<b>Time:</b> %{customdata}<br>"
                     f"<b>Cumulative {x_abbrev}:</b> %{{x:.4f}}<br>"
@@ -598,13 +597,11 @@ def update_process_xy_plot(
         y_cum_label = f"Cumulative {y_abbrev} ({y_unit})" if y_unit else f"Cumulative {y_abbrev}"
 
         xaxis_config = dict(
-            title=dict(text=x_cum_label, font=dict(size=11, color=color_x)),
-            tickfont=dict(color=color_x),
+            title=dict(text=x_cum_label, font=dict(size=11, color=class_x)),
             gridcolor="rgba(76, 86, 106, 0.2)",
         )
         yaxis_config = dict(
-            title=dict(text=y_cum_label, font=dict(size=11, color=color_y)),
-            tickfont=dict(color=color_y),
+            title=dict(text=y_cum_label, font=dict(size=11, color=class_y)),
             gridcolor="rgba(76, 86, 106, 0.2)",
         )
 
@@ -637,9 +634,8 @@ def update_process_xy_plot(
             x_series,
             x_metric_id,
             x_abbrev,
-            color_x,
+            line_x,
             "y1",
-            dash_x,
         ):
             fig.add_trace(go.Scatter(**trace_config))
 
@@ -647,21 +643,20 @@ def update_process_xy_plot(
             y_series,
             y_metric_id,
             y_abbrev,
-            color_y,
+            line_y,
             "y2",
-            dash_y,
         ):
             fig.add_trace(go.Scatter(**trace_config))
 
         yaxis_config = dict(
-            title=dict(text=x_label, font=dict(size=11, color=color_x)),
-            tickfont=dict(color=color_x),
+            title=dict(text=x_label, font=dict(size=11, color=class_x)),
+            tickfont=dict(color=line_x),
             gridcolor="rgba(76, 86, 106, 0.2)",
             side="left",
         )
         yaxis2_config = dict(
-            title=dict(text=y_label, font=dict(size=11, color=color_y)),
-            tickfont=dict(color=color_y),
+            title=dict(text=y_label, font=dict(size=11, color=class_y)),
+            tickfont=dict(color=line_y),
             overlaying="y",
             side="right",
             showgrid=False,
@@ -686,15 +681,23 @@ def update_process_xy_plot(
 
         fig.update_layout(
             xaxis=dict(
-                title=dict(text="Time", font=dict(size=12)),
+                title=dict(text="Time", font=dict(size=12), standoff=10),
                 gridcolor="rgba(76, 86, 106, 0.2)",
                 domain=[0.05, 0.95],
                 range=[proc_start, proc_end],
             ),
             yaxis=yaxis_config,
             yaxis2=yaxis2_config,
-            legend=dict(orientation="h", yanchor="top", y=-0.28, xanchor="center", x=0.5, bgcolor="rgba(59, 66, 82, 0.8)"),
-            margin=dict(t=16, b=100),
+            legend=dict(
+                orientation="h",
+                yref="container",
+                y=0,
+                yanchor="bottom",
+                x=0.5,
+                xanchor="center",
+                bgcolor="rgba(59, 66, 82, 0.8)",
+            ),
+            margin=dict(t=16, b=120),
             hovermode="x unified",
         )
         heading = comparative_plot_title("Time Series", x_named, y_named)

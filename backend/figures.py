@@ -42,10 +42,10 @@ from backend.utils import safe_filename
 
 # Same accents as frontend.style.plot_pair_colors(light=True) for static paper-like exports.
 _COMPARATIVE_COLORS = {
-    "x": "#3E6B8F",
-    "y": "#C73E2A",
+    "x": "#9467bd",
+    "y": "#d62728",
     "scatter": "#D97706",
-    "cumulative": "#000000",
+    "cumulative": "#4F7D3B",
 }
 
 SUPPORTED_FIGURE_FORMATS = ("png", "pdf", "svg")

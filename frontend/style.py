@@ -153,26 +153,21 @@ def plot_color_palette(use_light_mode: bool = False) -> tuple[str, ...]:
     return PLOT_COLORS_LIGHT if use_light_mode else PLOT_COLORS_DARK
 
 
-# Cumulative X–Y is one relationship path, not a device-class series.
-CUMULATIVE_XY_COLOR_DARK = "#FFFFFF"
-CUMULATIVE_XY_COLOR_LIGHT = "#000000"
-
-
 def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
-    """Accent colors for comparative dual-axis, scatter, and cumulative plots."""
+    """Accent colors for comparative dual-axis, scatter, and cumulative traces."""
     if use_light_mode:
         return {
-            "x": "#3E6B8F",
-            "y": "#C73E2A",
+            "x": "#9467bd",
+            "y": "#d62728",
             "scatter": "#D97706",
-            "cumulative": CUMULATIVE_XY_COLOR_LIGHT,
+            "cumulative": "#4F7D3B",
             "marker_line": "#1F2937",
         }
     return {
-        "x": "#88C0D0",
-        "y": "#FF6B6B",
+        "x": "#9467bd",
+        "y": "#d62728",
         "scatter": "#FF8C42",
-        "cumulative": CUMULATIVE_XY_COLOR_DARK,
+        "cumulative": "#A3BE8C",
         "marker_line": "#FFFFFF",
     }
 
@@ -204,25 +199,6 @@ def device_class_text_style(metric_id: str | DeviceClass | None, use_light_mode:
     if not metric_id:
         return {}
     return {"color": device_class_color(metric_id, use_light_mode)}
-
-
-def comparative_series_colors(
-    x_metric_id: str,
-    y_metric_id: str,
-    use_light_mode: bool = False,
-) -> tuple[str, str]:
-    """Device-class colors for a comparative pair. Same class keeps the same theme swatch."""
-    return (
-        device_class_color(x_metric_id, use_light_mode),
-        device_class_color(y_metric_id, use_light_mode),
-    )
-
-
-def comparative_series_line_dash(x_metric_id: str, y_metric_id: str) -> tuple[str, str]:
-    """Dash the Y series only when both metrics share a device-class color."""
-    if device_class(x_metric_id) == device_class(y_metric_id):
-        return "solid", "dash"
-    return "solid", "solid"
 
 
 def format_device_class_title_html(

@@ -11,12 +11,7 @@ from frontend.panes.comparative import (
     update_comparative_mode_info,
     update_process_xy_plot,
 )
-from frontend.style import (
-    DEVICE_CLASS_COLORS_DARK,
-    DEVICE_CLASS_COLORS_LIGHT,
-    comparative_series_line_dash,
-    plot_pair_colors,
-)
+from frontend.style import DEVICE_CLASS_COLORS_DARK, DEVICE_CLASS_COLORS_LIGHT, plot_pair_colors
 from tests.fixtures import (
     CPU_ENERGY_ID,
     GPU_ENERGY_ID,
@@ -78,9 +73,9 @@ class ComparativeTests(unittest.TestCase):
             )
         )
 
-    def test_dual_timeseries_keeps_class_colors_and_independent_timestamps(self):
+    def test_dual_timeseries_keeps_pair_line_colors_and_class_axis_titles(self):
         x_metric = "cpu_percent_R_local_machine__C_process_4_A_"
-        y_metric = "mem_total_B_R_local_machine__C_process_4_A_"
+        y_metric = NETWORK_RX_ID
         x_time = pd.Timestamp("2024-01-01 00:00:00")
         y_time = pd.Timestamp("2024-01-01 00:00:10")
         figure, title = update_process_xy_plot(
@@ -95,21 +90,42 @@ class ComparativeTests(unittest.TestCase):
             {"start": "2024-01-01 00:00:00", "end": "2024-01-01 00:00:10"},
         )
 
+        accents = plot_pair_colors(False)
         cpu_color = DEVICE_CLASS_COLORS_DARK[DeviceClass.CPU]
         other_color = DEVICE_CLASS_COLORS_DARK[DeviceClass.OTHER]
         self.assertEqual(list(figure.data[0].x), [x_time])
         self.assertEqual(list(figure.data[1].x), [y_time])
         line_by_name = {trace.name: trace.line for trace in figure.data if getattr(trace, "line", None)}
-        self.assertEqual(line_by_name["cpu_percent"].color, cpu_color)
-        self.assertEqual(line_by_name["mem_total_B"].color, other_color)
-        self.assertNotEqual(line_by_name["mem_total_B"].dash, "dash")
-        self.assertEqual(figure.layout.yaxis.tickfont.color, cpu_color)
-        self.assertEqual(figure.layout.yaxis2.tickfont.color, other_color)
+        self.assertEqual(line_by_name["cpu_percent"].color, accents["x"])
+        self.assertEqual(line_by_name["network_rx_bytes"].color, accents["y"])
+        self.assertNotEqual(line_by_name["network_rx_bytes"].dash, "dash")
+        self.assertEqual(figure.layout.yaxis.tickfont.color, accents["x"])
+        self.assertEqual(figure.layout.yaxis2.tickfont.color, accents["y"])
+        self.assertEqual(figure.layout.yaxis.title.font.color, cpu_color)
+        self.assertEqual(figure.layout.yaxis2.title.font.color, other_color)
+        self.assertEqual(figure.layout.legend.orientation, "h")
+        self.assertEqual(figure.layout.legend.yref, "container")
+        self.assertEqual(figure.layout.legend.yanchor, "bottom")
+        self.assertEqual(figure.layout.legend.y, 0)
+        self.assertGreaterEqual(figure.layout.margin.b, 120)
+        self.assertEqual(figure.layout.xaxis.title.standoff, 10)
         self.assertFalse(figure.layout.title.text)
         self.assertFalse(figure.layout.meta["equal_xy"])
         self.assertFalse(same_physical_xy_unit(x_metric, y_metric))
         self.assertEqual(comparative_plot_area_class(False), COMPARATIVE_PLOT_AREA_CLASS)
-        self.assertEqual(_heading_text(title), "Time Series:  cpu_percent  vs  mem_total_B")
+        self.assertEqual(_heading_text(title), "Time Series:  cpu_percent  vs  network_rx_bytes")
+
+    def test_dual_series_pair_colors_stay_off_the_device_class_swatches(self):
+        for use_light_mode, swatches in (
+            (False, DEVICE_CLASS_COLORS_DARK),
+            (True, DEVICE_CLASS_COLORS_LIGHT),
+        ):
+            pair = plot_pair_colors(use_light_mode)
+            occupied = set(swatches.values())
+            self.assertEqual(pair["x"], "#9467bd")
+            self.assertEqual(pair["y"], "#d62728")
+            self.assertNotIn(pair["x"], occupied)
+            self.assertNotIn(pair["y"], occupied)
 
     def test_visualization_mode_stays_theme_text_and_bold(self):
         info = update_comparative_mode_info(
@@ -154,10 +170,14 @@ class ComparativeTests(unittest.TestCase):
             "Cumulative:  attributed_energy_cpu_J  vs  attributed_energy_gpu_J",
         )
         cum_color = plot_pair_colors(False)["cumulative"]
+        cpu_color = DEVICE_CLASS_COLORS_DARK[DeviceClass.CPU]
+        gpu_color = DEVICE_CLASS_COLORS_DARK[DeviceClass.GPU]
         self.assertEqual(figure.data[0].line.color, cum_color)
         self.assertEqual(figure.data[0].marker.color, cum_color)
-        self.assertNotIn(cum_color, DEVICE_CLASS_COLORS_DARK.values())
-        self.assertNotIn(plot_pair_colors(True)["cumulative"], DEVICE_CLASS_COLORS_LIGHT.values())
+        self.assertNotEqual(getattr(figure.layout.xaxis.tickfont, "color", None), cpu_color)
+        self.assertNotEqual(getattr(figure.layout.yaxis.tickfont, "color", None), gpu_color)
+        self.assertEqual(figure.layout.xaxis.title.font.color, cpu_color)
+        self.assertEqual(figure.layout.yaxis.title.font.color, gpu_color)
 
     def test_scatter_xy_locks_equal_scale_only_when_units_match(self):
         df = offset_cpu_gpu_energy_rows()
@@ -179,6 +199,15 @@ class ComparativeTests(unittest.TestCase):
             _heading_text(matched_title),
             "Scatter:  attributed_energy_cpu_J  vs  attributed_energy_gpu_J",
         )
+        self.assertEqual(
+            matched.layout.xaxis.title.font.color,
+            DEVICE_CLASS_COLORS_DARK[DeviceClass.CPU],
+        )
+        self.assertEqual(
+            matched.layout.yaxis.title.font.color,
+            DEVICE_CLASS_COLORS_DARK[DeviceClass.GPU],
+        )
+        self.assertEqual(matched.data[0].marker.color, plot_pair_colors(False)["scatter"])
 
         x_metric = "cpu_percent_R_local_machine__C_process_4_A_"
         y_metric = "mem_total_B_R_local_machine__C_process_4_A_"
@@ -196,25 +225,28 @@ class ComparativeTests(unittest.TestCase):
         self.assertFalse(mismatched.layout.meta["equal_xy"])
         self.assertFalse(same_physical_xy_unit(x_metric, y_metric))
 
-    def test_same_device_class_keeps_one_color_and_dashes_y(self):
+    def test_same_device_class_still_uses_pair_line_colors(self):
+        x_metric = "cpu_percent_R_local_machine__C_process_4_A_"
         figure, _title = update_process_xy_plot(
+            x_metric,
             MEM_TOTAL_ID,
-            NETWORK_RX_ID,
             [],
             False,
             [
-                {"timestamp": pd.Timestamp("2024-01-01 00:00:00"), "metric_id": MEM_TOTAL_ID, "value": 1.0},
-                {"timestamp": pd.Timestamp("2024-01-01 00:00:10"), "metric_id": NETWORK_RX_ID, "value": 2.0},
+                {"timestamp": pd.Timestamp("2024-01-01 00:00:00"), "metric_id": x_metric, "value": 1.0},
+                {"timestamp": pd.Timestamp("2024-01-01 00:00:10"), "metric_id": MEM_TOTAL_ID, "value": 2.0},
             ],
             {"start": "2024-01-01 00:00:00", "end": "2024-01-01 00:00:10"},
         )
-        other = DEVICE_CLASS_COLORS_DARK[DeviceClass.OTHER]
-        self.assertEqual(comparative_series_line_dash(MEM_TOTAL_ID, NETWORK_RX_ID), ("solid", "dash"))
+        accents = plot_pair_colors(False)
+        cpu = DEVICE_CLASS_COLORS_DARK[DeviceClass.CPU]
         line_by_name = {trace.name: trace.line for trace in figure.data if getattr(trace, "line", None)}
-        self.assertEqual(line_by_name["mem_total_B"].color, other)
-        self.assertEqual(line_by_name["network_rx_bytes"].color, other)
+        self.assertEqual(line_by_name["cpu_percent"].color, accents["x"])
+        self.assertEqual(line_by_name["mem_total_B"].color, accents["y"])
+        self.assertNotEqual(line_by_name["cpu_percent"].dash, "dash")
         self.assertNotEqual(line_by_name["mem_total_B"].dash, "dash")
-        self.assertEqual(line_by_name["network_rx_bytes"].dash, "dash")
+        self.assertEqual(figure.layout.yaxis.title.font.color, cpu)
+        self.assertEqual(figure.layout.yaxis2.title.font.color, cpu)
 
 
 if __name__ == "__main__":

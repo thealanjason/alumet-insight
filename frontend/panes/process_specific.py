@@ -52,7 +52,6 @@ from frontend.style import (
     STYLE_VISIBLE,
     apply_figure_theme,
     device_class_selection_caption,
-    device_class_key,
     set_plotly_rgba,
     status_alert_class,
 )
@@ -507,7 +506,6 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
 def build_process_grid_card(
     unique_metrics: list[str],
     derived_metrics: Optional[set[str]] = None,
-    use_light_mode: bool = False,
 ) -> dbc.Card:
     """Build the viewport-fitted 2x2 process-specific comparison card."""
     grid_cells = [
@@ -519,11 +517,6 @@ def build_process_grid_card(
         [
             dbc.CardBody(
                 [
-                    html.Div(
-                        device_class_key(use_light_mode=use_light_mode),
-                        id="process-device-key",
-                        className="device-class-key process-grid-device-key",
-                    ),
                     html.Div(grid_cells, className="process-grid-viewport"),
                 ],
                 className="viewport-card-body process-grid-card-body",
@@ -581,24 +574,14 @@ def update_process_device_class_chip(metric, rk, rid, ck, cid, la, use_light_mod
 
 
 @app.callback(
-    Output("process-device-key", "children"),
-    Input("theme-switch", "value"),
-    prevent_initial_call=True,
-)
-def update_process_device_key(use_light_mode):
-    return device_class_key(use_light_mode=bool(use_light_mode))
-
-
-@app.callback(
     Output("process-specific-content", "children"),
     Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
     State("process-specific-content", "children"),
-    State("theme-switch", "value"),
 )
 def build_process_specific_tab(
-    tab_value, processed_df_data, process_time_range, current_children, use_light_mode
+    tab_value, processed_df_data, process_time_range, current_children
 ):
     triggered_id = ctx.triggered_id
     is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
@@ -638,7 +621,6 @@ def build_process_specific_tab(
     return build_process_grid_card(
         unique_metrics,
         derived_base_metrics(df_processed),
-        use_light_mode=bool(use_light_mode),
     )
 
 
