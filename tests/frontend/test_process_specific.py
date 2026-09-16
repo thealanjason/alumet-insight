@@ -212,6 +212,127 @@ class ProcessSpecificTests(unittest.TestCase):
         )
         self.assertIsNone(reset["cid"]["effective"])
 
+    def test_cascade_keeps_consumer_id_visible_after_resource_id_choice(self):
+        """GPU × PID are siblings: picking R.ID after C.ID must not hide C.ID."""
+        df = pd.DataFrame(
+            {
+                "resource_kind": ["gpu", "gpu", "gpu"],
+                "resource_id": ["00000000:3F:00.0", "00000000:DA:00.0", "00000000:DA:00.0"],
+                "consumer_kind": ["process", "process", "process"],
+                "consumer_id": ["250510", "250510", "250511"],
+                "__late_attributes": ["", "", ""],
+            }
+        )
+        normed = normalize_filter_columns(df)
+
+        after_cid = cascade_filter_options(normed, "gpu", None, "process", "250510", None)
+        self.assertEqual(after_cid["cid"]["effective"], "250510")
+        self.assertTrue(after_cid["cid"]["show"])
+        self.assertIsNone(after_cid["rid"]["effective"])
+        self.assertEqual(after_cid["rid"]["options"], ["00000000:3F:00.0", "00000000:DA:00.0"])
+        self.assertTrue(after_cid["rid"]["show"])
+
+        after_rid = cascade_filter_options(
+            normed, "gpu", "00000000:3F:00.0", "process", "250510", None
+        )
+        self.assertEqual(after_rid["rid"]["effective"], "00000000:3F:00.0")
+        self.assertEqual(after_rid["cid"]["effective"], "250510")
+        self.assertEqual(after_rid["rid"]["options"], ["00000000:3F:00.0", "00000000:DA:00.0"])
+        self.assertEqual(after_rid["cid"]["options"], ["250510", "250511"])
+        self.assertTrue(after_rid["cid"]["show"])
+
+        pid_only_on_da = cascade_filter_options(normed, "gpu", None, "process", "250511", None)
+        self.assertEqual(pid_only_on_da["cid"]["effective"], "250511")
+        self.assertEqual(pid_only_on_da["rid"]["effective"], "00000000:DA:00.0")
+        self.assertTrue(pid_only_on_da["cid"]["show"])
+
+    def test_cascade_treats_kind_and_attr_as_siblings(self):
+        """R.Kind, C.Kind, and Attr stay visible when later sibling filters uniquely determine them."""
+        df = pd.DataFrame(
+            {
+                "resource_kind": ["cpu", "cpu", "gpu", "gpu"],
+                "resource_id": ["0", "0", "DA", "DA"],
+                "consumer_kind": ["process", "process", "process", "cgroup"],
+                "consumer_id": ["10", "10", "10", "job"],
+                "__late_attributes": ["user", "system", "user", "user"],
+            }
+        )
+        normed = normalize_filter_columns(df)
+
+        after_attr = cascade_filter_options(normed, None, None, None, None, "system")
+        self.assertEqual(after_attr["la"]["effective"], "system")
+        self.assertTrue(after_attr["la"]["show"])
+        self.assertEqual(after_attr["rk"]["effective"], "cpu")
+        self.assertEqual(after_attr["rk"]["options"], ["cpu", "gpu"])
+        self.assertTrue(after_attr["rk"]["show"])
+        self.assertEqual(after_attr["ck"]["effective"], "process")
+        self.assertEqual(after_attr["ck"]["options"], ["cgroup", "process"])
+        self.assertTrue(after_attr["ck"]["show"])
+
+        after_rid = cascade_filter_options(normed, "cpu", "0", "process", "10", "system")
+        self.assertEqual(after_rid["la"]["effective"], "system")
+        self.assertEqual(after_rid["la"]["options"], ["system", "user"])
+        self.assertTrue(after_rid["la"]["show"])
+        self.assertTrue(after_rid["rk"]["show"])
+        self.assertTrue(after_rid["ck"]["show"])
+
+        after_ck = cascade_filter_options(normed, None, None, "cgroup", None, None)
+        self.assertEqual(after_ck["ck"]["effective"], "cgroup")
+        self.assertEqual(after_ck["rk"]["effective"], "gpu")
+        self.assertEqual(after_ck["rk"]["options"], ["cpu", "gpu"])
+        self.assertTrue(after_ck["rk"]["show"])
+        self.assertTrue(after_ck["ck"]["show"])
+        self.assertTrue(after_ck["la"]["show"])
+
+    def test_cascade_keeps_sibling_options_switchable(self):
+        """Selecting one sibling must not lock the other dropdown to a single option."""
+        df = pd.DataFrame(
+            {
+                "resource_kind": ["gpu", "gpu", "gpu"],
+                "resource_id": ["00000000:3F:00.0", "00000000:DA:00.0", "00000000:DA:00.0"],
+                "consumer_kind": ["process", "process", "process"],
+                "consumer_id": ["250510", "250510", "250511"],
+                "__late_attributes": ["", "", ""],
+            }
+        )
+        normed = normalize_filter_columns(df)
+        both_gpus = ["00000000:3F:00.0", "00000000:DA:00.0"]
+        both_pids = ["250510", "250511"]
+
+        locked_pair = cascade_filter_options(
+            normed, "gpu", "00000000:3F:00.0", "process", "250510", None
+        )
+        self.assertEqual(locked_pair["rid"]["options"], both_gpus)
+        self.assertEqual(locked_pair["cid"]["options"], both_pids)
+
+        switch_pid = cascade_filter_options(
+            normed,
+            "gpu",
+            "00000000:3F:00.0",
+            "process",
+            "250511",
+            None,
+            triggered_id="consumer-id-dropdown",
+        )
+        self.assertEqual(switch_pid["cid"]["effective"], "250511")
+        self.assertEqual(switch_pid["rid"]["effective"], "00000000:DA:00.0")
+        self.assertEqual(switch_pid["rid"]["options"], both_gpus)
+        self.assertEqual(switch_pid["cid"]["options"], both_pids)
+
+        switch_gpu = cascade_filter_options(
+            normed,
+            "gpu",
+            "00000000:3F:00.0",
+            "process",
+            "250511",
+            None,
+            triggered_id="resource-id-dropdown",
+        )
+        self.assertEqual(switch_gpu["rid"]["effective"], "00000000:3F:00.0")
+        self.assertEqual(switch_gpu["cid"]["effective"], "250510")
+        self.assertEqual(switch_gpu["rid"]["options"], both_gpus)
+        self.assertEqual(switch_gpu["cid"]["options"], both_pids)
+
     def test_prepare_download_df_includes_late_attribute_filter_and_columns(self):
         df = expand_counterdiff_rows(
             pd.DataFrame(

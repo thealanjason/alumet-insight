@@ -302,6 +302,18 @@ class CounterDiffTests(unittest.TestCase):
         self.assertTrue(should_derive_power_from_energy("rapl_consumed_energy_J_R_pkg_0_C__A_", available))
         self.assertFalse(
             should_derive_power_from_energy(
+                "attributed_energy_cpu_cumulative_J_R_pkg_C_process_1_A_",
+                available,
+            )
+        )
+        self.assertTrue(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_J_R_local_machine__C_process_1_A_domain=package_total",
+                available,
+            )
+        )
+        self.assertFalse(
+            should_derive_power_from_energy(
                 "attributed_energy_total_J_R_total__C_process_1_A_",
                 available,
             )
@@ -309,18 +321,6 @@ class CounterDiffTests(unittest.TestCase):
         self.assertFalse(
             should_derive_power_from_energy(
                 "attributed_energy_gpu_total_J_R_gpu_all__C_process_1_A_",
-                available,
-            )
-        )
-        self.assertFalse(
-            should_derive_power_from_energy(
-                "attributed_energy_cpu_total_J_R_cpu_all__C_process_1_A_",
-                available,
-            )
-        )
-        self.assertTrue(
-            should_derive_power_from_energy(
-                "attributed_energy_cpu_J_R_local_machine__C_process_1_A_domain=package_total",
                 available,
             )
         )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
 import pandas as pd
 
 from backend.counterdiff import (
@@ -11,7 +12,6 @@ from backend.counterdiff import (
     derive_interval_average_power,
     ensure_point_metadata,
     expand_counterdiff_rows,
-    interpolate_counterdiff_at_timeline,
     normalize_observed_rows,
     observed_only,
 )
@@ -72,20 +72,27 @@ def _sum_observed_by_timestamp_consumer(df: pd.DataFrame) -> pd.DataFrame:
     )["value"].sum()
 
 
-def _align_counterdiff_energy_to_timeline(
+def _datetime_ns(timestamps) -> np.ndarray:
+    idx = pd.DatetimeIndex(pd.to_datetime(timestamps, utc=True))
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    return idx.as_unit("ns").asi8
+
+
+def _running_total_on_timeline(
     df_metric: pd.DataFrame,
     timeline: pd.DatetimeIndex,
     value_name: str,
 ) -> pd.Series:
     """
-    Align CounterDiff energy to a shared timeline with phase-aware interpolation.
+    Forward-fill a CounterDiff series' running total onto a shared timeline.
 
-    Before the first observation the value is `0`. Between samples the value rises
-    from the post-sample zero toward the next observation. After the last observation
-    values are `NaN` so downstream synthesis can truncate with `dropna`.
+    Each original sample is counted once: cumsum on the series' own timestamps,
+    then hold until the next sample. Before the first sample the total is 0.
+    After the last sample the total holds.
     """
     if df_metric.empty:
-        return pd.Series(0.0, index=timeline, name=value_name)
+        return pd.Series(0.0, index=timeline, name=value_name, dtype="float64")
 
     if df_metric["timestamp"].duplicated().any():
         raise ValueError(
@@ -93,13 +100,22 @@ def _align_counterdiff_energy_to_timeline(
             f"found duplicates: {df_metric.loc[df_metric['timestamp'].duplicated(), 'timestamp'].tolist()}"
         )
 
-    aligned_values = interpolate_counterdiff_at_timeline(
-        df_metric["timestamp"],
-        df_metric["value"],
-        timeline,
-    )
-    aligned = pd.Series(aligned_values.to_numpy(), index=timeline, name=value_name, dtype="float64")
-    return aligned
+    ordered = df_metric.sort_values("timestamp", kind="mergesort")
+    running = ordered["value"].to_numpy(dtype="float64").cumsum()
+    src_ns = _datetime_ns(ordered["timestamp"])
+    tgt_ns = _datetime_ns(timeline)
+    last_src = np.searchsorted(src_ns, tgt_ns, side="right") - 1
+    aligned = np.where(last_src >= 0, running[np.maximum(last_src, 0)], 0.0)
+    return pd.Series(aligned, index=timeline, name=value_name, dtype="float64")
+
+
+def _interval_deltas_from_running_total(running: pd.Series) -> pd.Series:
+    """Recover CounterDiff interval deltas from a running-total series."""
+    if running.empty:
+        return running.copy()
+    deltas = running.diff()
+    deltas.iloc[0] = running.iloc[0]
+    return deltas
 
 
 def _select_attributed_cpu_rows(df_cpu: pd.DataFrame) -> pd.DataFrame:
@@ -134,44 +150,40 @@ def _select_attributed_cpu_rows(df_cpu: pd.DataFrame) -> pd.DataFrame:
     return df_cpu.iloc[0:0].copy()
 
 
-def _build_aligned_sum_rows(
-    left: pd.DataFrame,
-    right: pd.DataFrame,
-    *,
-    left_name: str,
-    right_name: str,
-) -> pd.DataFrame:
-    """
-    Align two CounterDiff energy series and return timestamp/value sums.
+def _union_timeline(frames: list[pd.DataFrame]) -> pd.DatetimeIndex:
+    index: pd.Index = pd.Index([])
+    for frame in frames:
+        if frame is not None and not frame.empty:
+            index = index.union(pd.Index(pd.to_datetime(frame["timestamp"])))
+    return pd.DatetimeIndex(index.sort_values())
 
-    Missing values are filled with 0 before the first sample and after the last
-    so the total spans the union timeline. Appropriate only for process-level
-    attributed CPU+GPU totals, where an absent side means that process used 0 J.
+
+def _aligned_counterdiff(frames: list[pd.DataFrame]) -> pd.DataFrame:
     """
-    if left.empty or right.empty:
+    Combine CounterDiff energy series without double-counting joules.
+
+    Accumulate each series on its own timestamps, forward-fill those running
+    totals onto the union timeline, add them, then difference so the result
+    is still interval-delta CounterDiff. A device contributes new joules only
+    at its own samples.
+    """
+    nonempty = [frame for frame in frames if frame is not None and not frame.empty]
+    if not nonempty:
         return pd.DataFrame(columns=["timestamp", "value"])
 
-    timeline = pd.DatetimeIndex(pd.Index(left["timestamp"]).union(pd.Index(right["timestamp"])).sort_values())
+    timeline = _union_timeline(nonempty)
     if timeline.empty:
         return pd.DataFrame(columns=["timestamp", "value"])
 
-    left_aligned = _align_counterdiff_energy_to_timeline(left, timeline, left_name)
-    right_aligned = _align_counterdiff_energy_to_timeline(right, timeline, right_name)
-    out = pd.DataFrame(
+    total_running = pd.Series(0.0, index=timeline, dtype="float64")
+    for frame in nonempty:
+        total_running = total_running + _running_total_on_timeline(frame, timeline, "running")
+    return pd.DataFrame(
         {
             "timestamp": timeline,
-            left_name: left_aligned.to_numpy(),
-            right_name: right_aligned.to_numpy(),
+            "value": _interval_deltas_from_running_total(total_running).to_numpy(),
         }
     )
-
-    out[left_name] = out[left_name].fillna(0.0)
-    out[right_name] = out[right_name].fillna(0.0)
-
-    if out.empty:
-        return pd.DataFrame(columns=["timestamp", "value"])
-    out["value"] = out[left_name] + out[right_name]
-    return out.drop(columns=[left_name, right_name])
 
 
 def _build_cpu_gpu_total_rows(
@@ -180,13 +192,8 @@ def _build_cpu_gpu_total_rows(
     *,
     consumer: str,
 ) -> pd.DataFrame:
-    """Align CPU/GPU energy on a shared timeline and emit attributed_energy_total_J rows."""
-    total_pid = _build_aligned_sum_rows(
-        cpu_pid,
-        gpu_pid,
-        left_name="cpu_value",
-        right_name="gpu_value",
-    )
+    """Accumulate CPU/GPU energy, forward-fill running totals, emit interval-delta totals."""
+    total_pid = _aligned_counterdiff([cpu_pid, gpu_pid])
     if total_pid.empty:
         return total_pid
 
@@ -217,9 +224,10 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
     1. `attributed_energy_gpu_total_J`: sum of attributed GPU energy across GPUs per pid.
     2. `attributed_energy_total_J`: package_total-attributed CPU + GPU total per pid.
 
-    CPU+GPU totals use the ``fill_zero`` boundary policy: a missing side (not yet
-    started or already ended) counts as 0 J so the process total covers the union
-    of CPU/GPU activity (e.g. CPU-only tail after GPU attribution stops).
+    CPU+GPU and multi-GPU totals accumulate each series first, forward-fill
+    those running totals onto the union of their clocks, add, and difference.
+    Per-device power is E/dt on that device's own samples; total power is the
+    sum of those stairs, not E_total/dt on the union.
     """
     observed = observed_only(df_processed)
     if observed.empty:
@@ -237,10 +245,9 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
             ]
         )
 
-    cpu_mask = observed["base_metric"].str.contains("attributed_energy_cpu", case=False, na=False)
-    gpu_mask = observed["base_metric"].str.contains("attributed_energy_gpu", case=False, na=False)
-    # Exclude already-synthesized gpu_total from re-aggregation.
-    gpu_mask = gpu_mask & ~observed["base_metric"].str.contains("attributed_energy_gpu_total", case=False, na=False)
+    stems = observed["base_metric"].map(classification_stem)
+    cpu_mask = stems.eq("attributed_energy_cpu")
+    gpu_mask = stems.eq("attributed_energy_gpu")
 
     df_cpu = observed.loc[cpu_mask, ["metric_id", "timestamp", "value"]].copy()
     df_gpu = observed.loc[gpu_mask, ["metric_id", "timestamp", "value"]].copy()
@@ -255,16 +262,23 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
         return pd.DataFrame(columns=observed.columns)
 
     df_cpu = _select_attributed_cpu_rows(df_cpu)
-    df_gpu_summed = _sum_observed_by_timestamp_consumer(df_gpu)
     df_cpu_summed = _sum_observed_by_timestamp_consumer(df_cpu)
 
-    synthetic_parts: list[pd.DataFrame] = []
+    gpu_frames: dict[str, list[pd.DataFrame]] = {}
+    if not df_gpu.empty:
+        for (consumer, _metric_id), group in df_gpu.groupby(["consumer", "metric_id"], dropna=False, sort=False):
+            if pd.isna(consumer):
+                continue
+            summed = group.groupby("timestamp", as_index=False, sort=False)["value"].sum()
+            gpu_frames.setdefault(str(consumer), []).append(summed[["timestamp", "value"]])
 
-    for consumer in sorted(df_gpu_summed["consumer"].dropna().unique()):
-        gpu_pid = df_gpu_summed.loc[
-            df_gpu_summed["consumer"] == consumer,
-            ["timestamp", "value"],
-        ].copy()
+    synthetic_parts: list[pd.DataFrame] = []
+    gpu_totals: dict[str, pd.DataFrame] = {}
+
+    for consumer, frames in sorted(gpu_frames.items()):
+        gpu_pid = _aligned_counterdiff(frames)
+        if gpu_pid.empty:
+            continue
         consumer_kind, consumer_id = _split_kind_id(consumer, "process")
         gpu_pid["metric_id"] = MetricId(
             base_metric="attributed_energy_gpu_total_J",
@@ -280,13 +294,15 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
         gpu_pid["consumer_id"] = consumer_id
         gpu_pid["__late_attributes"] = ""
         synthetic_parts.append(gpu_pid)
+        gpu_totals[consumer] = gpu_pid[["timestamp", "value"]].copy()
 
-    cpu_consumers = set(df_cpu_summed["consumer"].unique()) if not df_cpu_summed.empty else set()
-    gpu_consumers = set(df_gpu_summed["consumer"].unique()) if not df_gpu_summed.empty else set()
-    for consumer in sorted(cpu_consumers & gpu_consumers):
+    cpu_consumers = (
+        {str(consumer) for consumer in df_cpu_summed["consumer"].unique()} if not df_cpu_summed.empty else set()
+    )
+    for consumer in sorted(cpu_consumers & set(gpu_totals)):
         total_pid = _build_cpu_gpu_total_rows(
-            df_cpu_summed.loc[df_cpu_summed["consumer"] == consumer, ["timestamp", "value"]],
-            df_gpu_summed.loc[df_gpu_summed["consumer"] == consumer, ["timestamp", "value"]],
+            df_cpu_summed.loc[df_cpu_summed["consumer"].astype(str) == consumer, ["timestamp", "value"]],
+            gpu_totals[consumer],
             consumer=consumer,
         )
         if not total_pid.empty:
@@ -299,190 +315,14 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
     return ensure_point_metadata(mark_as_derived(derived))
 
 
-def _process_consumer(metric_id: str) -> str | None:
-    identity = MetricId.parse(metric_id)
-    return identity.consumer if identity.is_process_consumer else None
-
-
-def _step_power_at(power_df: pd.DataFrame, query_ts: pd.DatetimeIndex) -> pd.Series:
-    """
-    Evaluate piecewise-constant interval-average power at query timestamps.
-
-    Each power row covers `(interval_start, timestamp]`. Overlapping series
-    for the same consumer are summed. Uncovered query times are 0.
-    """
-    out = pd.Series(0.0, index=query_ts, dtype="float64")
-    if power_df.empty or query_ts.empty:
-        return out
-    if "interval_start" not in power_df.columns:
-        raise ValueError("Step-power alignment requires interval_start")
-
-    starts = pd.to_datetime(power_df["interval_start"]).to_numpy(dtype="datetime64[ns]")
-    ends = pd.to_datetime(power_df["timestamp"]).to_numpy(dtype="datetime64[ns]")
-    vals = power_df["value"].to_numpy(dtype="float64")
-    queries = query_ts.to_numpy(dtype="datetime64[ns]")[:, None]
-    covered = (starts[None, :] < queries) & (queries <= ends[None, :])
-    out.loc[:] = (covered * vals[None, :]).sum(axis=1)
-    return out
-
-
-def synthesize_attributed_power_gpu_total(df_processed: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build process-scoped ``attributed_power_gpu_total_W`` from per-GPU power steps.
-
-    Do not derive this series from union-summed ``attributed_energy_gpu_total_J``.
-    Idle and active GPUs keep independent clocks; ``J / Δt`` on that mixed
-    grid divides a full sample by a few microseconds and spikes to hundreds
-    of kilowatts.
-    """
-    observed = observed_only(df_processed)
-    if observed.empty or "base_metric" not in observed.columns:
-        return pd.DataFrame(columns=list(df_processed.columns))
-
-    stems = observed["base_metric"].map(classification_stem)
-    gpu = observed.loc[stems == "attributed_power_gpu"].copy()
-    if gpu.empty:
-        return pd.DataFrame(columns=observed.columns)
-
-    gpu["consumer"] = gpu["metric_id"].map(_process_consumer)
-    gpu = gpu.dropna(subset=["consumer"])
-    if gpu.empty:
-        return pd.DataFrame(columns=observed.columns)
-
-    frames: list[pd.DataFrame] = []
-    for consumer in sorted(gpu["consumer"].unique()):
-        gpu_pid = gpu.loc[gpu["consumer"] == consumer]
-        timeline = pd.DatetimeIndex(pd.to_datetime(gpu_pid["timestamp"]).unique()).sort_values()
-        if timeline.empty:
-            continue
-
-        total_vals = _step_power_at(gpu_pid, timeline)
-        interval_start = pd.Series(timeline, index=timeline).shift(1)
-        covering_starts = pd.to_datetime(gpu_pid["interval_start"])
-        if interval_start.isna().iloc[0] and covering_starts.notna().any():
-            interval_start.iloc[0] = covering_starts.min()
-
-        consumer_kind, consumer_id = _split_kind_id(consumer, "process")
-        late_attributes = ""
-        rows = pd.DataFrame(
-            {
-                "timestamp": timeline,
-                "value": total_vals.to_numpy(),
-                "interval_start": interval_start.to_numpy(),
-                "metric_id": MetricId(
-                    base_metric="attributed_power_gpu_total_W",
-                    resource="gpu_all_",
-                    consumer=consumer,
-                    late_attributes=late_attributes,
-                ).serialized,
-                "base_metric": "attributed_power_gpu_total_W",
-                "metric": "attributed_power_gpu_total_W",
-                "resource_kind": "gpu",
-                "resource_id": "all",
-                "consumer_kind": consumer_kind,
-                "consumer_id": consumer_id,
-                "__late_attributes": late_attributes,
-            }
-        )
-        valid = rows["interval_start"].notna() & (
-            pd.to_datetime(rows["interval_start"]) < pd.to_datetime(rows["timestamp"])
-        )
-        rows = rows.loc[valid]
-        if not rows.empty:
-            frames.append(rows)
-
-    if not frames:
-        return pd.DataFrame(columns=observed.columns)
-
-    return ensure_point_metadata(mark_as_derived(pd.concat(frames, ignore_index=True)))
-
-
-def synthesize_attributed_power_total(df_processed: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build process-scoped ``attributed_power_total_W`` from component power steps.
-
-    Do not derive this series from union-aligned ``attributed_energy_total_J``.
-    That energy grid mixes two wall clocks; `J / Δt` then divides a full sample's
-    joules by a near-zero gap and produces spurious spikes.
-    """
-    observed = observed_only(df_processed)
-    if observed.empty or "base_metric" not in observed.columns:
-        return pd.DataFrame(columns=list(df_processed.columns))
-
-    stems = observed["base_metric"].map(classification_stem)
-    cpu = observed.loc[stems == "attributed_power_cpu"].copy()
-    gpu = observed.loc[stems == "attributed_power_gpu_total"].copy()
-    if cpu.empty or gpu.empty:
-        return pd.DataFrame(columns=observed.columns)
-
-    cpu["consumer"] = cpu["metric_id"].map(_process_consumer)
-    gpu["consumer"] = gpu["metric_id"].map(_process_consumer)
-    cpu = cpu.dropna(subset=["consumer"])
-    gpu = gpu.dropna(subset=["consumer"])
-
-    frames: list[pd.DataFrame] = []
-    for consumer in sorted(set(cpu["consumer"]) & set(gpu["consumer"])):
-        cpu_pid = cpu.loc[cpu["consumer"] == consumer]
-        gpu_pid = gpu.loc[gpu["consumer"] == consumer]
-        timeline = pd.DatetimeIndex(
-            pd.Index(pd.to_datetime(cpu_pid["timestamp"]))
-            .union(pd.Index(pd.to_datetime(gpu_pid["timestamp"])))
-            .sort_values()
-        )
-        if timeline.empty:
-            continue
-
-        total_vals = _step_power_at(cpu_pid, timeline) + _step_power_at(gpu_pid, timeline)
-        interval_start = pd.Series(timeline, index=timeline).shift(1)
-        covering_starts = pd.concat(
-            [
-                pd.to_datetime(cpu_pid["interval_start"]),
-                pd.to_datetime(gpu_pid["interval_start"]),
-            ]
-        )
-        if interval_start.isna().iloc[0] and not covering_starts.empty:
-            interval_start.iloc[0] = covering_starts.min()
-
-        consumer_kind, consumer_id = _split_kind_id(consumer, "process")
-        late_attributes = ""
-        rows = pd.DataFrame(
-            {
-                "timestamp": timeline,
-                "value": total_vals.to_numpy(),
-                "interval_start": interval_start.to_numpy(),
-                "metric_id": MetricId(
-                    base_metric="attributed_power_total_W",
-                    resource="total_",
-                    consumer=consumer,
-                    late_attributes=late_attributes,
-                ).serialized,
-                "base_metric": "attributed_power_total_W",
-                "metric": "attributed_power_total_W",
-                "resource_kind": "total",
-                "resource_id": "",
-                "consumer_kind": consumer_kind,
-                "consumer_id": consumer_id,
-                "__late_attributes": late_attributes,
-            }
-        )
-        valid = rows["interval_start"].notna() & (pd.to_datetime(rows["interval_start"]) < pd.to_datetime(rows["timestamp"]))
-        rows = rows.loc[valid]
-        if not rows.empty:
-            frames.append(rows)
-
-    if not frames:
-        return pd.DataFrame(columns=observed.columns)
-
-    return ensure_point_metadata(mark_as_derived(pd.concat(frames, ignore_index=True)))
-
-
 def synthesize_derived_power(df_processed: pd.DataFrame) -> pd.DataFrame:
     """
     Derive interval-average power (W) from CounterDiff energy when no measured power exists.
 
     Prefers existing watt Gauges (e.g. `nvml_instant_power`). Derives RAPL and
-    attributed power always; derives NVML/AMD/Grace energy power only when a matching
-    measured power series is absent.
+    per-device attributed power always; derives NVML/AMD/Grace energy power only
+    when a matching measured power series is absent. Synthesized energy totals
+    are not converted with `E/Δt` here.
     """
     observed = observed_only(df_processed)
     if observed.empty or "metric_id" not in observed.columns:
@@ -507,6 +347,172 @@ def synthesize_derived_power(df_processed: pd.DataFrame) -> pd.DataFrame:
 
     out = pd.concat(frames, ignore_index=True)
     return ensure_point_metadata(mark_as_derived(out))
+
+
+def _step_power_at(power: pd.DataFrame, target_ns: np.ndarray) -> np.ndarray:
+    """Evaluate a power staircase."""
+    out = np.zeros(len(target_ns), dtype="float64")
+    if power.empty or "interval_start" not in power.columns:
+        return out
+    starts = _datetime_ns(power["interval_start"])
+    ends = _datetime_ns(power["timestamp"])
+    vals = power["value"].to_numpy(dtype="float64")
+    for start, end, val in zip(starts, ends, vals):
+        out[(target_ns > start) & (target_ns <= end)] = val
+    return out
+
+
+def _aligned_power_sum(frames: list[pd.DataFrame]) -> pd.DataFrame:
+    """Sum power stairs onto the union of their interval boundaries."""
+    nonempty = [frame for frame in frames if frame is not None and not frame.empty]
+    if not nonempty:
+        return pd.DataFrame(columns=["timestamp", "value", "interval_start"])
+
+    bounds: list[pd.DatetimeIndex] = []
+    for frame in nonempty:
+        bounds.append(pd.DatetimeIndex(pd.to_datetime(frame["timestamp"])))
+        bounds.append(pd.DatetimeIndex(pd.to_datetime(frame["interval_start"])))
+    index: pd.Index = pd.Index([])
+    for bound in bounds:
+        index = index.union(pd.Index(bound))
+    timeline = pd.DatetimeIndex(index.sort_values())
+    if len(timeline) < 2:
+        return pd.DataFrame(columns=["timestamp", "value", "interval_start"])
+
+    target_ns = _datetime_ns(timeline)
+    total = np.zeros(len(timeline), dtype="float64")
+    for frame in nonempty:
+        total = total + _step_power_at(frame, target_ns)
+    return pd.DataFrame(
+        {
+            "timestamp": timeline[1:],
+            "value": total[1:],
+            "interval_start": timeline[:-1],
+        }
+    )
+
+
+def _stamp_attributed_power_rows(
+    frame: pd.DataFrame,
+    *,
+    base_metric: str,
+    resource: str,
+    resource_kind: str,
+    resource_id: str,
+    consumer: str,
+) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    out = frame.copy()
+    consumer_kind, consumer_id = _split_kind_id(consumer, "process")
+    out["metric_id"] = MetricId(
+        base_metric=base_metric,
+        resource=resource,
+        consumer=consumer,
+        late_attributes="",
+    ).serialized
+    out["base_metric"] = base_metric
+    out["metric"] = base_metric
+    out["resource_kind"] = resource_kind
+    out["resource_id"] = resource_id
+    out["consumer_kind"] = consumer_kind
+    out["consumer_id"] = consumer_id
+    out["__late_attributes"] = ""
+    return out
+
+
+def synthesize_attributed_power_total(df_processed: pd.DataFrame) -> pd.DataFrame:
+    """
+    Synthesize process-scoped attributed power totals from component stairs.
+
+    `attributed_power_gpu_total_W` and `attributed_power_total_W` are sums of
+    per-device interval-average power, evaluated on the union of those devices'
+    own averaging windows. They are not `E_total / Δt` on the energy-union
+    timestamp since the divisor is skewed, not a measurement interval.
+    """
+    observed = observed_only(df_processed)
+    if observed.empty or "base_metric" not in observed.columns:
+        return pd.DataFrame(columns=list(df_processed.columns) if len(df_processed.columns) else [])
+
+    stems = observed["base_metric"].map(classification_stem)
+    keep = ["metric_id", "timestamp", "value", "interval_start"]
+    keep = [column for column in keep if column in observed.columns]
+    df_cpu = observed.loc[stems.eq("attributed_power_cpu"), keep].copy()
+    df_gpu = observed.loc[stems.eq("attributed_power_gpu"), keep].copy()
+    if df_cpu.empty and df_gpu.empty:
+        return pd.DataFrame(columns=observed.columns)
+    if "interval_start" not in keep:
+        return pd.DataFrame(columns=observed.columns)
+
+    df_cpu = _attach_process_identity(df_cpu) if not df_cpu.empty else df_cpu
+    df_gpu = _attach_process_identity(df_gpu) if not df_gpu.empty else df_gpu
+    if not df_cpu.empty:
+        df_cpu = _select_attributed_cpu_rows(df_cpu)
+
+    cpu_energy = observed.loc[stems.eq("attributed_energy_cpu"), ["metric_id", "timestamp", "value"]].copy()
+    gpu_energy = observed.loc[stems.eq("attributed_energy_gpu"), ["metric_id", "timestamp", "value"]].copy()
+    if not cpu_energy.empty:
+        cpu_energy = _select_attributed_cpu_rows(_attach_process_identity(cpu_energy))
+    if not gpu_energy.empty:
+        gpu_energy = _attach_process_identity(gpu_energy)
+    process_consumers = (
+        set(cpu_energy["consumer"].astype(str)) & set(gpu_energy["consumer"].astype(str))
+        if not cpu_energy.empty and not gpu_energy.empty
+        else set()
+    )
+
+    gpu_frames: dict[str, list[pd.DataFrame]] = {}
+    if not df_gpu.empty:
+        for (consumer, _metric_id), group in df_gpu.groupby(["consumer", "metric_id"], dropna=False, sort=False):
+            if pd.isna(consumer):
+                continue
+            gpu_frames.setdefault(str(consumer), []).append(
+                group[["timestamp", "value", "interval_start"]]
+            )
+
+    cpu_frames: dict[str, list[pd.DataFrame]] = {}
+    if not df_cpu.empty:
+        for (consumer, _metric_id), group in df_cpu.groupby(["consumer", "metric_id"], dropna=False, sort=False):
+            if pd.isna(consumer):
+                continue
+            cpu_frames.setdefault(str(consumer), []).append(
+                group[["timestamp", "value", "interval_start"]]
+            )
+
+    synthetic_parts: list[pd.DataFrame] = []
+    for consumer, frames in sorted(gpu_frames.items()):
+        gpu_pid = _aligned_power_sum(frames)
+        if gpu_pid.empty:
+            continue
+        synthetic_parts.append(
+            _stamp_attributed_power_rows(
+                gpu_pid,
+                base_metric="attributed_power_gpu_total_W",
+                resource="gpu_all_",
+                resource_kind="gpu",
+                resource_id="all",
+                consumer=consumer,
+            )
+        )
+
+    for consumer in sorted(process_consumers):
+        total_pid = _aligned_power_sum([*cpu_frames.get(consumer, []), *gpu_frames.get(consumer, [])])
+        if total_pid.empty:
+            continue
+        synthetic_parts.append(
+            _stamp_attributed_power_rows(
+                total_pid,
+                base_metric="attributed_power_total_W",
+                resource="total_",
+                resource_kind="total",
+                resource_id="",
+                consumer=consumer,
+            )
+        )
+
+    if not synthetic_parts:
+        return pd.DataFrame(columns=observed.columns)
+    return ensure_point_metadata(mark_as_derived(pd.concat(synthetic_parts, ignore_index=True)))
 
 
 def _running_total_id_maps(metric_ids: pd.Series, base_metrics: pd.Series) -> tuple[dict[str, str], dict[str, str]]:
@@ -572,7 +578,12 @@ def synthesize_running_totals(df_processed: pd.DataFrame) -> pd.DataFrame:
 
 
 def synthesize_derived_metrics(df_processed: pd.DataFrame) -> pd.DataFrame:
-    """Append attributed totals, derived power, and running-total gauges."""
+    """Append attributed energy totals, derived power, and running totals.
+
+    Energy totals (cumsum_ffill): cumsum each device, ffill C onto the union, add, diff.
+    Per-device power: E/t on that device's own poll interval (skip the first sample).
+    Total power: sum of those stairs, not E_total/t on the union timeline.
+    """
     if df_processed.empty:
         return df_processed.copy()
 
@@ -587,12 +598,9 @@ def synthesize_derived_metrics(df_processed: pd.DataFrame) -> pd.DataFrame:
     power = synthesize_derived_power(combined)
     if not power.empty:
         combined = pd.concat([combined, power], ignore_index=True)
-    gpu_power_total = synthesize_attributed_power_gpu_total(combined)
-    if not gpu_power_total.empty:
-        combined = pd.concat([combined, gpu_power_total], ignore_index=True)
-    power_total = synthesize_attributed_power_total(combined)
-    if not power_total.empty:
-        combined = pd.concat([combined, power_total], ignore_index=True)
+    attributed_power = synthesize_attributed_power_total(combined)
+    if not attributed_power.empty:
+        combined = pd.concat([combined, attributed_power], ignore_index=True)
     running = synthesize_running_totals(combined)
     if not running.empty:
         combined = pd.concat([combined, running], ignore_index=True)
