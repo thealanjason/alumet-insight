@@ -1,18 +1,21 @@
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 import pandas as pd
+import polars as pl
 
 from backend.categories import category_for_metric_id, filter_time_series_category
 from backend.data import (
     AlumetData,
     _read_csv_with_polars,
+    finalize_processed_dataframe,
     load_csv_from_path,
     preprocess_dataframe_for_visualization,
 )
 from backend.metrics import filter_by_base_metric, metric_id_is_process_consumer
-from backend.transforms import parse_timestamp, validate_time_range
+from backend.transforms import normalize_to_si, parse_timestamp, validate_time_range
 from tests.fixtures import (
     TempMeasurementDirectory,
     make_alumetdata_stub,
@@ -20,6 +23,21 @@ from tests.fixtures import (
     sample_csv_body,
     write_measurement_directory,
 )
+
+
+def _wait_for_parquet_sidecar(csv_path: Path, timeout: float = 5.0) -> Path:
+    parquet_path = csv_path.with_suffix(".parquet")
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        if parquet_path.exists():
+            try:
+                pl.read_parquet(parquet_path)
+                return parquet_path
+            except Exception as exc:
+                last_error = exc
+        time.sleep(0.01)
+    raise AssertionError(f"parquet sidecar not ready: {parquet_path} ({last_error})")
 
 
 class DataTests(unittest.TestCase):
@@ -189,7 +207,7 @@ class DataTests(unittest.TestCase):
             csv_path.write_text(sample_csv_body(), encoding="utf-8")
 
             first = _read_csv_with_polars(csv_path)
-            parquet_path = csv_path.with_suffix(".parquet")
+            parquet_path = _wait_for_parquet_sidecar(csv_path)
             self.assertTrue(parquet_path.exists())
 
             csv_path.write_text("corrupt;csv;content\n", encoding="utf-8")
@@ -220,6 +238,28 @@ class DataTests(unittest.TestCase):
         self.assertGreater(len(data.metrics), 0)
         self.assertFalse(data.source_df.empty)
         self.assertFalse(data.processed_df.empty)
+
+    def test_alumetdata_matches_pandas_si_preprocess_pipeline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            csv_path = root / "measurement.csv"
+            csv_path.write_text(sample_csv_body(), encoding="utf-8")
+            data = AlumetData(root)
+            expected_source = normalize_to_si(load_csv_from_path(csv_path))
+            expected_processed = finalize_processed_dataframe(
+                preprocess_dataframe_for_visualization(expected_source)
+            )
+
+        pd.testing.assert_frame_equal(
+            data.source_df.reset_index(drop=True),
+            expected_source.reset_index(drop=True),
+            check_dtype=False,
+        )
+        pd.testing.assert_frame_equal(
+            data.processed_df.reset_index(drop=True),
+            expected_processed.reset_index(drop=True),
+            check_dtype=False,
+        )
 
     def test_alumetdata_state_properties(self):
         data = make_alumetdata_stub()

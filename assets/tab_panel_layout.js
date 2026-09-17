@@ -6,15 +6,60 @@ var TAB_PANEL_IDS = {
     "comparative-tab": "comparative-content",
 };
 
+var OVERLAY_HIDDEN = {display: "none"};
+var OVERLAY_VISIBLE = {display: "flex"};
+
+function panelClass(isActive) {
+    return isActive ? "tab-panel-scroll tab-panel-active" : "tab-panel-scroll tab-panel-idle";
+}
+
 function visibleTabPanel() {
-    var ids = Object.keys(TAB_PANEL_IDS);
-    for (var i = 0; i < ids.length; i++) {
-        var el = document.getElementById(TAB_PANEL_IDS[ids[i]]);
-        if (el && el.style.display !== "none") {
-            return el;
+    return document.querySelector(".tab-panel-active");
+}
+
+function panelIsPlaceholder(el) {
+    if (!el || !el.children || !el.children.length) {
+        return true;
+    }
+    for (var i = 0; i < el.children.length; i++) {
+        var cls = String(el.children[i].className || "");
+        if (cls.indexOf("empty-process-specific-content") !== -1) {
+            return true;
+        }
+        if (cls.indexOf("empty-comparative-content") !== -1) {
+            return true;
+        }
+        if (cls.indexOf("empty-time-series-content") !== -1) {
+            return true;
         }
     }
-    return null;
+    return false;
+}
+
+function overlayStyleForTab(tab) {
+    if (tab === "time-series-tab") {
+        return OVERLAY_HIDDEN;
+    }
+    var panel = document.getElementById(TAB_PANEL_IDS[tab]);
+    return panelIsPlaceholder(panel) ? OVERLAY_VISIBLE : OVERLAY_HIDDEN;
+}
+
+function resizePanelGraphs(panel) {
+    if (!panel || !window.Plotly || !window.Plotly.Plots) {
+        return;
+    }
+    var nodes = panel.querySelectorAll(".js-plotly-plot");
+    for (var i = 0; i < nodes.length; i++) {
+        var gd = nodes[i];
+        if (!gd || !gd.offsetWidth || !gd.offsetHeight) {
+            continue;
+        }
+        try {
+            window.Plotly.Plots.resize(gd);
+        } catch (err) {
+            /* Hidden or not-yet-laid-out graphs can throw during prefetch. */
+        }
+    }
 }
 
 function syncTabPanelHeight(activeTab) {
@@ -26,14 +71,7 @@ function syncTabPanelHeight(activeTab) {
     if (area) {
         area.classList.add("tab-area-locked");
     }
-    if (!area || !panel || panel.style.display === "none") {
-        return;
-    }
-
-    var marginTop = parseFloat(window.getComputedStyle(panel).marginTop) || 0;
-    var height = Math.max(0, area.clientHeight - marginTop);
-    panel.style.height = height + "px";
-    panel.style.maxHeight = height + "px";
+    resizePanelGraphs(panel);
 }
 
 function scheduleTabPanelSync(activeTab) {
@@ -45,12 +83,41 @@ function scheduleTabPanelSync(activeTab) {
 window.syncTabPanelHeight = syncTabPanelHeight;
 window.scheduleTabPanelSync = scheduleTabPanelSync;
 
+function requestTabPrefetch() {
+    if (!window.dash_clientside || !window.dash_clientside.set_props) {
+        return;
+    }
+    window.dash_clientside.set_props("tab-prefetch-store", {data: Date.now()});
+}
+
+function bindTabHoverPrefetch() {
+    var tabs = document.getElementById("results-tabs");
+    if (!tabs || window._tabPrefetchBound) {
+        return;
+    }
+    window._tabPrefetchBound = true;
+    tabs.addEventListener("pointerenter", function (event) {
+        var tabEl = event.target.closest("#results-tabs .tab");
+        if (!tabEl || tabEl.classList.contains("tab--selected")) {
+            return;
+        }
+        if (window._tabPrefetchTimer) {
+            clearTimeout(window._tabPrefetchTimer);
+            window._tabPrefetchTimer = null;
+        }
+        requestTabPrefetch();
+    }, true);
+}
+
+window.bindTabHoverPrefetch = bindTabHoverPrefetch;
+
 window.addEventListener("resize", function () {
     syncTabPanelHeight();
 });
 
 if (window.ResizeObserver) {
     window.addEventListener("load", function () {
+        bindTabHoverPrefetch();
         var area = document.getElementById("tab-content-area");
         if (!area) {
             return;
@@ -59,45 +126,27 @@ if (window.ResizeObserver) {
             syncTabPanelHeight();
         }).observe(area);
     });
+} else {
+    window.addEventListener("load", bindTabHoverPrefetch);
 }
 
-window.dash_clientside = Object.assign({}, window.dash_clientside, {
-    tab_panel: {
-        toggleTabPanels: function (tab) {
-            var hidden = {display: "none", marginTop: "4px"};
-            var visible = {
-                display: "flex",
-                flexDirection: "column",
-                marginTop: "4px",
-                minHeight: 0,
-                flex: "1 1 0",
-                overflow: "hidden",
-            };
-            var area = document.getElementById("tab-content-area");
-
-            if (area) {
-                var height = Math.max(0, area.clientHeight - 4);
-                visible.height = height + "px";
-                visible.maxHeight = height + "px";
-            }
-
-            if (window.scheduleTabPanelSync) {
-                window.scheduleTabPanelSync(tab);
-            }
-
-            if (tab === "time-series-tab") {
-                return [visible, hidden, hidden];
-            }
-            if (tab === "process-specific-tab") {
-                return [hidden, visible, hidden];
-            }
-            return [hidden, hidden, visible];
-        },
-        afterTabBuild: function () {
-            if (window.scheduleTabPanelSync) {
-                window.scheduleTabPanelSync();
-            }
-            return Date.now();
-        },
+window.dash_clientside = window.dash_clientside || {};
+window.dash_clientside.tab_panel = Object.assign({}, window.dash_clientside.tab_panel, {
+    toggleTabPanels: function (tab) {
+        if (window.scheduleTabPanelSync) {
+            window.scheduleTabPanelSync(tab);
+        }
+        return [
+            panelClass(tab === "time-series-tab"),
+            panelClass(tab === "process-specific-tab"),
+            panelClass(tab === "comparative-tab"),
+            overlayStyleForTab(tab),
+        ];
+    },
+    afterTabBuild: function (_ts, _ps, _comp, tab) {
+        if (window.scheduleTabPanelSync) {
+            window.scheduleTabPanelSync(tab);
+        }
+        return [Date.now(), overlayStyleForTab(tab)];
     },
 });
