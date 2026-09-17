@@ -12,6 +12,7 @@ from backend.transforms import (
     filter_to_time_range,
     get_process_time_range_from_df,
     normalize_to_si,
+    normalize_to_si_polars,
     align_running_total_xy,
     comparative_cumulative_xy,
     prepare_xy_download,
@@ -86,6 +87,30 @@ class TransformsTests(unittest.TestCase):
             ["active_B", "mem_total_B", "memory_usage_B", "active_B", "unknown_kB"],
         )
         self.assertEqual(out["value"].tolist(), [1024.0, 2048.0, 512.0, 1024.0, 99.0])
+
+    def test_normalize_to_si_polars_matches_pandas(self):
+        import polars as pl
+
+        df = pd.DataFrame(
+            {
+                "metric": [
+                    "nvml_instant_power_mW",
+                    "nvml_energy_consumption_mJ",
+                    "cpu_percent",
+                    "active_kB",
+                    "mem_total_kB",
+                    "memory_usage_B",
+                    "unknown_kB",
+                ],
+                "value": [1000.0, 500.0, 50.0, 1024.0, 2048.0, 512.0, 99.0],
+                "keep": [1, 2, 3, 4, 5, 6, 7],
+            }
+        )
+        pandas_out = normalize_to_si(df)
+        polars_out = normalize_to_si_polars(pl.from_pandas(df)).to_pandas()
+        self.assertEqual(pandas_out["metric"].tolist(), polars_out["metric"].tolist())
+        self.assertEqual(pandas_out["value"].tolist(), polars_out["value"].tolist())
+        self.assertEqual(pandas_out["keep"].tolist(), polars_out["keep"].tolist())
 
     def test_align_xrange_tz_handles_aware_and_naive(self):
         tz = pd.Timestamp("2024-01-01", tz="UTC").tz
