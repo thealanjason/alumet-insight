@@ -439,48 +439,65 @@ def derived_power_base_metric(energy_base_metric: str) -> str:
     return f"{name}_average_power_W"
 
 
+_MEASURED_POWER_COUNTERPARTS = {
+    "nvml_energy": ("nvml_instant_power",),
+    "amd_gpu_energy": ("amd_gpu_power_consumption",),
+    "grace_energy": ("grace_instant_power",),
+}
+
+
+def energy_ids_for_derived_power(available_metric_ids: list[str] | set[str]) -> set[str]:
+    """Return energy series that should be converted with E/Δt.
+
+    Parses each available metric id once. Totals stay as stair-sums of component
+    power; measured watt gauges win over NVML/AMD/Grace energy.
+    """
+    available = {str(metric_id) for metric_id in available_metric_ids}
+    identities = {metric_id: MetricId.parse(metric_id) for metric_id in available}
+    identity_list = list(identities.values())
+    derive: set[str] = set()
+    for metric_id, energy_identity in identities.items():
+        energy_base = energy_identity.base_metric
+        energy_lower = energy_base.lower()
+        if "energy" not in energy_lower and "rapl" not in energy_lower:
+            continue
+        if is_running_total_metric(metric_id):
+            continue
+        if classification_stem(energy_base) in {"attributed_energy_total", "attributed_energy_gpu_total"}:
+            continue
+        derived_id = energy_identity.with_base_metric(derived_power_base_metric(energy_base)).serialized
+        if derived_id in available:
+            continue
+        series_key = energy_identity.series_key
+        vendor_matched = False
+        has_measured = False
+        for energy_pattern, power_patterns in _MEASURED_POWER_COUNTERPARTS.items():
+            if energy_pattern not in energy_lower:
+                continue
+            vendor_matched = True
+            has_measured = any(
+                identity.series_key == series_key
+                and any(power_pattern in identity.base_metric.lower() for power_pattern in power_patterns)
+                for identity in identity_list
+            )
+            break
+        if vendor_matched:
+            if not has_measured:
+                derive.add(metric_id)
+            continue
+        if "rapl" in energy_lower or "attributed_energy" in energy_lower:
+            derive.add(metric_id)
+    return derive
+
+
 def should_derive_power_from_energy(
     energy_metric_id: str,
     available_metric_ids: list[str] | set[str],
 ) -> bool:
     """Prefer measured power gauges when available; otherwise derive from energy."""
-    energy_identity = MetricId.parse(energy_metric_id)
-    energy_base = energy_identity.base_metric
-    energy_lower = energy_base.lower()
-    if "energy" not in energy_lower and "rapl" not in energy_lower:
-        return False
-    if is_running_total_metric(energy_metric_id):
-        return False
-    # Totals are summed from component power stairs. E/Δt on the union timestamp may introduce 
-    # spikes due to the skewed intervals.
-    if classification_stem(energy_base) in {"attributed_energy_total", "attributed_energy_gpu_total"}:
-        return False
-
     available = {str(metric_id) for metric_id in available_metric_ids}
-    available_identities = [MetricId.parse(metric_id) for metric_id in available]
-    derived_id = energy_identity.with_base_metric(derived_power_base_metric(energy_base)).serialized
-    if derived_id in available:
-        return False
-
-    series_key = energy_identity.series_key
-    measured_counterparts = {
-        "nvml_energy": ("nvml_instant_power",),
-        "amd_gpu_energy": ("amd_gpu_power_consumption",),
-        "grace_energy": ("grace_instant_power",),
-    }
-    for energy_pattern, power_patterns in measured_counterparts.items():
-        if energy_pattern not in energy_lower:
-            continue
-        return not any(
-            identity.series_key == series_key
-            and any(power_pattern in identity.base_metric.lower() for power_pattern in power_patterns)
-            for identity in available_identities
-        )
-
-    return (
-        "rapl" in energy_lower
-        or "attributed_energy" in energy_lower
-    )
+    available.add(str(energy_metric_id))
+    return str(energy_metric_id) in energy_ids_for_derived_power(available)
 
 
 # ---------------------------------------------------------------------------
