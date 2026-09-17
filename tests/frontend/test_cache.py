@@ -1,3 +1,4 @@
+import time
 import unittest
 
 import pandas as pd
@@ -9,6 +10,16 @@ from frontend.cache import (
     is_cache_miss,
     load_cached_dataframe,
 )
+
+
+def _wait_for_parquet(cache_id: str, timeout: float = 5.0) -> bool:
+    path = cache_module.CACHE_DIR / f"{cache_id}.parquet"
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return True
+        time.sleep(0.01)
+    return path.exists()
 
 
 class CacheTests(unittest.TestCase):
@@ -55,6 +66,7 @@ class CacheTests(unittest.TestCase):
     def test_load_cached_dataframe_promotes_from_disk_after_memory_clear(self):
         df = pd.DataFrame({"value": [42]})
         cache_id = cache_dataframe(df, prefix="disk")
+        self.assertTrue(_wait_for_parquet(cache_id))
 
         cache_module._MEMORY_CACHE.clear()
         loaded = load_cached_dataframe(cache_id)

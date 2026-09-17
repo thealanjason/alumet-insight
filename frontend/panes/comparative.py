@@ -28,8 +28,14 @@ from frontend.app import app
 from frontend.cache import df_from_store
 from frontend.figures import build_metric_trace_configs
 from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
-from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
-from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, plot_pair_colors
+from frontend.layout import (
+    PLOT_PREPARING_HIDDEN,
+    PLOT_PREPARING_VISIBLE,
+    empty_comparative_content,
+    plot_preparing_overlay,
+    tab_body_action,
+)
+from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, empty_theme_figure, plot_pair_colors
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,20 +94,18 @@ def comparative_timeseries_trace_configs(
     Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    Input("tab-prefetch-store", "data"),
     State("comparative-content", "children"),
+    State("theme-switch", "value"),
 )
-def build_comparative_tab(tab_value, processed_df_data, process_time_range, current_children):
-    triggered_id = ctx.triggered_id
-    is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
-
-    if is_data_trigger and tab_value != "comparative-tab":
+def build_comparative_tab(
+    tab_value, processed_df_data, process_time_range, _prefetch, current_children, use_light_mode
+):
+    action = tab_body_action(ctx.triggered_id, tab_value, "comparative-tab", current_children)
+    if action == "keep":
+        return dash.no_update
+    if action == "empty":
         return empty_comparative_content()
-
-    if triggered_id == "results-tabs":
-        if tab_value != "comparative-tab":
-            return dash.no_update
-        if current_children and not is_empty_tab_placeholder(current_children):
-            return dash.no_update
 
     if not processed_df_data or not process_time_range:
         return empty_comparative_content()
@@ -208,12 +212,16 @@ def build_comparative_tab(tab_value, processed_df_data, process_time_range, curr
                         className="comparative-controls",
                     ),
                     html.Div(
-                        dcc.Graph(
-                            id="ps-xy-graph",
-                            style={"height": "100%", "width": "100%"},
-                            config={"responsive": True, "displaylogo": False},
-                        ),
-                        className="comparative-plot-area",
+                        [
+                            dcc.Graph(
+                                id="ps-xy-graph",
+                                figure=empty_theme_figure(bool(use_light_mode)),
+                                style={"height": "100%", "width": "100%"},
+                                config={"responsive": True, "displaylogo": False},
+                            ),
+                            plot_preparing_overlay("comparative-plot-preparing"),
+                        ],
+                        className="comparative-plot-area plot-area-with-preparing",
                     ),
                     html.Div(
                         [
@@ -275,14 +283,14 @@ def update_comparative_mode_info(x_metric_id, y_metric_id):
     Output("ps-ymetric-dropdown", "options"),
     Output("ps-ymetric-dropdown", "value"),
     Input("comparative-process-only-toggle", "value"),
-    Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    State("results-tabs", "value"),
     State("ps-xmetric-dropdown", "value"),
     State("ps-ymetric-dropdown", "value"),
 )
 def update_comparative_metric_dropdowns(
-    process_only_toggle, tab_value, processed_df_data, process_time_range, cur_x, cur_y
+    process_only_toggle, processed_df_data, process_time_range, tab_value, cur_x, cur_y
 ):
     """Filter comparative X/Y metric lists to process-attributed series when requested."""
     if tab_value != "comparative-tab":
@@ -311,9 +319,16 @@ def update_comparative_metric_dropdowns(
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
     Input("scatter-toggle", "value"),
-    Input("theme-switch", "value"),
+    State("theme-switch", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
+    running=[
+        (
+            Output("comparative-plot-preparing", "style"),
+            PLOT_PREPARING_VISIBLE,
+            PLOT_PREPARING_HIDDEN,
+        ),
+    ],
     prevent_initial_call=True,
 )
 def update_process_xy_plot(

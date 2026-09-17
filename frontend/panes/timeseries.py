@@ -24,7 +24,12 @@ from frontend.figures import (
     update_yaxis_ranges_in_layout,
 )
 from frontend.helpers import available_category_options, ensure_timestamp_datetime, parse_process_time_range_store
-from frontend.layout import empty_time_series_content
+from frontend.layout import (
+    PLOT_PREPARING_HIDDEN,
+    PLOT_PREPARING_VISIBLE,
+    empty_time_series_content,
+    plot_preparing_overlay,
+)
 from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, status_alert_class
 
 
@@ -136,7 +141,11 @@ def build_time_series_tab(processed_df_data, process_time_range):
                         style={"display": "none"},
                     ),
                     html.Div(
-                        id="timeseries-plot-container",
+                        [
+                            html.Div(id="timeseries-plot-container"),
+                            plot_preparing_overlay("timeseries-plot-preparing"),
+                        ],
+                        className="plot-area-with-preparing timeseries-plot-area",
                     ),
                 ],
                 style={"backgroundColor": "var(--app-card-bg)"},
@@ -205,10 +214,17 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
     Output("timeseries-process-legend", "style"),
     Input("metric-category-dropdown", "value"),
     Input("cpu-core-dropdown", "value"),
-    Input("theme-switch", "value"),
+    State("theme-switch", "value"),
     State("shared-yaxis-toggle", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
+    running=[
+        (
+            Output("timeseries-plot-preparing", "style"),
+            PLOT_PREPARING_VISIBLE,
+            PLOT_PREPARING_HIDDEN,
+        ),
+    ],
     prevent_initial_call=True,
 )
 def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode, shared_yaxis_toggle, processed_df_data, process_time_range):

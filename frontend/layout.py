@@ -5,20 +5,35 @@ from typing import Any
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLOR_LOADING
+from frontend.style import status_alert_class, COLOR_PRIMARY, COLOR_DANGER, COLOR_LOADING, empty_theme_figure
 
 LOAD_SOURCE_UPLOAD = "upload"
 LOAD_SOURCE_PATH = "path"
 SOURCE_FILE_HINT = ".csv, .log, and .toml"
-TAB_PANEL_VISIBLE = {
-    "display": "flex",
-    "flexDirection": "column",
-    "marginTop": "4px",
-    "minHeight": 0,
-    "flex": "1 1 0",
-    "overflow": "hidden",
-}
-TAB_PANEL_HIDDEN = {"display": "none", "marginTop": "4px"}
+TAB_PANEL_ACTIVE = "tab-panel-scroll tab-panel-active"
+TAB_PANEL_IDLE = "tab-panel-scroll tab-panel-idle"
+PLOT_PREPARING_HIDDEN = {"display": "none"}
+PLOT_PREPARING_VISIBLE = {"display": "flex"}
+
+
+def plot_preparing_overlay(overlay_id, message: str = "Updating this plot…"):
+    """Cover a plot area while its rebuild callback is in flight.
+
+    The live figure stays mounted underneath so zoom/sync state is not replaced
+    by a dummy chart.
+    """
+    return html.Div(
+        id=overlay_id,
+        className="plot-preparing-overlay",
+        style=PLOT_PREPARING_HIDDEN,
+        children=html.Div(
+            [
+                html.Div(className="tab-preparing-spinner"),
+                html.Span(message, className="tab-preparing-label"),
+            ],
+            className="tab-preparing-inner",
+        ),
+    )
 
 
 def upload_prompt_children():
@@ -67,7 +82,13 @@ def empty_time_series_content():
                         ),
                         id="yaxis-options-container",
                     ),
-                    html.Div(id="timeseries-plot-container"),
+                    html.Div(
+                        [
+                            html.Div(id="timeseries-plot-container"),
+                            plot_preparing_overlay("timeseries-plot-preparing"),
+                        ],
+                        className="plot-area-with-preparing",
+                    ),
                     html.Div(id="timeseries-process-legend", style={"display": "none"}),
                 ],
                 style={"display": "none"},
@@ -105,7 +126,17 @@ def empty_comparative_content(message: str = "No data available. Please load dat
                     dbc.Checklist(id="comparative-process-only-toggle", options=[], value=[]),
                     html.Div(id="comparative-mode-info"),
                     dbc.Checklist(id="scatter-toggle", options=[], value=[]),
-                    dcc.Graph(id="ps-xy-graph"),
+                    html.Div(
+                        [
+                            dcc.Graph(
+                                id="ps-xy-graph",
+                                figure=empty_theme_figure(),
+                                config={"responsive": False},
+                            ),
+                            plot_preparing_overlay("comparative-plot-preparing"),
+                        ],
+                        className="plot-area-with-preparing",
+                    ),
                 ],
                 style={"display": "none"},
             ),
@@ -121,13 +152,59 @@ def empty_comparative_content(message: str = "No data available. Please load dat
 
 def is_empty_tab_placeholder(current_children: Any) -> bool:
     """Detect hidden placeholder content."""
+    names = {
+        "empty-time-series-content",
+        "empty-process-specific-content",
+        "empty-comparative-content",
+    }
     if isinstance(current_children, dict):
-        return current_children.get("props", {}).get("className") in {
-            "empty-time-series-content",
-            "empty-process-specific-content",
-            "empty-comparative-content",
-        }
+        return current_children.get("props", {}).get("className") in names
+    class_name = getattr(current_children, "className", None)
+    if class_name in names:
+        return True
+    props = getattr(current_children, "props", None)
+    if isinstance(props, dict) and props.get("className") in names:
+        return True
     return False
+
+
+def tab_body_action(
+    triggered_id: str | None,
+    active_tab: str | None,
+    this_tab: str,
+    current_children: Any,
+) -> str:
+    """Lazy-build a hidden tab, then keep it until the loaded data changes.
+
+    Returns:
+        ``keep``: leave the current children (``dash.no_update``)
+        ``empty``: drop a stale built body so the next visit rebuilds
+        ``build``: construct the tab from the current stores
+    """
+    placeholder = is_empty_tab_placeholder(current_children)
+    is_data = triggered_id in ("processed-df-store", "process-time-range-store")
+    on_this_tab = active_tab == this_tab
+
+    if is_data and not on_this_tab:
+        if current_children and not placeholder:
+            return "empty"
+        return "keep"
+
+    if triggered_id == "tab-prefetch-store":
+        if placeholder or not current_children:
+            return "build"
+        return "keep"
+
+    if triggered_id == "results-tabs":
+        if not on_this_tab:
+            return "keep"
+        if current_children and not placeholder:
+            return "keep"
+        return "build"
+
+    if not on_this_tab:
+        return "keep"
+    return "build"
 
 
 def create_layout(app):
@@ -344,37 +421,35 @@ def create_layout(app):
                             ),
                             html.Div(
                                 id="tab-content-area",
-                                children=dcc.Loading(
-                                    id="loading-tab-content",
-                                    type="circle",
-                                    color=COLOR_LOADING,
-                                    children=[
-                                        html.Div(
-                                            id="time-series-content",
-                                            children=empty_time_series_content(),
-                                            className="tab-panel-scroll",
-                                            style=TAB_PANEL_VISIBLE,
+                                children=[
+                                    html.Div(
+                                        id="time-series-content",
+                                        children=empty_time_series_content(),
+                                        className=TAB_PANEL_ACTIVE,
+                                    ),
+                                    html.Div(
+                                        id="process-specific-content",
+                                        children=empty_process_specific_content(),
+                                        className=TAB_PANEL_IDLE,
+                                    ),
+                                    html.Div(
+                                        id="comparative-content",
+                                        children=empty_comparative_content(),
+                                        className=TAB_PANEL_IDLE,
+                                    ),
+                                    html.Div(
+                                        id="tab-preparing-overlay",
+                                        className="tab-preparing-overlay",
+                                        style={"display": "none"},
+                                        children=html.Div(
+                                            [
+                                                html.Div(className="tab-preparing-spinner"),
+                                                html.Span("Preparing this view…", className="tab-preparing-label"),
+                                            ],
+                                            className="tab-preparing-inner",
                                         ),
-                                        html.Div(
-                                            id="process-specific-content",
-                                            children=empty_process_specific_content(),
-                                            className="tab-panel-scroll",
-                                            style=TAB_PANEL_HIDDEN,
-                                        ),
-                                        html.Div(
-                                            id="comparative-content",
-                                            children=empty_comparative_content(),
-                                            className="tab-panel-scroll",
-                                            style=TAB_PANEL_HIDDEN,
-                                        ),
-                                    ],
-                                    style={
-                                        "display": "flex",
-                                        "flexDirection": "column",
-                                        "minHeight": "100%",
-                                        "overflow": "visible",
-                                    },
-                                ),
+                                    ),
+                                ],
                             ),
                         ],
                         xs=12,
@@ -392,10 +467,13 @@ def create_layout(app):
             # Hidden stores for data
             dcc.Store(id="upload-relative-paths", data=None),
             dcc.Store(id="processed-df-store", data=None),
-            dcc.Store(id="original-df-store", data=None),
             dcc.Store(id="process-time-range-store", data=None),
             dcc.Store(id="timeseries-filtered-df-store", data=None),
             dcc.Store(id="grid-shared-xrange-store", data=None),
+            # Written when Time Series is idle or another tab is hovered; hidden tabs build from this.
+            dcc.Store(id="tab-prefetch-store", data=None),
+            # Required Output for the idle-timer clientside callback. Nothing reads this value.
+            dcc.Store(id="tab-prefetch-timer-output", data=None),
             # Dummy store: clientside afterTabBuild writes here to re-sync panel height after tab build.
             dcc.Store(id="tab-panel-layout-ts", data=None),
         ],
