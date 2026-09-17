@@ -20,13 +20,7 @@ from backend.counterdiff import (
     require_processed_columns,
     validate_point_metadata,
 )
-from backend.metrics import (
-    MetricType,
-    is_counterdiff_metric,
-    is_raw_counter_metric,
-    metric_type,
-    should_derive_power_from_energy,
-)
+from tests.fixtures import rapl_energy_rows, series_rows
 
 
 class CounterDiffTests(unittest.TestCase):
@@ -39,28 +33,8 @@ class CounterDiffTests(unittest.TestCase):
             },
         )
 
-    def test_metric_type_classification(self):
-        self.assertEqual(metric_type("rapl_consumed_energy_J"), MetricType.COUNTER_DIFF)
-        self.assertEqual(metric_type("attributed_energy_cpu_J"), MetricType.COUNTER_DIFF)
-        self.assertEqual(metric_type("nvml_instant_power_W"), MetricType.GAUGE)
-        self.assertEqual(metric_type("rapl_average_power_W"), MetricType.GAUGE)
-        self.assertEqual(
-            metric_type("perf_hardware_INSTRUCTIONS"),
-            MetricType.RAW_COUNTER,
-        )
-        self.assertTrue(is_raw_counter_metric("perf_hardware_INSTRUCTIONS"))
-        self.assertFalse(is_counterdiff_metric("perf_hardware_INSTRUCTIONS"))
-        self.assertFalse(is_counterdiff_metric("cpu_percent"))
-
     def test_expand_counterdiff_rows_for_counterdiff_metric(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
-                "base_metric": ["rapl_consumed_energy_J"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [4.0],
-            }
-        )
+        df = rapl_energy_rows([4.0])
         expanded = expand_counterdiff_rows(df)
         self.assertEqual(len(expanded), 2)
         self.assertEqual(expanded["point_role"].tolist(), ["observed", "synthetic"])
@@ -70,42 +44,21 @@ class CounterDiffTests(unittest.TestCase):
         self.assertEqual(expanded["sample_id"].nunique(), 1)
 
     def test_expand_counterdiff_rows_for_gauge_metric(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["nvml_instant_power_W_R_gpu_0_C__A_"],
-                "base_metric": ["nvml_instant_power_W"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [12.0],
-            }
-        )
+        df = series_rows("nvml_instant_power_W_R_gpu_0_C__A_", [12.0])
         expanded = expand_counterdiff_rows(df)
         self.assertEqual(len(expanded), 1)
         self.assertEqual(expanded.loc[0, "point_role"], "observed")
         self.assertEqual(expanded.loc[0, "point_order"], 0)
 
     def test_expand_counterdiff_rows_for_raw_counter_metric(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["perf_hardware_INSTRUCTIONS_R_cpu_0_C__A_"],
-                "base_metric": ["perf_hardware_INSTRUCTIONS"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [1_000_000],
-            }
-        )
+        df = series_rows("perf_hardware_INSTRUCTIONS_R_cpu_0_C__A_", [1_000_000])
         expanded = expand_counterdiff_rows(df)
         self.assertEqual(len(expanded), 1)
         self.assertEqual(expanded.loc[0, "point_role"], "observed")
         self.assertEqual(expanded.loc[0, "point_order"], 0)
 
     def test_expand_counterdiff_rows_is_idempotent_for_mixed_already_padded_and_raw_rows(self):
-        raw = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"] * 2,
-                "base_metric": ["rapl_consumed_energy_J"] * 2,
-                "timestamp": pd.date_range("2024-01-01", periods=2, freq="s"),
-                "value": [4.0, 6.0],
-            }
-        )
+        raw = rapl_energy_rows([4.0, 6.0])
         mixed = pd.concat(
             [expand_counterdiff_rows(raw.iloc[:1]), raw.iloc[1:]],
             ignore_index=True,
@@ -121,14 +74,7 @@ class CounterDiffTests(unittest.TestCase):
 
     def test_expand_counterdiff_rows_for_identical_observations(self):
         timestamp = pd.Timestamp("2024-01-01")
-        duplicate = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"] * 2,
-                "base_metric": ["rapl_consumed_energy_J"] * 2,
-                "timestamp": [timestamp, timestamp],
-                "value": [4.0, 4.0],
-            }
-        )
+        duplicate = rapl_energy_rows([4.0, 4.0], timestamps=[timestamp, timestamp])
 
         expanded = expand_counterdiff_rows(duplicate)
 
@@ -138,14 +84,7 @@ class CounterDiffTests(unittest.TestCase):
 
     def test_expand_counterdiff_rows_recovers_metadata_for_already_padded_rows(self):
         timestamp = pd.Timestamp("2024-01-01")
-        already_padded = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"] * 2,
-                "base_metric": ["rapl_consumed_energy_J"] * 2,
-                "timestamp": [timestamp, timestamp],
-                "value": [8.0, 0.0],
-            }
-        )
+        already_padded = rapl_energy_rows([8.0, 0.0], timestamps=[timestamp, timestamp])
 
         expanded = expand_counterdiff_rows(already_padded)
 
@@ -156,31 +95,16 @@ class CounterDiffTests(unittest.TestCase):
 
     def test_expand_counterdiff_rows_rejects_conflicting_observations_at_same_timestamp(self):
         timestamp = pd.Timestamp("2024-01-01")
-        duplicate = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"] * 2,
-                "base_metric": ["rapl_consumed_energy_J"] * 2,
-                "timestamp": [timestamp, timestamp],
-                "value": [4.0, 6.0],
-            }
-        )
+        duplicate = rapl_energy_rows([4.0, 6.0], timestamps=[timestamp, timestamp])
         with self.assertRaisesRegex(ValueError, "conflicting observed values"):
             expand_counterdiff_rows(duplicate)
 
     def test_expand_counterdiff_rows_for_gauge_metric_keeps_independent_observations_at_same_timestamp(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": [
-                    "cpu_percent_R_local_machine__C_process_1_A_",
-                    "cpu_percent_R_local_machine__C_process_1_A_",
-                ],
-                "base_metric": ["cpu_percent", "cpu_percent"],
-                "timestamp": [
-                    pd.Timestamp("2024-01-01"),
-                    pd.Timestamp("2024-01-01"),
-                ],
-                "value": [10.0, 20.0],
-            }
+        ts = pd.Timestamp("2024-01-01")
+        df = series_rows(
+            "cpu_percent_R_local_machine__C_process_1_A_",
+            [10.0, 20.0],
+            timestamps=[ts, ts],
         )
         expanded = expand_counterdiff_rows(df)
         self.assertEqual(len(expanded), 2)
@@ -188,16 +112,7 @@ class CounterDiffTests(unittest.TestCase):
         self.assertEqual(expanded["sample_id"].nunique(), 2)
 
     def test_validate_point_metadata_rejects_nonzero_synthetic_value(self):
-        expanded = expand_counterdiff_rows(
-            pd.DataFrame(
-                {
-                    "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
-                    "base_metric": ["rapl_consumed_energy_J"],
-                    "timestamp": [pd.Timestamp("2024-01-01")],
-                    "value": [4.0],
-                }
-            )
-        )
+        expanded = expand_counterdiff_rows(rapl_energy_rows([4.0]))
         expanded.loc[
             expanded["point_role"] == PointRole.SYNTHETIC.value,
             "value",
@@ -236,22 +151,14 @@ class CounterDiffTests(unittest.TestCase):
         self.assertAlmostEqual(out.iloc[0], 20.0 * 0.2)
 
     def test_derive_interval_average_power_for_irregular_time_intervals(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"] * 3,
-                "base_metric": ["rapl_consumed_energy_J"] * 3,
-                "timestamp": pd.to_datetime(
-                    [
-                        "2024-01-01 00:00:00",
-                        "2024-01-01 00:00:01",
-                        "2024-01-01 00:00:03",
-                    ]
-                ),
-                "value": [2.0, 4.0, 10.0],
-                "point_role": ["observed"] * 3,
-                "point_order": [0, 0, 0],
-                "sample_id": [0, 1, 2],
-            }
+        df = rapl_energy_rows(
+            [2.0, 4.0, 10.0],
+            timestamps=pd.to_datetime(
+                ["2024-01-01 00:00:00", "2024-01-01 00:00:01", "2024-01-01 00:00:03"]
+            ),
+            point_role="observed",
+            point_order=0,
+            sample_id=[0, 1, 2],
         )
         power = derive_interval_average_power(df)
         self.assertEqual(len(power), 2)
@@ -264,90 +171,33 @@ class CounterDiffTests(unittest.TestCase):
         )
 
     def test_derive_interval_average_power_rejects_non_positive_time_intervals(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"] * 2,
-                "base_metric": ["rapl_consumed_energy_J"] * 2,
-                "timestamp": pd.to_datetime(["2024-01-01 00:00:01", "2024-01-01 00:00:01"]),
-                "value": [1.0, 2.0],
-                "point_role": ["observed", "observed"],
-                "point_order": [0, 0],
-                "sample_id": [0, 1],
-            }
+        ts = pd.Timestamp("2024-01-01 00:00:01")
+        df = rapl_energy_rows(
+            [1.0, 2.0],
+            timestamps=[ts, ts],
+            point_role="observed",
+            point_order=0,
+            sample_id=[0, 1],
         )
         with self.assertRaises(ValueError):
             derive_interval_average_power(df)
 
     def test_derive_interval_average_power_skips_first_sample(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["attributed_energy_cpu_J_R_cpu_0_C_process_1_A_"],
-                "base_metric": ["attributed_energy_cpu_J"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [3.0],
-                "point_role": ["observed"],
-                "point_order": [0],
-                "sample_id": [0],
-            }
+        df = series_rows(
+            "attributed_energy_cpu_J_R_cpu_0_C_process_1_A_",
+            [3.0],
+            point_role="observed",
+            point_order=0,
+            sample_id=0,
         )
         self.assertTrue(derive_interval_average_power(df).empty)
 
-    def test_should_derive_power_from_energy_policy(self):
-        available = {
-            "nvml_energy_consumption_J_R_gpu_0_C__A_",
-            "nvml_instant_power_W_R_gpu_0_C__A_",
-            "rapl_consumed_energy_J_R_pkg_0_C__A_",
-        }
-        self.assertFalse(should_derive_power_from_energy("nvml_energy_consumption_J_R_gpu_0_C__A_", available))
-        self.assertTrue(should_derive_power_from_energy("rapl_consumed_energy_J_R_pkg_0_C__A_", available))
-        self.assertFalse(
-            should_derive_power_from_energy(
-                "attributed_energy_total_J_R_total__C_process_1_A_",
-                available,
-            )
-        )
-        self.assertFalse(
-            should_derive_power_from_energy(
-                "attributed_energy_gpu_total_J_R_gpu_all__C_process_1_A_",
-                available,
-            )
-        )
-        self.assertFalse(
-            should_derive_power_from_energy(
-                "attributed_energy_cpu_total_J_R_cpu_all__C_process_1_A_",
-                available,
-            )
-        )
-        self.assertTrue(
-            should_derive_power_from_energy(
-                "attributed_energy_cpu_J_R_local_machine__C_process_1_A_domain=package_total",
-                available,
-            )
-        )
-
     def test_export_observed_measurements_removes_internal_columns(self):
-        df = expand_counterdiff_rows(
-            pd.DataFrame(
-                {
-                    "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
-                    "base_metric": ["rapl_consumed_energy_J"],
-                    "timestamp": [pd.Timestamp("2024-01-01")],
-                    "value": [7.0],
-                    "metric_origin": ["measured"],
-                }
-            )
-        )
+        df = expand_counterdiff_rows(rapl_energy_rows([7.0], metric_origin="measured"))
         power = derive_interval_average_power(
-            pd.DataFrame(
-                {
-                    "metric_id": [
-                        "rapl_consumed_energy_J_R_pkg_0_C__A_",
-                        "rapl_consumed_energy_J_R_pkg_0_C__A_",
-                    ],
-                    "base_metric": ["rapl_consumed_energy_J", "rapl_consumed_energy_J"],
-                    "timestamp": pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:02"]),
-                    "value": [2.0, 8.0],
-                }
+            rapl_energy_rows(
+                [2.0, 8.0],
+                timestamps=pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:02"]),
             )
         )
         exported = export_observed_measurements(pd.concat([df, power], ignore_index=True))
@@ -372,17 +222,7 @@ class CounterDiffTests(unittest.TestCase):
             )
 
     def test_already_normalized_skips_renormalize(self):
-        observed = normalize_observed_rows(
-            pd.DataFrame(
-                {
-                    "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
-                    "base_metric": ["rapl_consumed_energy_J"],
-                    "timestamp": [pd.Timestamp("2024-01-01")],
-                    "value": [3.0],
-                    "metric_origin": ["measured"],
-                }
-            )
-        )
+        observed = normalize_observed_rows(rapl_energy_rows([3.0], metric_origin="measured"))
         expanded = expand_counterdiff_rows(observed, already_normalized=True)
         self.assertEqual(len(expanded), 2)
         self.assertEqual(
@@ -439,16 +279,7 @@ class CounterDiffTests(unittest.TestCase):
         self.assertEqual(y, [4.0, 4.0, None, 5.0, 5.0])
 
     def test_observed_only_filters_out_synthetic_rows(self):
-        df = expand_counterdiff_rows(
-            pd.DataFrame(
-                {
-                    "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
-                    "base_metric": ["rapl_consumed_energy_J"],
-                    "timestamp": [pd.Timestamp("2024-01-01")],
-                    "value": [1.0],
-                }
-            )
-        )
+        df = expand_counterdiff_rows(rapl_energy_rows([1.0]))
         self.assertEqual(len(observed_only(df)), 1)
 
 

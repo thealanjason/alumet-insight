@@ -16,7 +16,13 @@ from backend.categories import (
 from backend.metrics import is_memory_metric
 from backend.transforms import align_xrange_tz, compute_yaxis_ranges, filter_to_time_range, get_time_range_from_df
 from frontend.app import app
-from frontend.cache import cache_dataframe, df_from_store, load_cached_dataframe
+from frontend.cache import (
+    cache_dataframe,
+    cache_id_from_store,
+    delete_cached_dataframe,
+    df_from_store,
+    load_cached_dataframe,
+)
 from frontend.figures import (
     create_all_timeseries_plots,
     relayout_requests_reset,
@@ -25,7 +31,13 @@ from frontend.figures import (
 )
 from frontend.helpers import available_category_options, ensure_timestamp_datetime, parse_process_time_range_store
 from frontend.layout import empty_time_series_content
-from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, status_alert_class
+from frontend.style import (
+    CARD_STYLE,
+    DROPDOWN_STYLE,
+    apply_figure_theme,
+    device_class_key,
+    status_alert_class,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -37,8 +49,9 @@ from frontend.style import CARD_STYLE, DROPDOWN_STYLE, apply_figure_theme, statu
     Output("time-series-content", "children"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    State("theme-switch", "value"),
 )
-def build_time_series_tab(processed_df_data, process_time_range):
+def build_time_series_tab(processed_df_data, process_time_range, use_light_mode):
     if not processed_df_data:
         return empty_time_series_content()
 
@@ -127,10 +140,10 @@ def build_time_series_tab(processed_df_data, process_time_range):
                         className="time-series-controls",
                     ),
                     html.Div(
-                        [
-                            html.Span(className="timeseries-process-legend-swatch"),
-                            html.Span("Process Active"),
-                        ],
+                        device_class_key(
+                            include_process_active=True,
+                            use_light_mode=bool(use_light_mode),
+                        ),
                         id="timeseries-process-legend",
                         className="timeseries-process-legend",
                         style={"display": "none"},
@@ -186,6 +199,15 @@ def update_cpu_core_selector(selected_category, processed_df_data):
 
 
 @app.callback(
+    Output("timeseries-process-legend", "children"),
+    Input("theme-switch", "value"),
+    prevent_initial_call=True,
+)
+def update_timeseries_device_key(use_light_mode):
+    return device_class_key(include_process_active=True, use_light_mode=bool(use_light_mode))
+
+
+@app.callback(
     Output("yaxis-options-container", "style"),
     Output("shared-yaxis-toggle", "value"),
     Input("metric-category-dropdown", "value"),
@@ -209,16 +231,28 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
     State("shared-yaxis-toggle", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
+    State("timeseries-filtered-df-store", "data"),
     prevent_initial_call=True,
 )
-def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode, shared_yaxis_toggle, processed_df_data, process_time_range):
+def update_timeseries_plot(
+    selected_category,
+    selected_cpu_core,
+    use_light_mode,
+    shared_yaxis_toggle,
+    processed_df_data,
+    process_time_range,
+    previous_filtered_store,
+):
     legend_hidden = {"display": "none"}
     legend_visible = {"display": "flex"}
+    previous_filtered_id = cache_id_from_store(previous_filtered_store)
 
     if not processed_df_data:
+        delete_cached_dataframe(previous_filtered_id)
         return dbc.Alert("No data available.", color="warning", className=status_alert_class("warning")), None, legend_hidden
 
     if not selected_category:
+        delete_cached_dataframe(previous_filtered_id)
         return dbc.Alert("Please select a metric category.", color="warning", className=status_alert_class("warning")), None, legend_hidden
 
     df_processed = df_from_store(processed_df_data)
@@ -228,6 +262,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
 
     if selected_category == "kernel_cpu_time":
         if not selected_cpu_core:
+            delete_cached_dataframe(previous_filtered_id)
             return (
                 dbc.Alert(
                     "Please select a CPU core to display kernel CPU time metrics.",
@@ -245,6 +280,7 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     )
 
     if df_filtered.empty:
+        delete_cached_dataframe(previous_filtered_id)
         return dbc.Alert("No data available for the selected category.", color="warning", className=status_alert_class("warning")), None, legend_hidden
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
@@ -282,6 +318,8 @@ def update_timeseries_plot(selected_category, selected_cpu_core, use_light_mode,
     ]
     df_for_store = df_for_store[keep_cols]
     filtered_cache_id = cache_dataframe(df_for_store, prefix="ts_filtered") if not df_for_store.empty else None
+    if previous_filtered_id and previous_filtered_id != filtered_cache_id:
+        delete_cached_dataframe(previous_filtered_id)
     filtered_df_json = {
         "cache_id": filtered_cache_id,
         "metric_order": metric_order,

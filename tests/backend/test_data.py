@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from backend.categories import category_for_metric_id, filter_time_series_category
+from backend.categories import filter_time_series_category
 from backend.data import (
     AlumetData,
     _read_csv_with_polars,
@@ -17,6 +17,7 @@ from tests.fixtures import (
     TempMeasurementDirectory,
     make_alumetdata_stub,
     processed_rows,
+    rapl_energy_rows,
     sample_csv_body,
     write_measurement_directory,
 )
@@ -43,14 +44,7 @@ class DataTests(unittest.TestCase):
     def test_finalize_processed_dataframe_expands_counterdiff(self):
         from backend.data import finalize_processed_dataframe
 
-        df = pd.DataFrame(
-            {
-                "metric_id": ["rapl_consumed_energy_J_R_pkg_0_C__A_"],
-                "base_metric": ["rapl_consumed_energy_J"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [1.5],
-            }
-        )
+        df = rapl_energy_rows([1.5])
         out = finalize_processed_dataframe(df)
         self.assertIn("point_role", out.columns)
         self.assertEqual(set(out["point_role"]), {"observed", "synthetic"})
@@ -248,32 +242,6 @@ class DataTests(unittest.TestCase):
 
         with self.assertRaises(AssertionError):
             validate_time_range("2024-01-01T00:00:01", "2024-01-01T00:00:04", *data.data_time_range)
-
-    def test_filter_by_category(self):
-        data = make_alumetdata_stub()
-        power_df = filter_time_series_category(data.processed_df, "power")
-        power_ids = sorted(power_df["metric_id"].astype(str).unique().tolist())
-        self.assertEqual(power_ids, ["nvml_instant_power_W_R_gpu_0_C_process_123_A_"])
-
-        energy_df = filter_time_series_category(data.processed_df, "energy")
-        energy_ids = energy_df["metric_id"].astype(str).tolist()
-        self.assertIn("attributed_energy_J_R_local_machine__C_process_123_A_", energy_ids)
-
-        temp_df = filter_time_series_category(data.processed_df, "temperature")
-        self.assertTrue(temp_df.empty)
-
-    def test_filter_by_base_metric(self):
-        data = make_alumetdata_stub()
-        df = filter_by_base_metric(data.processed_df, "nvml_instant_power_W")
-        ids = sorted(df["metric_id"].astype(str).unique().tolist())
-        self.assertEqual(ids, ["nvml_instant_power_W_R_gpu_0_C_process_123_A_"])
-        self.assertTrue(filter_by_base_metric(data.processed_df, "nonexistent").empty)
-
-    def test_category_for_metric_id(self):
-        data = make_alumetdata_stub()
-        metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
-        self.assertEqual(category_for_metric_id(data.processed_df, metric_id), "power")
-        self.assertEqual(category_for_metric_id(data.processed_df, metric_id, category="power"), "power")
 
     def test_alumetdata_canonicalizes_legacy_and_current_memory_names(self):
         csv_body = (

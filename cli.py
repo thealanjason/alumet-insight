@@ -42,16 +42,17 @@ workflows:
   find metric IDs     --list-metric-ids [--category CAT] [--metric-name NAME] [--limit N]
   one series          --export-csv|figures OUT_DIR --metric-id ID
   compare pair        --export-csv|figures OUT_DIR --metric-id ID_X --compare-metric-id ID_Y [--scatter]
-                      --scatter with --export-figures for aligned interval X vs Y
+                      --scatter for nearest-aligned interval X vs Y (figures and/or CSV)
                       files: <out>/<measurement>/comparative/csv/ and comparative/plots/
   whole category      --export-csv|figures OUT_DIR [--category CAT]
   time window         --start-time / --end-time on exports
   process window      --process-specific
 
 By default, without additional specified arguments, export all series (For figures, one file per series; for CSV, one file per category).
-Comparative analysis requires an explicit pair. CSV and figures match the Comparative
-tab (Download CSV / current plot). Interval-delta pairs are running totals;
-power/gauges stay a dual-axis time series.
+Comparative analysis requires an explicit pair. Pair CSV matches the Comparative
+plot: dual-axis keeps both traces (NaN where one side has no sample); cumulative
+X-Y is union + forward-fill running totals; --scatter is nearest-aligned pairs.
+Column names are the metric IDs with unit as the suffix).
 """
 
 TIMESTAMP_ARG_HELP = (
@@ -103,8 +104,8 @@ def _validate_args(parser: argparse.ArgumentParser, args: argparse.Namespace, da
                 )
             except ValueError as exc:
                 parser.error(str(exc))
-        if getattr(args, "scatter", False) and not args.export_figures:
-            parser.error("--scatter is only valid with --export-figures.")
+        if getattr(args, "scatter", False) and not (args.export_csv or args.export_figures):
+            parser.error("--scatter requires --export-csv and/or --export-figures.")
 
     if args.metric_name and args.metric_name not in data.metrics:
         parser.error(
@@ -255,8 +256,8 @@ def main(argv: list[str] | None = None) -> None:
         "--scatter",
         action="store_true",
         help=(
-            "With --compare-metric-id and --export-figures, plot nearest-aligned interval "
-            "X-Y scatter instead of the default cumulative X-Y or dual-axis figure"
+            "With --compare-metric-id, use nearest-aligned interval X-Y for "
+            "--export-figures and/or --export-csv instead of the default plot"
         ),
     )
 
@@ -292,6 +293,7 @@ def main(argv: list[str] | None = None) -> None:
                 process_specific=args.process_specific,
                 start_time=args.start_time,
                 end_time=args.end_time,
+                scatter=args.scatter,
             )
             print(
                 f"Comparative mode: {comparative_mode(args.metric_id, args.compare_metric_id)}. "
