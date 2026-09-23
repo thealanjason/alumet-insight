@@ -121,20 +121,28 @@ def _posted_at(df: pd.DataFrame) -> dict[int, float]:
     return posted
 
 
-def _ffill_at(running: pd.DataFrame, timestamp) -> float:
-    """Value of a running-total series at t: last sample at or before t, else 0."""
+def _interp_at(running: pd.DataFrame, timestamp) -> float:
+    """Linear running total at t. 0 before the first sample, hold after the last."""
     if running.empty:
         return 0.0
     target = _timestamp_ns(timestamp)
     ns = _timestamps_ns(running["timestamp"]).to_numpy()
     vals = running["value"].to_numpy(dtype="float64")
-    order = np.argsort(ns)
+    order = np.argsort(ns, kind="mergesort")
     ns = ns[order]
     vals = vals[order]
-    idx = int(np.searchsorted(ns, target, side="right") - 1)
-    if idx < 0:
-        return 0.0
-    return float(vals[idx])
+    if len(ns) == 1:
+        return 0.0 if target < int(ns[0]) else float(vals[0])
+    origin = int(ns[0])
+    return float(
+        np.interp(
+            float(target - origin),
+            (ns - origin).astype("float64"),
+            vals,
+            left=0.0,
+            right=float(vals[-1]),
+        )
+    )
 
 
 def _power_covering(power: pd.DataFrame, timestamp) -> float:
@@ -219,14 +227,14 @@ def _cumsum_interp(df: pd.DataFrame, timeline: pd.DatetimeIndex) -> pd.Series:
 
 
 def _cumsum_ffill_total(cpu: pd.DataFrame, gpu: pd.DataFrame) -> pd.DataFrame:
-    """Production oracle: cumsum, ffill, add, diff."""
+    """Per-stamp union: missing device contributes 0. Not the derived total."""
     timeline = _union_clocks(cpu, gpu)
     cumulative_J = _cumsum_ffill(cpu, timeline) + _cumsum_ffill(gpu, timeline)
     return _align_frame(timeline, cumulative_J)
 
 
 def _cumsum_interp_total(cpu: pd.DataFrame, gpu: pd.DataFrame) -> pd.DataFrame:
-    """Rejected conserving oracle: cumsum, interpolate, add, diff."""
+    """Derived total: cumsum, time-interpolate, add, diff."""
     timeline = _union_clocks(cpu, gpu)
     cumulative_J = _cumsum_interp(cpu, timeline) + _cumsum_interp(gpu, timeline)
     return _align_frame(timeline, cumulative_J)
@@ -287,14 +295,17 @@ class _SynthesisAssertions(unittest.TestCase):
             f"{label}: timestamps",
         )
 
-    def _assert_matches_cumsum_ffill(
+    def _assert_matches_cumsum_interp(
         self, production: pd.DataFrame, cpu: pd.DataFrame, gpu: pd.DataFrame, *, label: str
     ) -> None:
-        expected = _cumsum_ffill_total(cpu, gpu)
+        expected = _cumsum_interp_total(cpu, gpu)
         production = production.sort_values("timestamp").reset_index(drop=True)
         self._assert_same_clocks(production["timestamp"], expected["timestamp"], label=label)
         self._assert_close_floats(
-            production["value"].tolist(), expected["interval_J"].tolist(), label=f"{label} interval_J"
+            production["value"].tolist(),
+            expected["interval_J"].tolist(),
+            label=f"{label} interval_J",
+            places=5,
         )
 
     def _assert_cumulative_is_cumsum(self, energy: pd.DataFrame, cumulative: pd.DataFrame, *, label: str) -> None:
@@ -412,7 +423,6 @@ class _SynthesisAssertions(unittest.TestCase):
         total_power = _observed_metric_for_consumer(observed, "attributed_power_total_W", consumer)
 
         gpu_sum = float(gpu["value"].sum()) if not gpu.empty else 0.0
-        gpu_posted = _posted_at(gpu)
         if not gpu.empty:
             self.assertAlmostEqual(float(gpu_total["value"].sum()), gpu_sum, msg=f"{consumer}: gpu_total sum")
             self._assert_cumulative_is_cumsum(gpu_total, gpu_total_cum, label=f"{consumer} gpu_total")
@@ -422,12 +432,6 @@ class _SynthesisAssertions(unittest.TestCase):
                 [self._series_power(observed, str(energy_id)) for energy_id in gpu["metric_id"].astype(str).unique()],
                 label=f"{consumer} gpu_total",
             )
-            for row in gpu_total.itertuples(index=False):
-                self.assertAlmostEqual(
-                    float(row.value),
-                    gpu_posted.get(_timestamp_ns(row.timestamp), 0.0),
-                    msg=f"{consumer}: gpu_total {row.value} != posted GPUs at {row.timestamp}",
-                )
             if gpu["metric_id"].nunique() == 1:
                 gpu_sorted = gpu.sort_values("timestamp").reset_index(drop=True)
                 self._assert_same_clocks(
@@ -438,13 +442,13 @@ class _SynthesisAssertions(unittest.TestCase):
                 )
             for row in gpu_total_cum.itertuples(index=False):
                 expected = sum(
-                    _ffill_at(self._series_running_total(gpu_cum, str(energy_id)), row.timestamp)
+                    _interp_at(self._series_running_total(gpu_cum, str(energy_id)), row.timestamp)
                     for energy_id in gpu["metric_id"].astype(str).unique()
                 )
                 self.assertAlmostEqual(
                     float(row.value),
                     expected,
-                    msg=f"{consumer}: gpu_total cumulative != sum of ffill per-GPU running totals at {row.timestamp}",
+                    msg=f"{consumer}: gpu_total cumulative != interpolated per-GPU running totals at {row.timestamp}",
                 )
         if not cpu.empty:
             self._assert_series_energy_identities(cpu, cpu_cum, observed, label=f"{consumer} cpu")
@@ -467,30 +471,17 @@ class _SynthesisAssertions(unittest.TestCase):
             label=f"{consumer} process total",
         )
 
-        cpu_posted = _posted_at(cpu_for_total)
-        for row in total.itertuples(index=False):
-            t = _timestamp_ns(row.timestamp)
-            expected_delta = cpu_posted.get(t, 0.0) + gpu_posted.get(t, 0.0)
-            self.assertAlmostEqual(
-                float(row.value),
-                expected_delta,
-                msg=(
-                    f"{consumer}: total {row.value} J != posted CPU {cpu_posted.get(t, 0.0)} J "
-                    f"+ posted GPU {gpu_posted.get(t, 0.0)} J at {row.timestamp}"
-                ),
-            )
-
         cpu_summed = (
             cpu_for_total.groupby("timestamp", as_index=False, sort=False)["value"].sum().sort_values("timestamp")
         )
         cpu_summed_cum = cpu_summed.copy()
         cpu_summed_cum["value"] = cpu_summed["value"].astype(float).cumsum()
         for row in total_cum.itertuples(index=False):
-            expected = _ffill_at(cpu_summed_cum, row.timestamp) + _ffill_at(gpu_total_cum, row.timestamp)
+            expected = _interp_at(cpu_summed_cum, row.timestamp) + _interp_at(gpu_total_cum, row.timestamp)
             self.assertAlmostEqual(
                 float(row.value),
                 expected,
-                msg=f"{consumer}: cumulative total != ffill(CPU C)+ffill(gpu_total C) at {row.timestamp}",
+                msg=f"{consumer}: cumulative total != interp(CPU C)+interp(gpu_total C) at {row.timestamp}",
             )
 
 
@@ -523,7 +514,7 @@ class EnergyTotalTests(_SynthesisAssertions):
         synthetic = observed_only(synthesize_attributed_energy_total(gpu_only))
         self.assertEqual(set(synthetic["base_metric"]), {"attributed_energy_gpu_total_J"})
 
-    def test_offset_clocks_are_cumsum_ffill_not_cumsum_interp(self):
+    def test_offset_clocks_are_cumsum_interp_not_cumsum_ffill(self):
         df = _process_energy(
             ["2024-01-01 00:00:00", "2024-01-01 00:00:02"],
             [1.0, 3.0],
@@ -534,12 +525,12 @@ class EnergyTotalTests(_SynthesisAssertions):
         self._assert_energy_conservation(processed)
         totals = _observed_metric(processed, "attributed_energy_total_J")
         cpu, gpu = _cpu_gpu_frames(df)
-        self._assert_matches_cumsum_ffill(totals, cpu, gpu, label="toy")
-        self.assertEqual(totals["value"].tolist(), TOY_CUMSUM_FFILL_INTERVAL_J)
-        self.assertNotEqual(totals["value"].tolist(), TOY_CUMSUM_INTERP_INTERVAL_J)
+        self._assert_matches_cumsum_interp(totals, cpu, gpu, label="toy")
+        self.assertEqual(totals["value"].tolist(), TOY_CUMSUM_INTERP_INTERVAL_J)
+        self.assertNotEqual(totals["value"].tolist(), TOY_CUMSUM_FFILL_INTERVAL_J)
         self.assertEqual(
             _observed_metric(processed, "attributed_energy_total_cumulative_J")["value"].tolist(),
-            TOY_CUMSUM_FFILL_CUMULATIVE_J,
+            TOY_CUMSUM_INTERP_CUMULATIVE_J,
         )
 
     def test_synthetic_counterdiff_zeros_do_not_enter_gpu_total(self):
@@ -620,11 +611,11 @@ class EnergyTotalTests(_SynthesisAssertions):
         self._assert_energy_conservation(processed)
         self.assertEqual(
             _observed_metric_for_consumer(processed, "attributed_energy_total_J", "process_11")["value"].tolist(),
-            [1.0, 10.0, 3.0],
+            [1.0, 11.5, 1.5],
         )
         self.assertEqual(
             _observed_metric_for_consumer(processed, "attributed_energy_total_J", "process_22")["value"].tolist(),
-            [100.0, 1000.0, 300.0],
+            [100.0, 1150.0, 150.0],
         )
         self.assertAlmostEqual(
             float(
@@ -697,8 +688,8 @@ class EnergyTotalTests(_SynthesisAssertions):
         first = _observed_metric(processed, "attributed_energy_total_J")
         again = synthesize_attributed_energy_total(observed_only(processed))
         second = _observed_metric(again, "attributed_energy_total_J")
-        self.assertEqual(first["value"].tolist(), TOY_CUMSUM_FFILL_INTERVAL_J)
-        self.assertEqual(second["value"].tolist(), TOY_CUMSUM_FFILL_INTERVAL_J)
+        self.assertEqual(first["value"].tolist(), TOY_CUMSUM_INTERP_INTERVAL_J)
+        self.assertEqual(second["value"].tolist(), TOY_CUMSUM_INTERP_INTERVAL_J)
         self.assertAlmostEqual(float(_observed_metric(again, "attributed_energy_gpu_total_J")["value"].sum()), 2.0)
 
     def test_running_totals_are_per_series_cumsum_gauges(self):
@@ -832,7 +823,8 @@ class PowerTests(_SynthesisAssertions):
         self.assertAlmostEqual(union_dt_s, 60e-6)
         energy_at_gpu = _observed_metric(processed, "attributed_energy_total_J")
         energy_at_gpu = energy_at_gpu.loc[energy_at_gpu["timestamp"].map(_timestamp_ns) == gpu_first]
-        self.assertAlmostEqual(float(energy_at_gpu["value"].iloc[0]), 0.2)
+        # GPU's 0.2 J plus the slice of the open CPU interval up to this stamp.
+        self.assertAlmostEqual(float(energy_at_gpu["value"].iloc[0]), 0.2 + 0.1 * (60e-6 / 0.05), places=6)
         false_union_power = float(energy_at_gpu["value"].iloc[0]) / union_dt_s
         self.assertGreater(false_union_power, 1000.0)
         self.assertLess(float(power_rows["value"].max()), 10.0)
@@ -959,18 +951,21 @@ class AttributionPolicyTests(_SynthesisAssertions):
 
 
 class CumsumAlignTests(_SynthesisAssertions):
-    """Independent oracles: cumsum_ffill (production), cumsum_interp, sawtooth_height."""
+    """Independent oracles: cumsum_interp (production), cumsum_ffill, sawtooth_height."""
 
-    def test_toy_cumsum_ffill_matches_production(self):
+    def test_toy_cumsum_interp_matches_production(self):
         cpu, gpu = _toy_cpu_gpu()
-        oracle = _cumsum_ffill_total(cpu, gpu)
-        self.assertEqual(oracle["interval_J"].tolist(), TOY_CUMSUM_FFILL_INTERVAL_J)
-        self.assertEqual(oracle["cumulative_J"].tolist(), TOY_CUMSUM_FFILL_CUMULATIVE_J)
+        oracle = _cumsum_interp_total(cpu, gpu)
+        rejected = _cumsum_ffill_total(cpu, gpu)
+        self.assertEqual(oracle["interval_J"].tolist(), TOY_CUMSUM_INTERP_INTERVAL_J)
+        self.assertEqual(oracle["cumulative_J"].tolist(), TOY_CUMSUM_INTERP_CUMULATIVE_J)
+        self.assertEqual(rejected["interval_J"].tolist(), TOY_CUMSUM_FFILL_INTERVAL_J)
         production = _observed_metric(
             synthesize_attributed_energy_total(_process_energy(cpu["timestamp"], cpu["value"], gpu["timestamp"], gpu["value"])),
             "attributed_energy_total_J",
         )
-        self._assert_matches_cumsum_ffill(production, cpu, gpu, label="toy cumsum_ffill")
+        self._assert_matches_cumsum_interp(production, cpu, gpu, label="toy cumsum_interp")
+        self.assertNotEqual(production["value"].tolist(), rejected["interval_J"].tolist())
 
     def test_toy_cumsum_interp_splits_the_open_cpu_interval(self):
         cpu, gpu = _toy_cpu_gpu()
@@ -1000,19 +995,21 @@ class CumsumAlignTests(_SynthesisAssertions):
         self.assertTrue(cpu["timestamp"].iloc[0] < gpu["timestamp"].iloc[0] < cpu["timestamp"].iloc[1])
         self.assertTrue(cpu["timestamp"].iloc[4] < gpu["timestamp"].iloc[1] < cpu["timestamp"].iloc[5])
 
-    def test_excerpt_production_is_cumsum_ffill(self):
+    def test_excerpt_production_is_cumsum_interp(self):
         excerpt = topo_uncertain_attributed_energy_excerpt()
         cpu, gpu = _cpu_gpu_frames(excerpt)
-        oracle = _cumsum_ffill_total(cpu, gpu)
-        cpu_posted = _posted_at(cpu)
-        gpu_posted = _posted_at(gpu)
-        for row in oracle.itertuples(index=False):
-            t = _timestamp_ns(row.timestamp)
-            self.assertAlmostEqual(float(row.interval_J), cpu_posted.get(t, 0.0) + gpu_posted.get(t, 0.0))
+        oracle = _cumsum_interp_total(cpu, gpu)
+        posted = _cumsum_ffill_total(cpu, gpu)
         production = _observed_metric(synthesize_attributed_energy_total(excerpt), "attributed_energy_total_J")
-        self._assert_matches_cumsum_ffill(production, cpu, gpu, label="excerpt cumsum_ffill")
+        self._assert_matches_cumsum_interp(production, cpu, gpu, label="excerpt cumsum_interp")
+        self.assertAlmostEqual(float(production["value"].sum()), float(cpu["value"].sum() + gpu["value"].sum()))
+        self.assertGreater(
+            abs(float(production["value"].iloc[1]) - float(posted["interval_J"].iloc[1])),
+            1e-6,
+        )
         processed = synthesize_derived_metrics(excerpt)
         self._assert_energy_conservation(processed)
+        self.assertAlmostEqual(float(oracle["interval_J"].sum()), float(production["value"].sum()))
 
     def test_excerpt_cumsum_interp_splits_open_intervals(self):
         cpu, gpu = _cpu_gpu_frames(topo_uncertain_attributed_energy_excerpt())
@@ -1040,6 +1037,12 @@ class CumsumAlignTests(_SynthesisAssertions):
         ffill = _cumsum_ffill_total(cpu, gpu)
         interp = _cumsum_interp_total(cpu, gpu)
         posted_J = float(cpu["value"].sum() + gpu["value"].sum())
+        cpu_posted = _posted_at(cpu)
+        gpu_posted = _posted_at(gpu)
+        for row in ffill.itertuples(index=False):
+            t = _timestamp_ns(row.timestamp)
+            self.assertAlmostEqual(float(row.interval_J), cpu_posted.get(t, 0.0) + gpu_posted.get(t, 0.0))
+        self.assertNotAlmostEqual(float(interp["interval_J"].iloc[1]), float(ffill["interval_J"].iloc[1]))
         self.assertAlmostEqual(float(ffill["interval_J"].sum()), posted_J)
         self.assertAlmostEqual(float(interp["interval_J"].sum()), posted_J)
         self.assertAlmostEqual(float(ffill["cumulative_J"].iloc[-1]), posted_J)

@@ -85,11 +85,12 @@ def _running_total_on_timeline(
     value_name: str,
 ) -> pd.Series:
     """
-    Forward-fill a CounterDiff series' running total onto a shared timeline.
+    Linearly interpolate a CounterDiff series' running total onto a shared timeline.
 
-    Each original sample is counted once: cumsum on the series' own timestamps,
-    then hold until the next sample. Before the first sample the total is 0.
-    After the last sample the total holds.
+    Cumsum stays on the series' own timestamps. Between two samples the running
+    total moves in proportion to elapsed time. Before the first sample it is 0.
+    After the last sample it holds. This is only for derived totals: the raw
+    CPU and GPU CounterDiff rows are left unchanged.
     """
     if df_metric.empty:
         return pd.Series(0.0, index=timeline, name=value_name, dtype="float64")
@@ -104,8 +105,17 @@ def _running_total_on_timeline(
     running = ordered["value"].to_numpy(dtype="float64").cumsum()
     src_ns = _datetime_ns(ordered["timestamp"])
     tgt_ns = _datetime_ns(timeline)
-    last_src = np.searchsorted(src_ns, tgt_ns, side="right") - 1
-    aligned = np.where(last_src >= 0, running[np.maximum(last_src, 0)], 0.0)
+    if len(src_ns) == 1:
+        aligned = np.where(tgt_ns < src_ns[0], 0.0, running[0])
+    else:
+        origin = int(src_ns[0])
+        aligned = np.interp(
+            (tgt_ns - origin).astype("float64"),
+            (src_ns - origin).astype("float64"),
+            running,
+            left=0.0,
+            right=float(running[-1]),
+        )
     return pd.Series(aligned, index=timeline, name=value_name, dtype="float64")
 
 
@@ -160,12 +170,12 @@ def _union_timeline(frames: list[pd.DataFrame]) -> pd.DatetimeIndex:
 
 def _aligned_counterdiff(frames: list[pd.DataFrame]) -> pd.DataFrame:
     """
-    Combine CounterDiff energy series without double-counting joules.
+    Combine CounterDiff energy series into one derived interval series.
 
-    Accumulate each series on its own timestamps, forward-fill those running
-    totals onto the union timeline, add them, then difference so the result
-    is still interval-delta CounterDiff. A device contributes new joules only
-    at its own samples.
+    Accumulate each series on its own timestamps, linearly interpolate those
+    running totals onto the union timeline, add them, then difference. The
+    summed joules match the raw series. A total sample on the union may not
+    required to equal the raw CPU plus raw GPU posted at that same stamp.
     """
     nonempty = [frame for frame in frames if frame is not None and not frame.empty]
     if not nonempty:
@@ -192,7 +202,7 @@ def _build_cpu_gpu_total_rows(
     *,
     consumer: str,
 ) -> pd.DataFrame:
-    """Accumulate CPU/GPU energy, forward-fill running totals, emit interval-delta totals."""
+    """Accumulate CPU/GPU energy, interpolate running totals, emit interval-delta totals."""
     total_pid = _aligned_counterdiff([cpu_pid, gpu_pid])
     if total_pid.empty:
         return total_pid
@@ -224,10 +234,11 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
     1. `attributed_energy_gpu_total_J`: sum of attributed GPU energy across GPUs per pid.
     2. `attributed_energy_total_J`: package_total-attributed CPU + GPU total per pid.
 
-    CPU+GPU and multi-GPU totals accumulate each series first, forward-fill
-    those running totals onto the union of their clocks, add, and difference.
-    Per-device power is E/dt on that device's own samples; total power is the
-    sum of those stairs, not E_total/dt on the union.
+    CPU+GPU and multi-GPU totals accumulate each series first, linearly
+    interpolate those running totals onto the union of their clocks, add, and
+    difference. Raw per-device CounterDiff rows are not rewritten. Per-device
+    power is E/dt on that device's own samples; total power is the sum of
+    those stairs, not E_total/dt on the union.
     """
     observed = observed_only(df_processed)
     if observed.empty:
@@ -580,7 +591,7 @@ def synthesize_running_totals(df_processed: pd.DataFrame) -> pd.DataFrame:
 def synthesize_derived_metrics(df_processed: pd.DataFrame) -> pd.DataFrame:
     """Append attributed energy totals, derived power, and running totals.
 
-    Energy totals (cumsum_ffill): cumsum each device, ffill C onto the union, add, diff.
+    Energy totals (cumsum_interp): cumsum each device, interpolate C onto the union, add, diff.
     Per-device power: E/t on that device's own poll interval (skip the first sample).
     Total power: sum of those stairs, not E_total/t on the union timeline.
     """
