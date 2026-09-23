@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 import pandas as pd
+import polars as pl
 
 from backend.counterdiff import observed_only
 from backend.formatting import get_bytes_tickvals_ticktext
@@ -30,6 +31,50 @@ _SI_RESCALE: dict[str, tuple[float, str]] = {
 # (alumet#348 / #352). CSV then appended _kB. Relabel without scaling to fix the bug manually here so that older Alumet versions can show the correct scale.
 _LEGACY_MEMORY_SUFFIX = "_kB"
 _CANONICAL_MEMORY_SUFFIX = "_B"
+
+
+def _replace_metric_suffix(col: str, from_suffix: str, to_suffix: str) -> pl.Expr:
+    suffix_len = len(from_suffix)
+    return pl.concat_str(
+        [
+            pl.col(col).str.slice(0, pl.col(col).str.len_chars() - suffix_len),
+            pl.lit(to_suffix),
+        ]
+    )
+
+
+def normalize_to_si_polars(df: pl.DataFrame, col: str = "metric") -> pl.DataFrame:
+    """Polars equivalent of ``normalize_to_si``; used on the load path to avoid a pandas round-trip."""
+    if df.is_empty() or col not in df.columns or "value" not in df.columns:
+        return df
+
+    out = df.with_columns(pl.col(col).cast(pl.Utf8))
+    for from_suffix, (factor, to_suffix) in _SI_RESCALE.items():
+        ends = pl.col(col).str.ends_with(from_suffix)
+        out = out.with_columns(
+            pl.when(ends).then(pl.col("value") * factor).otherwise(pl.col("value")).alias("value"),
+            pl.when(ends)
+            .then(_replace_metric_suffix(col, from_suffix, to_suffix))
+            .otherwise(pl.col(col))
+            .alias(col),
+        )
+
+    kb_names = (
+        out.filter(pl.col(col).str.ends_with(_LEGACY_MEMORY_SUFFIX))
+        .get_column(col)
+        .unique()
+        .drop_nulls()
+        .to_list()
+    )
+    relabel = [name for name in kb_names if classification_stem(name) in MEMORY_BYTE_STEMS]
+    if relabel:
+        out = out.with_columns(
+            pl.when(pl.col(col).is_in(relabel))
+            .then(_replace_metric_suffix(col, _LEGACY_MEMORY_SUFFIX, _CANONICAL_MEMORY_SUFFIX))
+            .otherwise(pl.col(col))
+            .alias(col)
+        )
+    return out
 
 
 def normalize_to_si(df: pd.DataFrame, col: str = "metric") -> pd.DataFrame:

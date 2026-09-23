@@ -176,16 +176,18 @@ def process_active_fill(use_light_mode: bool = False) -> str:
     return "rgba(62, 107, 143, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"
 
 
-def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
-    """Apply the dashboard theme colors to Plotly figures."""
-    theme = {
-        "paper": "#ffffff",
-        "plot": "#f7f8fa",
-        "font": "#1f2937",
-        "grid": "rgba(31, 41, 55, 0.12)",
-        "legend": "rgba(255, 255, 255, 0.92)",
-        "legend_font": "#000000",
-    } if use_light_mode else {
+def figure_color_theme(use_light_mode: bool = False) -> dict[str, str]:
+    """Plotly paper, plot, font, grid, and legend colors for the active theme."""
+    if use_light_mode:
+        return {
+            "paper": "#ffffff",
+            "plot": "#f7f8fa",
+            "font": "#1f2937",
+            "grid": "rgba(31, 41, 55, 0.12)",
+            "legend": "rgba(255, 255, 255, 0.92)",
+            "legend_font": "#000000",
+        }
+    return {
         "paper": "#252c3e",
         "plot": "#1e2433",
         "font": "#ECEFF4",
@@ -193,6 +195,11 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
         "legend": "rgba(37, 44, 62, 0.88)",
         "legend_font": "#ffffff",
     }
+
+
+def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
+    """Apply the dashboard theme colors to Plotly figures."""
+    theme = figure_color_theme(use_light_mode)
     fig.update_layout(
         paper_bgcolor=theme["paper"],
         plot_bgcolor=theme["plot"],
@@ -203,6 +210,15 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
     if fig.layout.legend:
         fig.update_layout(legend=dict(bgcolor=theme["legend"], font=dict(color=theme["legend_font"])))
     return fig
+
+
+def empty_theme_figure(use_light_mode: bool = False, title: str = "") -> go.Figure:
+    """Placeholder figure that matches the dashboard instead of Plotly's white default."""
+    fig = go.Figure()
+    fig.update_layout(margin=dict(l=70, r=70, t=60, b=60), autosize=True)
+    if title:
+        fig.update_layout(title=dict(text=title, x=0.5))
+    return apply_figure_theme(fig, use_light_mode)
 
 def set_plotly_rgba(color: str, alpha: float = 0.15) -> str:
     """Convert a Plotly color string to an rgba fill with the given alpha."""
