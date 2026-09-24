@@ -121,6 +121,56 @@ def catalog_rows() -> pd.DataFrame:
     )
 
 
+def topo_uncertain_attributed_energy_excerpt() -> pd.DataFrame:
+    """Portion of ``08_topo_uncertain`` pid 348709 from ``telemetry.csv``."""
+    pid = "348709"
+    cpu_id = (
+        f"attributed_energy_cpu_J_R_local_machine__C_process_{pid}_A_"
+        "domain=package_total,kind=total"
+    )
+    gpu_id = f"attributed_energy_gpu_J_R_gpu_00000000:DA:00.0_C_process_{pid}_A_"
+    cpu = pd.DataFrame(
+        {
+            "metric_id": cpu_id,
+            "base_metric": "attributed_energy_cpu_J",
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-08-12T07:38:41.521805677+00:00",
+                    "2026-08-12T07:38:41.571801401+00:00",
+                    "2026-08-12T07:38:41.621834363+00:00",
+                    "2026-08-12T07:38:41.671805685+00:00",
+                    "2026-08-12T07:38:41.721921996+00:00",
+                    "2026-08-12T07:38:41.771879375+00:00",
+                ],
+                utc=True,
+            ),
+            "value": [
+                0.3357942769126448,
+                0.3411973664103457,
+                0.3917730120202903,
+                0.3690473834505192,
+                0.2969768882915118,
+                0.3309508364915824,
+            ],
+        }
+    )
+    gpu = pd.DataFrame(
+        {
+            "metric_id": gpu_id,
+            "base_metric": "attributed_energy_gpu_J",
+            "timestamp": pd.to_datetime(
+                [
+                    "2026-08-12T07:38:41.538850855+00:00",
+                    "2026-08-12T07:38:41.739024252+00:00",
+                ],
+                utc=True,
+            ),
+            "value": [0.16616, 0.16567],
+        }
+    )
+    return pd.concat([cpu, gpu], ignore_index=True)
+
+
 def attributed_energy_source_rows() -> pd.DataFrame:
     """CPU + two GPUs at one timestamp; combined observed total is 6 J."""
     return concat_series(

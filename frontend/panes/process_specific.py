@@ -111,6 +111,17 @@ def unique_nonempty(series: pd.Series) -> list[str]:
     return sorted(str_series[mask].unique())
 
 
+def _pick_filter_value(value: Optional[str], options: list[str], *, reset: bool = False) -> Optional[str]:
+    """Keep a user choice if it is still valid; otherwise auto-select a unique option."""
+    if reset:
+        return None
+    if value in options:
+        return value
+    if len(options) == 1:
+        return options[0]
+    return None
+
+
 def normalize_filter_columns(dfm: pd.DataFrame) -> pd.DataFrame:
     """Add normalized filter columns rk, rid, ck, cid, la."""
     dfm = dfm.copy()
@@ -125,6 +136,19 @@ def normalize_filter_columns(dfm: pd.DataFrame) -> pd.DataFrame:
     return dfm
 
 
+FILTER_DROPDOWN_TO_KEY = {dropdown: key for key, _, dropdown, _ in FILTER_SPECS}
+FILTER_KIND_CHILD = {"rk": "rid", "ck": "cid"}
+# Option lists stay kind-scoped so sibling IDs remain switchable. Kind and Attr
+# lists are global; R.ID follows R.Kind and C.ID follows R.Kind + C.Kind.
+FILTER_OPTION_PARENTS = {
+    "rk": (),
+    "rid": ("rk",),
+    "ck": (),
+    "cid": ("rk", "ck"),
+    "la": (),
+}
+
+
 def cascade_filter_options(
     dfm: pd.DataFrame,
     rk: Optional[str],
@@ -134,42 +158,62 @@ def cascade_filter_options(
     la: Optional[str],
     triggered_id: Optional[str] = None,
 ) -> dict:
-    """Compute cascaded filter options from resources/consumers/late attributes."""
-    rk_opts = unique_nonempty(dfm["rk"])
-    rk_eff = rk if rk in rk_opts else (rk_opts[0] if len(rk_opts) == 1 else None)
-    df1 = dfm if rk_eff is None else dfm[dfm["rk"] == rk_eff]
+    """Faceted filters: R.Kind, R.ID, C.Kind, C.ID, and Attr are siblings.
 
-    rid_opts = unique_nonempty(df1["rid"])
-    if triggered_id == "resource-kind-dropdown":
-        rid_eff = None
-    else:
-        rid_eff = rid if rid in rid_opts else (rid_opts[0] if len(rid_opts) == 1 else None)
-    df2 = df1 if rid_eff is None else df1[df1["rid"] == rid_eff]
+    Dropdowns stay visible when that dimension has more than one value on the
+    metric. Option lists are not filtered by sibling IDs, so a selected GPU/PID
+    pair does not lock the other dropdown. An incompatible sibling is cleared
+    (or uniquely auto-filled) instead.
+    """
+    user = {"rk": rk, "rid": rid, "ck": ck, "cid": cid, "la": la}
+    opts_all = {key: unique_nonempty(dfm[key]) for key in FILTER_KEYS}
+    triggered_key = FILTER_DROPDOWN_TO_KEY.get(triggered_id) if triggered_id else None
+    reset_keys: set[str] = set()
+    if triggered_key in FILTER_KIND_CHILD:
+        reset_keys.add(FILTER_KIND_CHILD[triggered_key])
 
-    ck_opts = unique_nonempty(df2["ck"])
-    ck_eff = ck if ck in ck_opts else (ck_opts[0] if len(ck_opts) == 1 else None)
-    df3 = df2 if ck_eff is None else df2[df2["ck"] == ck_eff]
+    eff = {
+        key: _pick_filter_value(user[key], opts_all[key], reset=key in reset_keys)
+        for key in FILTER_KEYS
+    }
 
-    cid_opts = unique_nonempty(df3["cid"])
-    if triggered_id == "consumer-kind-dropdown":
-        cid_eff = None
-    else:
-        cid_eff = cid if cid in cid_opts else (cid_opts[0] if len(cid_opts) == 1 else None)
-    df4 = df3 if cid_eff is None else df3[df3["cid"] == cid_eff]
+    remaining = dfm
+    if triggered_key and eff[triggered_key] is not None:
+        remaining = remaining[remaining[triggered_key] == eff[triggered_key]]
 
-    la_opts = unique_nonempty(df4["la"])
-    if triggered_id in ("resource-kind-dropdown", "resource-id-dropdown",
-                        "consumer-kind-dropdown", "consumer-id-dropdown"):
-        la_eff = None
-    else:
-        la_eff = la if la in la_opts else None
+    for key in FILTER_KEYS:
+        if key == triggered_key or key in reset_keys:
+            continue
+        value = eff[key]
+        if value is not None and bool((remaining[key] == value).any()):
+            remaining = remaining[remaining[key] == value]
+        elif value is not None:
+            eff[key] = None
+
+    for key in FILTER_KEYS:
+        if key in reset_keys or eff[key] is not None:
+            continue
+        choices = unique_nonempty(remaining[key])
+        if len(choices) == 1:
+            eff[key] = choices[0]
+            remaining = remaining[remaining[key] == choices[0]]
+
+    def options_for(key: str) -> list[str]:
+        mask = pd.Series(True, index=dfm.index)
+        for parent in FILTER_OPTION_PARENTS[key]:
+            parent_eff = eff[parent]
+            if parent_eff is None:
+                continue
+            mask &= dfm[parent] == parent_eff
+        return unique_nonempty(dfm.loc[mask, key])
 
     return {
-        "rk": {"options": rk_opts, "effective": rk_eff},
-        "rid": {"options": rid_opts, "effective": rid_eff},
-        "ck": {"options": ck_opts, "effective": ck_eff},
-        "cid": {"options": cid_opts, "effective": cid_eff},
-        "la": {"options": la_opts, "effective": la_eff},
+        key: {
+            "options": options_for(key),
+            "effective": eff[key],
+            "show": len(opts_all[key]) > 1,
+        }
+        for key in FILTER_KEYS
     }
 
 
@@ -183,23 +227,11 @@ def filter_single_series(
 ) -> tuple[pd.DataFrame, dict]:
     """Apply cascading filters and return (filtered_df, cascade_info)."""
     cascade = cascade_filter_options(dfm, rk, rid, ck, cid, la)
-    rk_eff = cascade["rk"]["effective"]
-    rid_eff = cascade["rid"]["effective"]
-    ck_eff = cascade["ck"]["effective"]
-    cid_eff = cascade["cid"]["effective"]
-    la_eff = cascade["la"]["effective"]
-
     df = dfm
-    if rk_eff is not None:
-        df = df[df["rk"] == rk_eff]
-    if rid_eff is not None:
-        df = df[df["rid"] == rid_eff]
-    if ck_eff is not None:
-        df = df[df["ck"] == ck_eff]
-    if cid_eff is not None:
-        df = df[df["cid"] == cid_eff]
-    if la_eff is not None:
-        df = df[df["la"] == la_eff]
+    for key in FILTER_KEYS:
+        effective = cascade[key]["effective"]
+        if effective is not None:
+            df = df[df[key] == effective]
     return df, cascade
 
 
@@ -256,11 +288,12 @@ def build_filter_callback_response(cascade: dict) -> tuple:
     for key in FILTER_KEYS:
         opts = cascade[key]["options"]
         eff = cascade[key]["effective"]
-        style = STYLE_FILTER_SLOT_VISIBLE if len(opts) > 1 else STYLE_HIDDEN
+        show = cascade[key].get("show", len(opts) > 1)
+        style = STYLE_FILTER_SLOT_VISIBLE if show else STYLE_HIDDEN
         options = [{"label": value, "value": value} for value in opts]
         slot_outputs.extend([style, options, eff])
 
-    any_visible = any(len(cascade[key]["options"]) > 1 for key in FILTER_KEYS)
+    any_visible = any(cascade[key].get("show", len(cascade[key]["options"]) > 1) for key in FILTER_KEYS)
     filters_row_style = STYLE_VISIBLE if any_visible else STYLE_HIDDEN
     return (filters_row_style, *slot_outputs)
 
@@ -717,7 +750,8 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
         missing = [
             FILTER_LABEL_MAP[key]
             for key in FILTER_KEYS
-            if len(cascade[key]["options"]) > 1 and cascade[key]["effective"] is None
+            if cascade[key].get("show", len(cascade[key]["options"]) > 1)
+            and cascade[key]["effective"] is None
         ]
 
         message = "Please complete selections: " + (", ".join(missing) if missing else "more filters")
