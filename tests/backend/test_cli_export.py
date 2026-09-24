@@ -13,7 +13,17 @@ from backend.cli_export import (
     summary,
 )
 from backend.counterdiff import expand_counterdiff_rows
-from tests.fixtures import make_alumetdata_stub
+from tests.fixtures import (
+    CPU_ENERGY_ID,
+    DOWNLOAD_CPU_TOTAL,
+    DOWNLOAD_GPU_TOTAL,
+    GPU_ENERGY_ID,
+    NVML_POWER_ID,
+    RAPL_ENERGY_ID,
+    download_cpu_gpu_energy_rows,
+    make_alumetdata_stub,
+    rapl_energy_rows,
+)
 
 
 class CliExportTests(unittest.TestCase):
@@ -23,23 +33,24 @@ class CliExportTests(unittest.TestCase):
         self.assertIn("Base metrics", result)
         self.assertIn("Next Steps", result)
         self.assertIn("--list-metric-ids", result)
+        self.assertIn("--compare-metric-id", result)
 
     def test_summary_not_include_raw_metric_ids(self):
         data = make_alumetdata_stub()
         result = summary(data)
-        self.assertNotIn("nvml_instant_power_W_R_gpu_0_C_process_123_A_", result)
+        self.assertNotIn(NVML_POWER_ID, result)
 
     def test_build_metric_id_listing_all(self):
         data = make_alumetdata_stub()
         result = build_metric_id_listing(data)
         self.assertIn("All metric IDs", result)
-        self.assertIn("nvml_instant_power_W_R_gpu_0_C_process_123_A_", result)
+        self.assertIn(NVML_POWER_ID, result)
 
     def test_build_metric_id_listing_by_category(self):
         data = make_alumetdata_stub()
         result = build_metric_id_listing(data, category="power")
         self.assertIn("Metric IDs in category: power", result)
-        self.assertIn("nvml_instant_power_W_R_gpu_0_C_process_123_A_", result)
+        self.assertIn(NVML_POWER_ID, result)
 
     def test_build_metric_id_listing_by_metric_name(self):
         data = make_alumetdata_stub()
@@ -55,35 +66,26 @@ class CliExportTests(unittest.TestCase):
 
     def test_export_csvs_single_metric_id(self):
         data = make_alumetdata_stub()
-        metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        metric_id = NVML_POWER_ID
         with tempfile.TemporaryDirectory() as tmp:
             created = export_csvs(data, Path(tmp), metric_id=metric_id)
             self.assertEqual(len(created), 1)
             self.assertEqual(created[0].parent.name, "csv")
             exported = pd.read_csv(created[0])
             self.assertEqual(exported["metric_id"].unique().tolist(), [metric_id])
-            self.assertEqual(exported["unit"].unique().tolist(), ["W"])
+            self.assertNotIn("unit", exported.columns)
 
     def test_export_csvs_single_metric_id_under_matching_category(self):
         data = make_alumetdata_stub()
-        metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        metric_id = NVML_POWER_ID
         with tempfile.TemporaryDirectory() as tmp:
             created = export_csvs(data, Path(tmp), category="power", metric_id=metric_id)
             self.assertEqual(len(created), 1)
             self.assertEqual(created[0].parent.parent.name, "power")
 
     def test_export_csvs_counterdiff_is_measurement_faithful(self):
-        metric_id = "rapl_consumed_energy_J_R_pkg_0_C__A_"
-        processed = expand_counterdiff_rows(
-            pd.DataFrame(
-                {
-                    "metric_id": [metric_id],
-                    "base_metric": ["rapl_consumed_energy_J"],
-                    "timestamp": [pd.Timestamp("2024-01-01")],
-                    "value": [7.0],
-                }
-            )
-        )
+        metric_id = RAPL_ENERGY_ID
+        processed = expand_counterdiff_rows(rapl_energy_rows([7.0]))
         data = make_alumetdata_stub(processed_df=processed)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,7 +97,7 @@ class CliExportTests(unittest.TestCase):
 
     def test_export_csvs_rejects_metric_id_category_mismatch(self):
         data = make_alumetdata_stub()
-        metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        metric_id = NVML_POWER_ID
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(ValueError, "is not in category 'energy'"):
                 export_csvs(data, Path(tmp), category="energy", metric_id=metric_id)
@@ -111,31 +113,17 @@ class CliExportTests(unittest.TestCase):
 
     def test_export_figures_single_metric_id(self):
         data = make_alumetdata_stub()
-        metric_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        metric_id = NVML_POWER_ID
         with tempfile.TemporaryDirectory() as tmp:
             created = export_figures(data, Path(tmp), metric_id=metric_id)
             self.assertEqual(len(created), 1)
             self.assertTrue(created[0].exists())
 
-    def test_summary_mentions_compare_pair(self):
-        data = make_alumetdata_stub()
-        self.assertIn("--compare-metric-id", summary(data))
-
     def _energy_pair_stub(self):
-        cpu_id = "attributed_energy_cpu_J_R_cpu_0_C_process_123_A_"
-        gpu_id = "attributed_energy_gpu_J_R_gpu_0_C_process_123_A_"
-        ts_cpu = pd.date_range("2024-01-01", periods=4, freq="s")
-        ts_gpu = pd.date_range("2024-01-01", periods=2, freq="2s")
-        processed = pd.DataFrame(
-            {
-                "metric_id": [cpu_id] * 4 + [gpu_id] * 2,
-                "base_metric": ["attributed_energy_cpu_J"] * 4 + ["attributed_energy_gpu_J"] * 2,
-                "timestamp": list(ts_cpu) + list(ts_gpu),
-                "value": [1.0, 1.0, 1.0, 1.0, 10.0, 20.0],
-                "consumer_kind": ["process"] * 6,
-            }
+        processed = download_cpu_gpu_energy_rows()
+        return CPU_ENERGY_ID, GPU_ENERGY_ID, make_alumetdata_stub(
+            processed_df=processed, source_df=processed
         )
-        return cpu_id, gpu_id, make_alumetdata_stub(processed_df=processed, source_df=processed)
 
     def test_export_comparative_csv_matches_dashboard_download(self):
         from backend.transforms import comparative_download_table
@@ -150,13 +138,12 @@ class CliExportTests(unittest.TestCase):
             table = pd.read_csv(created[0])
             self.assertIn(cpu_id, table.columns)
             self.assertIn(gpu_id, table.columns)
-            self.assertIn("x_unit", table.columns)
-            self.assertIn("y_unit", table.columns)
+            self.assertNotIn("x_unit", table.columns)
+            self.assertNotIn("y_unit", table.columns)
             self.assertNotIn(f"{cpu_id}_cumsum", table.columns)
-            self.assertAlmostEqual(float(table[cpu_id].iloc[-1]), 4.0)
-            self.assertAlmostEqual(float(table[gpu_id].iloc[-1]), 30.0)
+            self.assertAlmostEqual(float(table[cpu_id].iloc[-1]), DOWNLOAD_CPU_TOTAL)
+            self.assertAlmostEqual(float(table[gpu_id].iloc[-1]), DOWNLOAD_GPU_TOTAL)
             self.assertEqual(list(table.columns), list(expected.columns))
-            self.assertAlmostEqual(float(expected[cpu_id].iloc[-1]), 4.0)
 
     def test_export_comparative_figure_and_scatter(self):
         cpu_id, gpu_id, data = self._energy_pair_stub()
@@ -171,6 +158,25 @@ class CliExportTests(unittest.TestCase):
             self.assertTrue(scatter[0].stem.endswith("_scatter"))
             self.assertEqual(cumulative[0].parent.name, "plots")
             self.assertEqual(cumulative[0].parent.parent.name, "comparative")
+
+    def test_comparative_figure_locks_equal_aspect_for_same_unit_xy(self):
+        import matplotlib.pyplot as plt
+
+        from backend.figures import _apply_equal_xy_scale
+
+        fig, ax = plt.subplots()
+        _apply_equal_xy_scale(
+            ax,
+            [0.0, 162.0],
+            [0.0, 110.0],
+            CPU_ENERGY_ID,
+            GPU_ENERGY_ID,
+            include_zero=True,
+        )
+        self.assertEqual(ax.get_xlim(), ax.get_ylim())
+        self.assertEqual(ax.get_xlim()[0], 0.0)
+        self.assertEqual(ax.get_aspect(), 1.0)
+        plt.close(fig)
 
 
 if __name__ == "__main__":

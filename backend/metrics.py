@@ -614,6 +614,12 @@ def get_metric_unit(metric_name: str) -> str:
     return ""
 
 
+def same_physical_xy_unit(x_metric_id: str, y_metric_id: str) -> bool:
+    """True when both series have the same non-empty physical unit."""
+    x_unit = get_metric_unit(x_metric_id)
+    return bool(x_unit) and x_unit == get_metric_unit(y_metric_id)
+
+
 def is_memory_metric(metric_name: str) -> bool:
     """
     Return whether this metric is a byte-valued memory gauge.
@@ -624,23 +630,123 @@ def is_memory_metric(metric_name: str) -> bool:
     return memory_kind(metric_name) is not None
 
 
-def attach_unit_column(df: pd.DataFrame, source_col: str | None = None) -> pd.DataFrame:
-    """
-    Add a `unit` column inferred from the metric name.
+class DeviceClass(StrEnum):
+    """Device scope for dashboard labels; orthogonal to energy/power categories."""
 
-    Used by CSV exports so downstream analysis does not have to parse suffixes.
-    """
-    out = df.copy()
-    if "unit" in out.columns:
-        return out
-    if source_col is None:
-        source_col = next((column for column in ("base_metric", "metric", "metric_id") if column in out.columns), None)
-    if source_col is None:
-        return out
+    CPU = "cpu"
+    GPU = "gpu"
+    TOTAL = "total"
+    OTHER = "other"
 
-    units = out[source_col].map(get_metric_unit)
-    if "value" in out.columns:
-        out.insert(list(out.columns).index("value") + 1, "unit", units)
-    else:
-        out["unit"] = units
-    return out
+
+DEVICE_CLASS_LABELS: dict[DeviceClass, str] = {
+    DeviceClass.CPU: "CPU",
+    DeviceClass.GPU: "GPU",
+    DeviceClass.TOTAL: "Total",
+    DeviceClass.OTHER: "Other",
+}
+
+_GPU_NAME_PREFIXES: tuple[str, ...] = ("nvml_", "amd_gpu_")
+_CPU_NAME_PREFIXES: tuple[str, ...] = ("rapl_", "perf_")
+
+# Host RAM reported by the AMD GPU plugin (not VRAM).
+_HOST_RAM_GPU_PLUGIN_STEMS: frozenset[str] = frozenset(
+    {
+        "amd_gpu_process_memory_usage_cpu",
+        "amd_gpu_process_memory_usage_gtt",
+    }
+)
+
+# Grace Hopper hwmon ``sensor=`` tags from the Alumet plugin / NVIDIA rails.
+# cpu/grace/dram are the host socket; module is the GH superchip (CPU+GPU+HBM);
+# sysio is the SoC I/O rail. ``*_total`` is the same rail summed across sockets.
+_GRACE_CPU_SENSORS: frozenset[str] = frozenset(
+    {"cpu", "cpu_total", "grace", "grace_total", "dram", "dram_total"}
+)
+_GRACE_TOTAL_SENSORS: frozenset[str] = frozenset({"module", "module_total"})
+_GRACE_OTHER_SENSORS: frozenset[str] = frozenset({"sysio", "sysio_total"})
+
+
+def _device_class_stem(metric_id: str) -> str:
+    stem = classification_stem(base_metric_from_id(metric_id))
+    if stem.endswith(_RUNNING_TOTAL_STEM_SUFFIX):
+        return stem[: -len(_RUNNING_TOTAL_STEM_SUFFIX)]
+    return stem
+
+
+def _late_attr(metric_id: str, key: str) -> str | None:
+    """Return a ``key=value`` late attribute, lowercased, if present on the metric id."""
+    blob = MetricId.parse(metric_id).late_attributes or ""
+    prefix = f"{key}="
+    for token in blob.replace(";", ",").split(","):
+        token = token.strip()
+        if token.lower().startswith(prefix):
+            return token.split("=", 1)[1].strip().lower()
+    return None
+
+
+def _grace_device_class(metric_id: str) -> DeviceClass | None:
+    """Map Grace Hopper ``sensor=`` tags. Unknown/missing tags fall through."""
+    sensor = _late_attr(metric_id, "sensor")
+    if sensor in _GRACE_CPU_SENSORS:
+        return DeviceClass.CPU
+    if sensor in _GRACE_TOTAL_SENSORS:
+        return DeviceClass.TOTAL
+    if sensor in _GRACE_OTHER_SENSORS:
+        return DeviceClass.OTHER
+    return None
+
+
+def device_class(metric_id: str) -> DeviceClass:
+    """Classify a series by the hardware.
+
+    GPU is a discrete accelerator (NVIDIA NVML / AMD SMI, attributed GPU
+    energy, GPU VRAM). On-package Intel iGPU (RAPL ``pp1``) stays CPU: it
+    is a RAPL domain of the CPU package, not a CUDA/ROCm device.
+
+    CPU is the host package: every RAPL domain (package, pp0, pp1/iGPU,
+    DRAM, platform/psys), host RAM, CPU time, perf, Grace CPU rails.
+    
+    Total is combined CPU+GPU (``attributed_*_total``, or Grace Hopper
+    module power). Other is everything else (network, disk, wattmetre,
+    kernel OS counters, Jetson INA rails).
+    """
+    stem = _device_class_stem(metric_id)
+
+    if stem in _HOST_RAM_GPU_PLUGIN_STEMS:
+        return DeviceClass.CPU
+
+    kind = memory_kind(metric_id)
+    if kind == "gpu":
+        return DeviceClass.GPU
+    if kind in {"system", "process"}:
+        return DeviceClass.CPU
+
+    if stem in {"attributed_energy_total", "attributed_power_total"}:
+        return DeviceClass.TOTAL
+
+    if stem.startswith("grace_"):
+        grace_class = _grace_device_class(metric_id)
+        if grace_class is not None:
+            return grace_class
+
+    if "_gpu" in stem or stem.startswith(_GPU_NAME_PREFIXES):
+        return DeviceClass.GPU
+    if "_cpu" in stem or stem.startswith("cpu_") or stem.startswith(_CPU_NAME_PREFIXES):
+        return DeviceClass.CPU
+
+    resource = (MetricId.parse(metric_id).resource or "").lower()
+    if resource.startswith("gpu"):
+        return DeviceClass.GPU
+    if resource.startswith(("cpu", "pkg", "package", "dram")):
+        return DeviceClass.CPU
+    return DeviceClass.OTHER
+
+
+def device_class_label(metric_id: str | DeviceClass) -> str:
+    """Return the short display token ``CPU`` / ``GPU`` / ``Total`` / ``Other``."""
+    if isinstance(metric_id, DeviceClass):
+        return DEVICE_CLASS_LABELS[metric_id]
+    return DEVICE_CLASS_LABELS[device_class(metric_id)]
+
+

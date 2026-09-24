@@ -11,7 +11,6 @@ from backend.formatting import get_bytes_tickvals_ticktext
 from backend.metrics import (
     MEMORY_BYTE_STEMS,
     classification_stem,
-    get_metric_unit,
     is_cumulative_xy_pair,
     is_running_total_metric,
     running_total_metric_id,
@@ -273,22 +272,25 @@ def align_xy_metrics(
     return dfxy.sort_values("timestamp", ignore_index=True)
 
 
-def _xy_series_or_empty(
+def _observed_xy_series(
     df_processed: pd.DataFrame,
     x_metric_id: str,
     y_metric_id: str,
     proc_start: pd.Timestamp,
     proc_end: pd.Timestamp,
-) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
-    """Observed X/Y value frames in the process window, or ``(None, None)``."""
-    dfw = observed_only(filter_to_time_range(df_processed, proc_start, proc_end))
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Observed X/Y value frames in the process window."""
+    empty = pd.DataFrame(columns=["timestamp", "value"])
+    if df_processed.empty:
+        return empty.copy(), empty.copy()
 
+    dfw = observed_only(filter_to_time_range(df_processed, proc_start, proc_end))
     dfx = dfw[dfw["metric_id"].astype(str) == str(x_metric_id)][["timestamp", "value"]].copy()
     dfy = dfw[dfw["metric_id"].astype(str) == str(y_metric_id)][["timestamp", "value"]].copy()
-    if dfx.empty or dfy.empty:
-        return None, None
 
     for label, frame in (("x", dfx), ("y", dfy)):
+        if frame.empty:
+            continue
         dup_mask = frame.duplicated(subset=["timestamp"], keep=False)
         if dup_mask.any():
             raise ValueError(
@@ -296,6 +298,20 @@ def _xy_series_or_empty(
                 "refusing silent drop_duplicates. "
                 f"timestamps={frame.loc[dup_mask, 'timestamp'].tolist()}"
             )
+    return dfx, dfy
+
+
+def _xy_series_or_empty(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> tuple[pd.DataFrame, pd.DataFrame] | tuple[None, None]:
+    """Observed X/Y value frames in the process window."""
+    dfx, dfy = _observed_xy_series(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    if dfx.empty or dfy.empty:
+        return None, None
     return dfx, dfy
 
 
@@ -392,7 +408,7 @@ def comparative_xy_frame(
     *,
     scatter: bool = False,
 ) -> pd.DataFrame:
-    """X–Y frame used by Comparative plots and CSV download.
+    """X-Y frame used by Comparative plots.
 
     Scatter and non-cumulative pairs use nearest ``align_xy_metrics``.
     Cumulative pairs use ``comparative_cumulative_xy`` (union + forward-fill).
@@ -402,15 +418,36 @@ def comparative_xy_frame(
     return comparative_cumulative_xy(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
 
 
+def comparative_export_xy(
+    df_processed: pd.DataFrame,
+    x_metric_id: str,
+    y_metric_id: str,
+    proc_start: pd.Timestamp,
+    proc_end: pd.Timestamp,
+) -> pd.DataFrame:
+    """Outer join of the two dual-axis traces: every sample, NaN where missing."""
+    dfx, dfy = _observed_xy_series(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    if dfx.empty and dfy.empty:
+        return pd.DataFrame(columns=["timestamp", "x", "y"])
+
+    left = dfx.rename(columns={"value": "x"}).sort_values("timestamp", ignore_index=True)
+    right = dfy.rename(columns={"value": "y"}).sort_values("timestamp", ignore_index=True)
+    if left.empty:
+        return right.assign(x=pd.NA)[["timestamp", "x", "y"]].reset_index(drop=True)
+    if right.empty:
+        return left.assign(y=pd.NA)[["timestamp", "x", "y"]].reset_index(drop=True)
+    return pd.merge(left, right, on="timestamp", how="outer").sort_values(
+        "timestamp", ignore_index=True
+    )
+
+
 def prepare_xy_download(
     dfxy: pd.DataFrame,
     x_metric_id: str,
     y_metric_id: str,
 ) -> tuple[pd.DataFrame, str]:
-    """Rename plot columns for CSV export and attach units (dashboard Download CSV)."""
+    """Rename plot columns to metric ids with unit as suffix."""
     df_out = dfxy.rename(columns={"x": x_metric_id, "y": y_metric_id})
-    df_out["x_unit"] = get_metric_unit(x_metric_id)
-    df_out["y_unit"] = get_metric_unit(y_metric_id)
     filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
     return df_out, filename
 
@@ -421,9 +458,21 @@ def comparative_download_table(
     y_metric_id: str,
     proc_start: pd.Timestamp,
     proc_end: pd.Timestamp,
+    *,
+    scatter: bool = False,
 ) -> tuple[pd.DataFrame, str]:
-    """Same table as Comparative tab Download CSV (scatter toggle is ignored)."""
-    dfxy = comparative_xy_frame(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
+    """CSV of the Comparative plot.
+
+    Scatter → nearest `align_xy_metrics`. 
+    Cumulative XY → union + ffill running totals. 
+    Dual-axis → both traces on a union timeline (NaN where the series has no sample).
+    """
+    if scatter or is_cumulative_xy_pair(x_metric_id, y_metric_id):
+        dfxy = comparative_xy_frame(
+            df_processed, x_metric_id, y_metric_id, proc_start, proc_end, scatter=scatter
+        )
+    else:
+        dfxy = comparative_export_xy(df_processed, x_metric_id, y_metric_id, proc_start, proc_end)
     filename = safe_filename(f"xy_{x_metric_id}_vs_{y_metric_id}.csv")
     if dfxy.empty:
         return dfxy, filename

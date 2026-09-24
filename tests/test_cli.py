@@ -5,7 +5,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.fixtures import write_measurement_directory, sample_csv_body
+from tests.fixtures import (
+    CPU_PERCENT_ID,
+    NVML_POWER_ID,
+    sample_csv_body,
+    write_measurement_directory,
+)
 
 
 def _run_cli(argv: list[str]) -> None:
@@ -49,7 +54,7 @@ class CLIBasicTests(unittest.TestCase):
         self.assertIn("--scatter", help_text)
         self.assertIn("compare pair", help_text)
         self.assertIn("comparative/csv/", help_text)
-        self.assertIn("--scatter with --export-figures", help_text)
+        self.assertIn("--scatter for nearest-aligned", help_text)
 
     def test_no_action_prints_help_and_exits(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -78,21 +83,13 @@ class CLIValidationTests(unittest.TestCase):
             self.assertIn("All metric IDs", output)
             self.assertIn("Total:", output)
 
-    def test_list_metric_ids_with_category(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = self._make_dir(tmp)
-            with patch("builtins.print") as mock_print:
-                _run_cli([str(root), "--list-metric-ids", "--category", "utilization"])
-            output = mock_print.call_args_list[0][0][0]
-            self.assertIn("category: utilization", output)
-
     def test_list_metric_ids_filtered_by_metric_name(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_dir(tmp)
             with patch("builtins.print") as mock_print:
                 _run_cli([str(root), "--list-metric-ids", "--metric-name", "nvml_instant_power_W"])
             output = mock_print.call_args_list[0][0][0]
-            self.assertIn("nvml_instant_power_W_R_gpu_0_C_process_123_A_", output)
+            self.assertIn(NVML_POWER_ID, output)
             self.assertNotIn("cpu_percent", output)
 
     def test_list_metric_ids_filtered_by_category(self):
@@ -101,7 +98,7 @@ class CLIValidationTests(unittest.TestCase):
             with patch("builtins.print") as mock_print:
                 _run_cli([str(root), "--list-metric-ids", "--category", "power"])
             output = mock_print.call_args_list[0][0][0]
-            self.assertIn("nvml_instant_power_W_R_gpu_0_C_process_123_A_", output)
+            self.assertIn(NVML_POWER_ID, output)
             self.assertNotIn("mem_total_B", output)
 
     def test_list_metric_ids_with_limit(self):
@@ -186,14 +183,14 @@ class CLIValidationTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     _run_cli([
                         str(root), "--export-csv", str(tmp),
-                        "--compare-metric-id", "nvml_instant_power_W_R_gpu_0_C_process_123_A_",
+                        "--compare-metric-id", NVML_POWER_ID,
                     ])
             self.assertIn("--compare-metric-id requires --metric-id", stderr.getvalue())
 
     def test_compare_same_ids_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_dir(tmp)
-            metric_id = "cpu_percent_R_local_machine__C_process_123_A_"
+            metric_id = CPU_PERCENT_ID
             stderr = io.StringIO()
             with patch("sys.stderr", stderr):
                 with self.assertRaises(SystemExit):
@@ -212,23 +209,22 @@ class CLIValidationTests(unittest.TestCase):
                     _run_cli([str(root), "--export-figures", str(tmp), "--scatter"])
             self.assertIn("--scatter requires --compare-metric-id", stderr.getvalue())
 
-    def test_scatter_without_figures_rejected(self):
+    def test_scatter_with_csv_is_accepted(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_dir(tmp)
-            stderr = io.StringIO()
-            with patch("sys.stderr", stderr):
-                with self.assertRaises(SystemExit):
-                    _run_cli([
-                        str(root), "--export-csv", str(tmp),
-                        "--metric-id", "cpu_percent_R_local_machine__C_process_123_A_",
-                        "--compare-metric-id", "nvml_instant_power_W_R_gpu_0_C_process_123_A_",
-                        "--scatter",
-                    ])
-            self.assertIn("--scatter is only valid with --export-figures", stderr.getvalue())
+            out = Path(tmp) / "export"
+            with patch("builtins.print"):
+                _run_cli([
+                    str(root), "--export-csv", str(out),
+                    "--metric-id", CPU_PERCENT_ID,
+                    "--compare-metric-id", NVML_POWER_ID,
+                    "--scatter",
+                ])
+            self.assertTrue(any(out.rglob("*.csv")))
 
     def test_export_comparative_csv_and_figure(self):
-        x_id = "cpu_percent_R_local_machine__C_process_123_A_"
-        y_id = "nvml_instant_power_W_R_gpu_0_C_process_123_A_"
+        x_id = CPU_PERCENT_ID
+        y_id = NVML_POWER_ID
         with tempfile.TemporaryDirectory() as tmp:
             root = self._make_dir(tmp)
             out = Path(tmp) / "export"
@@ -251,6 +247,7 @@ class CLIValidationTests(unittest.TestCase):
         with patch.object(sys, "argv", ["alumet_insight.py", "cli", "-h"]):
             with patch("cli.main") as cli_main:
                 alumet_insight.main()
+        cli_main.assert_called_once_with(["-h"])
 
     def test_entry_point_rejects_forwarding_separators(self):
         import alumet_insight
