@@ -451,9 +451,13 @@ def should_derive_power_from_energy(
         return False
     if is_running_total_metric(energy_metric_id):
         return False
-    # Totals are summed from component power stairs. E/Δt on the union timestamp may introduce 
-    # spikes due to the skewed intervals.
-    if classification_stem(energy_base) in {"attributed_energy_total", "attributed_energy_gpu_total"}:
+    # Totals are summed from component power stairs. E/Δt on the union timestamp
+    # may introduce spikes due to the skewed intervals.
+    if classification_stem(energy_base) in {
+        "attributed_energy_total",
+        "attributed_energy_cpu_total",
+        "attributed_energy_gpu_total",
+    }:
         return False
 
     available = {str(metric_id) for metric_id in available_metric_ids}

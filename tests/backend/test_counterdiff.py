@@ -20,6 +20,7 @@ from backend.counterdiff import (
     require_processed_columns,
     validate_point_metadata,
 )
+from backend.metrics import should_derive_power_from_energy
 from tests.fixtures import rapl_energy_rows, series_rows
 
 
