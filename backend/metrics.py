@@ -449,12 +449,15 @@ def should_derive_power_from_energy(
     energy_lower = energy_base.lower()
     if "energy" not in energy_lower and "rapl" not in energy_lower:
         return False
-    # Union energy totals mix device clocks. Power for those series is a
-    # step-sum of component powers, not J / Δt on the merged grid.
     if is_running_total_metric(energy_metric_id):
         return False
-    stem = classification_stem(energy_base)
-    if stem.startswith("attributed_energy") and stem.endswith("_total"):
+    # Totals are summed from component power stairs. E/Δt on the union timestamp
+    # may introduce spikes due to the skewed intervals.
+    if classification_stem(energy_base) in {
+        "attributed_energy_total",
+        "attributed_energy_cpu_total",
+        "attributed_energy_gpu_total",
+    }:
         return False
 
     available = {str(metric_id) for metric_id in available_metric_ids}

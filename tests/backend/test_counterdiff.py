@@ -20,6 +20,7 @@ from backend.counterdiff import (
     require_processed_columns,
     validate_point_metadata,
 )
+from backend.metrics import should_derive_power_from_energy
 from tests.fixtures import rapl_energy_rows, series_rows
 
 
@@ -191,6 +192,39 @@ class CounterDiffTests(unittest.TestCase):
             sample_id=0,
         )
         self.assertTrue(derive_interval_average_power(df).empty)
+
+    def test_should_derive_power_from_energy_policy(self):
+        available = {
+            "nvml_energy_consumption_J_R_gpu_0_C__A_",
+            "nvml_instant_power_W_R_gpu_0_C__A_",
+            "rapl_consumed_energy_J_R_pkg_0_C__A_",
+        }
+        self.assertFalse(should_derive_power_from_energy("nvml_energy_consumption_J_R_gpu_0_C__A_", available))
+        self.assertTrue(should_derive_power_from_energy("rapl_consumed_energy_J_R_pkg_0_C__A_", available))
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_cumulative_J_R_pkg_C_process_1_A_",
+                available,
+            )
+        )
+        self.assertTrue(
+            should_derive_power_from_energy(
+                "attributed_energy_cpu_J_R_local_machine__C_process_1_A_domain=package_total",
+                available,
+            )
+        )
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_total_J_R_total__C_process_1_A_",
+                available,
+            )
+        )
+        self.assertFalse(
+            should_derive_power_from_energy(
+                "attributed_energy_gpu_total_J_R_gpu_all__C_process_1_A_",
+                available,
+            )
+        )
 
     def test_export_observed_measurements_removes_internal_columns(self):
         df = expand_counterdiff_rows(rapl_energy_rows([7.0], metric_origin="measured"))
