@@ -21,7 +21,6 @@ from backend.counterdiff import export_observed_measurements
 from backend.data import AlumetData
 from backend.figures import export_category_figures, save_comparative_figure
 from backend.metrics import (
-    attach_unit_column,
     filter_by_base_metric,
     filter_by_metric_id,
     format_metric_id_list,
@@ -165,7 +164,7 @@ def export_csvs(
         metric_dir = output_root / (category or "metrics") / "csv"
         metric_dir.mkdir(parents=True, exist_ok=True)
         path = metric_dir / f"{safe_filename(metric_id)}.csv"
-        attach_unit_column(df).to_csv(path, index=False)
+        df.to_csv(path, index=False)
         return [path]
 
     for category_value in _selected_categories(data, category):
@@ -183,7 +182,7 @@ def export_csvs(
         category_dir.mkdir(parents=True, exist_ok=True)
         suffix = f"_core_{cpu_core}" if category_value == "kernel_cpu_time" and cpu_core else ""
         path = category_dir / f"{safe_filename(category_value + suffix)}.csv"
-        attach_unit_column(df).to_csv(path, index=False)
+        df.to_csv(path, index=False)
         created.append(path)
     return created
 
@@ -224,12 +223,15 @@ def export_comparative_csv(
     process_specific: bool = False,
     start_time: Optional[str | pd.Timestamp] = None,
     end_time: Optional[str | pd.Timestamp] = None,
+    scatter: bool = False,
 ) -> list[Path]:
     """Export one aligned/comparative CSV under ``output_root/comparative/csv/``."""
     start, end = _comparative_window(
         data, process_specific=process_specific, start_time=start_time, end_time=end_time
     )
-    table, filename = comparative_download_table(data.processed_df, x_metric_id, y_metric_id, start, end)
+    table, filename = comparative_download_table(
+        data.processed_df, x_metric_id, y_metric_id, start, end, scatter=scatter
+    )
     if table.empty:
         return []
     csv_dir = Path(output_root) / "comparative" / "csv"

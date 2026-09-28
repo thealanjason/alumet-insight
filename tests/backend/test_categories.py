@@ -3,16 +3,37 @@ import unittest
 import pandas as pd
 
 from backend.categories import (
+    CATEGORY_VALUES,
     available_category_values,
     available_cpu_cores,
+    category_for_metric_id,
     category_yaxis_label,
+    classify_metric,
     filter_time_series_category,
     is_yaxis_shareable,
 )
-from tests.fixtures import processed_rows
+from tests.fixtures import (
+    NVML_POWER_ID,
+    catalog_rows,
+    processed_rows,
+    rapl_energy_rows,
+)
 
 
 class CategoryTests(unittest.TestCase):
+    def test_classify_metric_uses_current_predicates(self):
+        self.assertEqual(classify_metric("rapl_average_power_W"), "power")
+        self.assertEqual(classify_metric("attributed_energy_cpu_J"), "energy")
+        self.assertEqual(classify_metric("attributed_energy_cpu_cumulative_J"), "energy")
+        self.assertEqual(classify_metric("nvml_memory_utilization_%"), "utilization")
+        self.assertEqual(classify_metric("cpu_percent"), "utilization")
+        self.assertEqual(classify_metric("nvml_gpu_memory_info_B"), "memory")
+        self.assertEqual(classify_metric("mapped_kB"), "memory")
+        self.assertEqual(classify_metric("perf_cache_LL_READ_MISS"), "perf_counters")
+        self.assertEqual(classify_metric("kernel_cpu_time_ms"), "kernel_cpu_time")
+        self.assertEqual(classify_metric("network_rx_bytes"), "kernel_system")
+        self.assertEqual(classify_metric("custom_counter"), "miscellaneous")
+
     def test_available_category_values_and_cpu_cores(self):
         df = processed_rows()
 
@@ -31,94 +52,22 @@ class CategoryTests(unittest.TestCase):
         energy = filter_time_series_category(df, "energy")
         self.assertTrue((energy["base_metric"] == "attributed_energy_J").any())
 
-    def test_running_total_energy_stays_in_energy_category(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["attributed_energy_cpu_cumulative_J_R_cpu_0_C_process_1_A_"],
-                "base_metric": ["attributed_energy_cpu_cumulative_J"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [12.0],
-            }
-        )
-        energy = filter_time_series_category(df, "energy")
-        self.assertEqual(len(energy), 1)
-        self.assertEqual(available_category_values(df), ["energy"])
-
     def test_filter_time_series_category_keeps_counterdiff_padding_rows(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": [
-                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
-                    "rapl_consumed_energy_J_R_pkg_0_C__A_",
-                ],
-                "base_metric": ["rapl_consumed_energy_J", "rapl_consumed_energy_J"],
-                "timestamp": [pd.Timestamp("2024-01-01")] * 2,
-                "value": [3.0, 0.0],
-                "point_role": ["observed", "synthetic"],
-                "point_order": [0, 1],
-            }
+        df = rapl_energy_rows(
+            [3.0, 0.0],
+            point_role=["observed", "synthetic"],
+            point_order=[0, 1],
         )
         energy = filter_time_series_category(df, "energy")
         self.assertEqual(len(energy), 2)
         self.assertEqual(set(energy["point_role"]), {"observed", "synthetic"})
-
-    def test_filter_time_series_category_includes_derived_power(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": ["rapl_average_power_W_R_pkg_0_C__A_"],
-                "base_metric": ["rapl_average_power_W"],
-                "timestamp": [pd.Timestamp("2024-01-01")],
-                "value": [12.0],
-            }
-        )
-        power = filter_time_series_category(df, "power")
-        self.assertEqual(len(power), 1)
-        self.assertEqual(available_category_values(df), ["power"])
-
-    def test_filter_time_series_category_miscellaneous_and_utilization(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": [
-                    "cpu_percent_R_local_machine__C_process_1_A_",
-                    "custom_counter_R_host__C__A_",
-                ],
-                "base_metric": ["cpu_percent", "custom_counter"],
-                "timestamp": pd.date_range("2024-01-01", periods=2, freq="s"),
-                "value": [1.0, 2.0],
-            }
-        )
-
-        util = filter_time_series_category(df, "utilization")
-        misc = filter_time_series_category(df, "miscellaneous")
-
-        self.assertEqual(util["base_metric"].tolist(), ["cpu_percent"])
-        self.assertEqual(misc["base_metric"].tolist(), ["custom_counter"])
 
     def test_filter_time_series_category_unknown_raises(self):
         with self.assertRaises(ValueError):
             filter_time_series_category(processed_rows(), "not-a-category")
 
     def test_filter_temperature_perf_counters_and_kernel_system(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": [
-                    "nvml_temperature_C_R_gpu_0_C_process_1_A_",
-                    "perf_hardware_INSTRUCTIONS_R_cpu_0_C_process_1_A_",
-                    "perf_cache_LL_READ_MISS_R_cpu_0_C_process_1_A_",
-                    "kernel_n_procs_running_R_local__C__A_",
-                    "network_rx_bytes_R_eth0__C__A_",
-                ],
-                "base_metric": [
-                    "nvml_temperature_C",
-                    "perf_hardware_INSTRUCTIONS",
-                    "perf_cache_LL_READ_MISS",
-                    "kernel_n_procs_running",
-                    "network_rx_bytes",
-                ],
-                "timestamp": pd.date_range("2024-01-01", periods=5, freq="s"),
-                "value": [70.0, 100.0, 10.0, 2.0, 4096.0],
-            }
-        )
+        df = catalog_rows()
 
         self.assertEqual(
             filter_time_series_category(df, "temperature")["base_metric"].tolist(),
@@ -160,44 +109,24 @@ class CategoryTests(unittest.TestCase):
         self.assertEqual(category_yaxis_label("unknown"), "Value")
 
     def test_memory_category_includes_generic_and_gpu_byte_metrics(self):
-        df = pd.DataFrame(
-            {
-                "metric_id": [
-                    "active_B_R_local_machine__C__A_",
-                    "inactive_B_R_local_machine__C__A_",
-                    "cached_B_R_local_machine__C__A_",
-                    "mapped_kB_R_local_machine__C__A_",
-                    "nvml_gpu_memory_info_B_R_gpu_0_C__A_",
-                    "nvml_memory_utilization_%_R_gpu_0_C__A_",
-                    "custom_counter_R_host__C__A_",
-                ],
-                "base_metric": [
-                    "active_B",
-                    "inactive_B",
-                    "cached_B",
-                    "mapped_kB",
-                    "nvml_gpu_memory_info_B",
-                    "nvml_memory_utilization_%",
-                    "custom_counter",
-                ],
-                "timestamp": pd.date_range("2024-01-01", periods=7, freq="s"),
-                "value": [1.0] * 7,
-            }
-        )
+        df = catalog_rows()
 
+        self.assertEqual(available_category_values(df), list(CATEGORY_VALUES))
         self.assertEqual(
             set(filter_time_series_category(df, "memory")["base_metric"]),
-            {"active_B", "inactive_B", "cached_B", "mapped_kB", "nvml_gpu_memory_info_B"},
+            {"mem_total_B", "active_B", "inactive_B", "cached_B", "mapped_kB", "nvml_gpu_memory_info_B"},
         )
         self.assertEqual(
-            filter_time_series_category(df, "utilization")["base_metric"].tolist(),
-            ["nvml_memory_utilization_%"],
+            set(filter_time_series_category(df, "utilization")["base_metric"]),
+            {"cpu_percent", "nvml_memory_utilization_%"},
         )
         self.assertEqual(
             filter_time_series_category(df, "miscellaneous")["base_metric"].tolist(),
             ["custom_counter"],
         )
-        self.assertIn("memory", available_category_values(df))
+
+    def test_category_for_metric_id(self):
+        self.assertEqual(category_for_metric_id(processed_rows(), NVML_POWER_ID), "power")
 
 
 if __name__ == "__main__":
