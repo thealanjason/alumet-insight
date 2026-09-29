@@ -18,10 +18,10 @@ from backend.counterdiff import (
 from backend.metrics import (
     MetricId,
     classification_stem,
+    energy_ids_for_derived_power,
     is_running_total_base_metric,
     mark_as_derived,
     running_total_base_metric,
-    should_derive_power_from_energy,
 )
 
 # Alumet energy-attribution configs typically pin CPU energy to RAPL package_total.
@@ -40,13 +40,27 @@ def _attach_process_identity(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
     out = df.copy()
-    identities = out["metric_id"].map(MetricId.parse)
-    out["consumer"] = identities.map(lambda identity: identity.consumer if identity.is_process_consumer else None)
-    out["late_attributes"] = identities.map(
-        lambda identity: identity.late_attributes if identity.is_process_consumer else None
-    )
+    metric_ids = out["metric_id"].astype(str)
+    parsed = {metric_id: MetricId.parse(metric_id) for metric_id in metric_ids.unique()}
+    consumer_by_id = {
+        metric_id: identity.consumer if identity.is_process_consumer else None
+        for metric_id, identity in parsed.items()
+    }
+    late_by_id = {
+        metric_id: identity.late_attributes if identity.is_process_consumer else None
+        for metric_id, identity in parsed.items()
+    }
+    out["consumer"] = metric_ids.map(consumer_by_id)
+    out["late_attributes"] = metric_ids.map(late_by_id)
     out["timestamp"] = pd.to_datetime(out["timestamp"], errors="coerce")
     return out.dropna(subset=["consumer", "late_attributes", "timestamp"])
+
+
+def _stem_series(base_metrics: pd.Series) -> pd.Series:
+    """Map classification stems, computing each unique base metric once."""
+    unique = base_metrics.dropna().astype(str).unique()
+    mapping = {name: classification_stem(name) for name in unique}
+    return base_metrics.map(mapping)
 
 
 def _split_kind_id(component: str | None, default_kind: str) -> tuple[str, str]:
@@ -73,10 +87,40 @@ def _sum_observed_by_timestamp_consumer(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _datetime_ns(timestamps) -> np.ndarray:
-    idx = pd.DatetimeIndex(pd.to_datetime(timestamps, utc=True))
+    if isinstance(timestamps, pd.DatetimeIndex):
+        idx = timestamps
+    elif isinstance(timestamps, pd.Series) and pd.api.types.is_datetime64_any_dtype(timestamps.dtype):
+        idx = pd.DatetimeIndex(timestamps)
+    else:
+        idx = pd.DatetimeIndex(pd.to_datetime(timestamps))
     if idx.tz is not None:
         idx = idx.tz_convert("UTC").tz_localize(None)
     return idx.as_unit("ns").asi8
+
+
+def _union_datetime_index(series_list: list) -> pd.DatetimeIndex:
+    """Unique sorted timestamps, preserving the timezone of the first series."""
+    ns_parts: list[np.ndarray] = []
+    tz = None
+    for values in series_list:
+        if values is None or len(values) == 0:
+            continue
+        if isinstance(values, pd.DatetimeIndex):
+            idx = values
+        elif isinstance(values, pd.Series) and pd.api.types.is_datetime64_any_dtype(values.dtype):
+            idx = pd.DatetimeIndex(values)
+        else:
+            idx = pd.DatetimeIndex(pd.to_datetime(values))
+        if tz is None:
+            tz = idx.tz
+        ns_parts.append(_datetime_ns(idx))
+    if not ns_parts:
+        return pd.DatetimeIndex([])
+    ns = np.unique(np.concatenate(ns_parts))
+    out = pd.DatetimeIndex(ns.astype("datetime64[ns]"))
+    if tz is not None:
+        out = out.tz_localize("UTC").tz_convert(tz)
+    return out
 
 
 def _running_total_on_timeline(
@@ -143,7 +187,7 @@ def _select_attributed_cpu_rows(df_cpu: pd.DataFrame) -> pd.DataFrame:
         return df_cpu.copy()
 
     late = df_cpu["late_attributes"].fillna("").astype(str)
-    package_mask = late.map(lambda value: PACKAGE_TOTAL_REGEX.search(value) is not None)
+    package_mask = late.str.contains(PACKAGE_TOTAL_REGEX.pattern, regex=True, na=False)
     package_total = df_cpu.loc[package_mask]
     if not package_total.empty:
         return package_total.copy()
@@ -152,7 +196,7 @@ def _select_attributed_cpu_rows(df_cpu: pd.DataFrame) -> pd.DataFrame:
     if len(unique_late) == 1:
         return df_cpu.copy()
 
-    kind_mask = late.map(lambda value: KIND_TOTAL_REGEX.search(value) is not None)
+    kind_mask = late.str.contains(KIND_TOTAL_REGEX.pattern, regex=True, na=False)
     kind_total = df_cpu.loc[kind_mask]
     if not kind_total.empty:
         return kind_total.copy()
@@ -161,11 +205,9 @@ def _select_attributed_cpu_rows(df_cpu: pd.DataFrame) -> pd.DataFrame:
 
 
 def _union_timeline(frames: list[pd.DataFrame]) -> pd.DatetimeIndex:
-    index: pd.Index = pd.Index([])
-    for frame in frames:
-        if frame is not None and not frame.empty:
-            index = index.union(pd.Index(pd.to_datetime(frame["timestamp"])))
-    return pd.DatetimeIndex(index.sort_values())
+    return _union_datetime_index(
+        [frame["timestamp"] for frame in frames if frame is not None and not frame.empty]
+    )
 
 
 def _aligned_counterdiff(frames: list[pd.DataFrame]) -> pd.DataFrame:
@@ -256,7 +298,7 @@ def synthesize_attributed_energy_total(df_processed: pd.DataFrame) -> pd.DataFra
             ]
         )
 
-    stems = observed["base_metric"].map(classification_stem)
+    stems = _stem_series(observed["base_metric"])
     cpu_mask = stems.eq("attributed_energy_cpu")
     gpu_mask = stems.eq("attributed_energy_gpu")
 
@@ -340,36 +382,37 @@ def synthesize_derived_power(df_processed: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame(columns=list(df_processed.columns))
 
     available_ids = set(observed["metric_id"].astype(str).unique())
-    energy_ids = [mid for mid in available_ids if should_derive_power_from_energy(mid, available_ids)]
+    energy_ids = energy_ids_for_derived_power(available_ids)
     if not energy_ids:
         return pd.DataFrame(columns=observed.columns)
 
-    frames: list[pd.DataFrame] = []
-    for energy_id in sorted(energy_ids):
-        energy_df = observed[observed["metric_id"].astype(str) == energy_id]
-        if energy_df.empty:
-            continue
-        power_df = derive_interval_average_power(energy_df, energy_metric_id=energy_id)
-        if not power_df.empty:
-            frames.append(power_df)
-
-    if not frames:
+    energy_df = observed[observed["metric_id"].astype(str).isin(energy_ids)]
+    power_df = derive_interval_average_power(energy_df)
+    if power_df.empty:
         return pd.DataFrame(columns=observed.columns)
-
-    out = pd.concat(frames, ignore_index=True)
-    return ensure_point_metadata(mark_as_derived(out))
+    return ensure_point_metadata(mark_as_derived(power_df))
 
 
 def _step_power_at(power: pd.DataFrame, target_ns: np.ndarray) -> np.ndarray:
-    """Evaluate a power staircase."""
+    """Evaluate a power staircase on (interval_start, timestamp]."""
     out = np.zeros(len(target_ns), dtype="float64")
-    if power.empty or "interval_start" not in power.columns:
+    if power.empty or "interval_start" not in power.columns or len(target_ns) == 0:
         return out
     starts = _datetime_ns(power["interval_start"])
     ends = _datetime_ns(power["timestamp"])
     vals = power["value"].to_numpy(dtype="float64")
-    for start, end, val in zip(starts, ends, vals):
-        out[(target_ns > start) & (target_ns <= end)] = val
+    order = np.argsort(ends, kind="mergesort")
+    starts = starts[order]
+    ends = ends[order]
+    vals = vals[order]
+    idx = np.searchsorted(ends, target_ns, side="left")
+    valid = idx < len(ends)
+    if not np.any(valid):
+        return out
+    chosen = idx[valid]
+    hit = (target_ns[valid] > starts[chosen]) & (target_ns[valid] <= ends[chosen])
+    dest = np.flatnonzero(valid)[hit]
+    out[dest] = vals[chosen[hit]]
     return out
 
 
@@ -379,14 +422,9 @@ def _aligned_power_sum(frames: list[pd.DataFrame]) -> pd.DataFrame:
     if not nonempty:
         return pd.DataFrame(columns=["timestamp", "value", "interval_start"])
 
-    bounds: list[pd.DatetimeIndex] = []
-    for frame in nonempty:
-        bounds.append(pd.DatetimeIndex(pd.to_datetime(frame["timestamp"])))
-        bounds.append(pd.DatetimeIndex(pd.to_datetime(frame["interval_start"])))
-    index: pd.Index = pd.Index([])
-    for bound in bounds:
-        index = index.union(pd.Index(bound))
-    timeline = pd.DatetimeIndex(index.sort_values())
+    timeline = _union_datetime_index(
+        [frame["timestamp"] for frame in nonempty] + [frame["interval_start"] for frame in nonempty]
+    )
     if len(timeline) < 2:
         return pd.DataFrame(columns=["timestamp", "value", "interval_start"])
 
@@ -445,7 +483,7 @@ def synthesize_attributed_power_total(df_processed: pd.DataFrame) -> pd.DataFram
     if observed.empty or "base_metric" not in observed.columns:
         return pd.DataFrame(columns=list(df_processed.columns) if len(df_processed.columns) else [])
 
-    stems = observed["base_metric"].map(classification_stem)
+    stems = _stem_series(observed["base_metric"])
     keep = ["metric_id", "timestamp", "value", "interval_start"]
     keep = [column for column in keep if column in observed.columns]
     df_cpu = observed.loc[stems.eq("attributed_power_cpu"), keep].copy()

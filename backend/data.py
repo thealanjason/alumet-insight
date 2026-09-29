@@ -2,18 +2,19 @@
 Data loading and preprocessing.
 """
 
+import threading
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import polars as pl
 
-from backend.metrics import mark_as_measured
+from backend.metrics import MetricOrigin, mark_as_measured
 from backend.synthesis import synthesize_derived_metrics
 from backend.transforms import (
     get_process_time_range_from_df,
     get_time_range_from_df,
-    normalize_to_si,
+    normalize_to_si_polars,
 )
 from backend.utils import (
     extract_pid_from_content,
@@ -25,13 +26,91 @@ from backend.utils import (
     read_file_content,
 )
 
+_IDENTITY_COLUMNS = (
+    "metric",
+    "resource_kind",
+    "resource_id",
+    "consumer_kind",
+    "consumer_id",
+    "__late_attributes",
+)
+
+
+def _write_parquet_sidecar(df_pl: pl.DataFrame, parquet_path: Path) -> None:
+    try:
+        df_pl.write_parquet(parquet_path)
+    except Exception:
+        pass
+
+
+def _schedule_parquet_sidecar(df_pl: pl.DataFrame, parquet_path: Path) -> None:
+    snapshot = df_pl.clone()
+    threading.Thread(
+        target=_write_parquet_sidecar,
+        args=(snapshot, parquet_path),
+        daemon=True,
+        name="alumet-parquet-sidecar",
+    ).start()
+
+
+def _polars_to_pandas(df_pl: pl.DataFrame) -> pd.DataFrame:
+    df = df_pl.to_pandas()
+    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
+def _processed_polars(df_pl: pl.DataFrame) -> pl.DataFrame:
+    col_exprs = {}
+    for col_name in _IDENTITY_COLUMNS:
+        if col_name in df_pl.columns:
+            col_exprs[col_name] = pl.col(col_name).cast(pl.Utf8).fill_null("")
+        else:
+            col_exprs[col_name] = pl.lit("")
+
+    return df_pl.select(
+        [
+            (
+                col_exprs["metric"]
+                + "_R_"
+                + col_exprs["resource_kind"]
+                + "_"
+                + col_exprs["resource_id"]
+                + "_C_"
+                + col_exprs["consumer_kind"]
+                + "_"
+                + col_exprs["consumer_id"]
+                + "_A_"
+                + col_exprs["__late_attributes"]
+            ).alias("metric_id"),
+            col_exprs["metric"].alias("base_metric"),
+            col_exprs["metric"].alias("metric"),
+            col_exprs["resource_kind"].alias("resource_kind"),
+            col_exprs["resource_id"].alias("resource_id"),
+            col_exprs["consumer_kind"].alias("consumer_kind"),
+            col_exprs["consumer_id"].alias("consumer_id"),
+            col_exprs["__late_attributes"].alias("__late_attributes"),
+            pl.col("timestamp"),
+            pl.col("value"),
+        ]
+    )
+
+
+def _mark_measured(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach measured origin without copying a frame we already own."""
+    if df.empty:
+        return mark_as_measured(df)
+    df["metric_origin"] = MetricOrigin.MEASURED.value
+    return df
+
 
 # CSV / Parquet I/O
 def _read_csv_with_polars(csv_path: Path) -> pl.DataFrame:
     """
     Read CSV with Polars multi-threaded reader, with Parquet sidecar caching.
 
-    On first load: reads CSV with Polars (multi-threaded) and saves a .parquet sidecar.
+    On first load: reads CSV with Polars (multi-threaded) and writes a .parquet sidecar
+    in the background so Visualize is not blocked on disk.
     On subsequent loads: reads the Parquet sidecar directly (instant).
     """
     parquet_path = csv_path.with_suffix(".parquet")
@@ -52,7 +131,21 @@ def _read_csv_with_polars(csv_path: Path) -> pl.DataFrame:
             "consumer_id": pl.Utf8,
         },
     )
-    df_pl.write_parquet(parquet_path)
+    _schedule_parquet_sidecar(df_pl, parquet_path)
+    return df_pl
+
+
+def _load_source_polars(csv_path: Path) -> pl.DataFrame:
+    if not csv_path.exists():
+        raise ValueError(f"CSV file not found: {csv_path}")
+
+    try:
+        df_pl = _read_csv_with_polars(csv_path)
+    except Exception as e:
+        raise ValueError(f"Error parsing CSV: {str(e)}")
+
+    if df_pl.is_empty():
+        raise ValueError("No data found in CSV.")
     return df_pl
 
 
@@ -60,27 +153,7 @@ def load_csv_from_path(csv_path: Path) -> pd.DataFrame:
     """
     Load CSV data from file path with Polars multi-threaded reader and Parquet sidecar caching.
     """
-    if not csv_path.exists():
-        raise ValueError(f"CSV file not found: {csv_path}")
-
-    try:
-        df_pl = _read_csv_with_polars(csv_path)
-        df = df_pl.to_pandas()
-    except Exception as e:
-        raise ValueError(f"Error parsing CSV: {str(e)}")
-
-    if df.empty:
-        raise ValueError("No data found in CSV.")
-
-    if "timestamp" in df.columns and not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-
-    category_cols = ["metric", "resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]
-    for col in category_cols:
-        if col in df.columns:
-            df[col] = df[col].astype("category")
-
-    return df
+    return _polars_to_pandas(_load_source_polars(csv_path))
 
 
 def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
@@ -90,37 +163,7 @@ def preprocess_dataframe_for_visualization(df: pd.DataFrame) -> pd.DataFrame:
     Preserves metric / resource / consumer / late-attribute identity columns and
     attaches measured-origin semantic metadata once at the preprocessing boundary.
     """
-    df_pl = pl.from_pandas(df)
-
-    col_exprs = {}
-    for col_name in ["metric", "resource_kind", "resource_id", "consumer_kind", "consumer_id", "__late_attributes"]:
-        if col_name in df_pl.columns:
-            col_exprs[col_name] = pl.col(col_name).cast(pl.Utf8).fill_null("")
-        else:
-            col_exprs[col_name] = pl.lit("")
-
-    result_pl = df_pl.select([
-        (
-            col_exprs["metric"] + "_R_" +
-            col_exprs["resource_kind"] + "_" +
-            col_exprs["resource_id"] + "_C_" +
-            col_exprs["consumer_kind"] + "_" +
-            col_exprs["consumer_id"] + "_A_" +
-            col_exprs["__late_attributes"]
-        ).alias("metric_id"),
-        col_exprs["metric"].alias("base_metric"),
-        col_exprs["metric"].alias("metric"),
-        col_exprs["resource_kind"].alias("resource_kind"),
-        col_exprs["resource_id"].alias("resource_id"),
-        col_exprs["consumer_kind"].alias("consumer_kind"),
-        col_exprs["consumer_id"].alias("consumer_id"),
-        col_exprs["__late_attributes"].alias("__late_attributes"),
-        pl.col("timestamp"),
-        pl.col("value"),
-        ]
-    )
-
-    return mark_as_measured(result_pl.to_pandas())
+    return _mark_measured(_polars_to_pandas(_processed_polars(pl.from_pandas(df))))
 
 
 def finalize_processed_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -154,9 +197,12 @@ class AlumetData:
             self._log_path = None
             self._log_content = ""
 
-        # _df_source: non-SI units rescaled to SI and metric names updated — done once here
-        self._df_source = normalize_to_si(load_csv_from_path(self._csv_path), col="metric")
-        self._df_processed = finalize_processed_dataframe(preprocess_dataframe_for_visualization(self._df_source))
+        # Stay in Polars through SI + metric_id, then convert to pandas once per table.
+        df_pl = normalize_to_si_polars(_load_source_polars(self._csv_path), col="metric")
+        self._df_source = _polars_to_pandas(df_pl)
+        self._df_processed = finalize_processed_dataframe(
+            _mark_measured(_polars_to_pandas(_processed_polars(df_pl)))
+        )
 
     # ==========
     # Properties

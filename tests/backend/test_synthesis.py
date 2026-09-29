@@ -9,7 +9,9 @@ from backend.counterdiff import interpolate_counterdiff_at_timeline, observed_on
 from backend.metrics import MetricId, derived_power_base_metric
 from backend.synthesis import (
     _attach_process_identity,
+    _datetime_ns,
     _select_attributed_cpu_rows,
+    _step_power_at,
     synthesize_attributed_energy_total,
     synthesize_derived_metrics,
     synthesize_derived_power,
@@ -742,6 +744,27 @@ class PowerTests(_SynthesisAssertions):
         self.assertEqual(power["base_metric"].iloc[0], "rapl_average_power_W")
         self.assertAlmostEqual(power["value"].iloc[0], 10.0)
         self._assert_power_reconstructs_energy(df, power, label="rapl package")
+
+    def test_step_power_covers_open_close_intervals_and_gaps(self):
+        """Stair on (start, end]: exact end is covered, exact start is not, gaps are 0."""
+        power = pd.DataFrame(
+            {
+                "interval_start": pd.to_datetime(["2024-01-01 00:00:00", "2024-01-01 00:00:03"]),
+                "timestamp": pd.to_datetime(["2024-01-01 00:00:01", "2024-01-01 00:00:04"]),
+                "value": [10.0, 20.0],
+            }
+        )
+        targets = pd.to_datetime(
+            [
+                "2024-01-01 00:00:00",
+                "2024-01-01 00:00:01",
+                "2024-01-01 00:00:02",
+                "2024-01-01 00:00:03",
+                "2024-01-01 00:00:04",
+            ]
+        )
+        got = _step_power_at(power, _datetime_ns(targets))
+        self.assertEqual(got.tolist(), [0.0, 10.0, 0.0, 0.0, 20.0])
 
     def test_nvml_energy_does_not_derive_power_when_gauge_exists(self):
         df = pd.DataFrame(
