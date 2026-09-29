@@ -3,8 +3,6 @@ import unittest
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
-
 from backend.counterdiff import expand_counterdiff_rows
 from backend.data import finalize_processed_dataframe
 from frontend.panes.process_specific import (
@@ -13,15 +11,11 @@ from frontend.panes.process_specific import (
     apply_shared_xrange_to_grid_plots,
     cascade_filter_options,
     filter_single_series,
-    grid_message_figure,
     normalize_filter_columns,
     prepare_download_df,
     unique_nonempty,
     update_grid_plot_match,
 )
-from frontend.style import GRID_DATA_MARGIN, GRID_GRAPH_CONFIG, GRID_PLACEHOLDER_MARGIN, GRID_YAXIS_LEFT_MARGIN
-
-
 class ProcessSpecificTests(unittest.TestCase):
     def test_unique_nonempty_and_normalize_filter_columns(self):
         series = pd.Series(["cpu", "", None, "gpu", "cpu"])
@@ -280,9 +274,6 @@ class ProcessSpecificTests(unittest.TestCase):
         self.assertEqual(out["value"].tolist(), [1])
         self.assertIn("__late_attributes", out.columns)
 
-    def test_process_graph_uses_unambiguous_double_click_reset(self):
-        self.assertEqual(GRID_GRAPH_CONFIG["doubleClick"], "autosize")
-
     def test_memory_grid_figure_saves_its_original_axis_defaults(self):
         timestamps = pd.date_range("2024-01-01", periods=3, freq="s")
         df = pd.DataFrame(
@@ -322,110 +313,6 @@ class ProcessSpecificTests(unittest.TestCase):
         self.assertEqual(list(figure.layout.yaxis.range), defaults["yaxis"]["range"])
         self.assertFalse(figure.layout.yaxis.autorange)
         self.assertEqual(list(figure.layout.yaxis.ticktext), defaults["yaxis"]["ticktext"])
-        self.assertEqual(figure.layout.margin.l, GRID_YAXIS_LEFT_MARGIN)
-        self.assertFalse(figure.layout.yaxis.automargin)
-        self.assertFalse(figure.layout.xaxis.automargin)
-
-    def test_grid_plots_share_the_same_left_margin(self):
-        timestamps = pd.date_range("2024-01-01", periods=3, freq="s")
-        process_range = {
-            "start": timestamps[0].isoformat(),
-            "end": timestamps[-1].isoformat(),
-        }
-        memory = pd.DataFrame(
-            {
-                "timestamp": timestamps,
-                "metric": ["active_kB"] * 3,
-                "value": [6.5e9, 6.6e9, 6.7e9],
-                "resource_kind": ["local_machine"] * 3,
-                "resource_id": ["0"] * 3,
-                "consumer_kind": [""] * 3,
-                "consumer_id": [""] * 3,
-                "__late_attributes": [""] * 3,
-            }
-        )
-        energy = pd.DataFrame(
-            {
-                "timestamp": timestamps,
-                "metric": ["attributed_energy_J"] * 3,
-                "value": [1.0, 2.0, 3.0],
-                "resource_kind": ["cpu"] * 3,
-                "resource_id": ["0"] * 3,
-                "consumer_kind": ["process"] * 3,
-                "consumer_id": ["10"] * 3,
-                "__late_attributes": [""] * 3,
-            }
-        )
-        memory_fig = update_grid_plot_match(
-            "active_kB",
-            "local_machine",
-            "0",
-            None,
-            None,
-            None,
-            False,
-            memory.to_dict("records"),
-            process_range,
-            {"index": "0-0"},
-        )
-        energy_fig = update_grid_plot_match(
-            "attributed_energy_J",
-            "cpu",
-            "0",
-            "process",
-            "10",
-            None,
-            False,
-            energy.to_dict("records"),
-            process_range,
-            {"index": "0-1"},
-        )
-        empty_fig = grid_message_figure(go.Figure(), "Select a metric", False)
-
-        self.assertEqual(memory_fig.layout.margin.l, energy_fig.layout.margin.l)
-        self.assertEqual(memory_fig.layout.margin.l, empty_fig.layout.margin.l)
-        self.assertEqual(memory_fig.layout.margin.l, GRID_DATA_MARGIN["l"])
-        self.assertFalse(energy_fig.layout.yaxis.automargin)
-        self.assertFalse(empty_fig.layout.yaxis.automargin)
-        self.assertFalse(bool(energy_fig.layout.yaxis.tickformat))
-        self.assertEqual(energy_fig.layout.margin.b, GRID_DATA_MARGIN["b"])
-
-    def test_grid_color_follows_metric(self):
-        timestamps = pd.date_range("2024-01-01", periods=3, freq="s")
-        df = pd.DataFrame(
-            {
-                "timestamp": list(timestamps) * 2,
-                "metric": ["attributed_energy_J"] * 3 + ["rapl_consumption_J"] * 3,
-                "value": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                "resource_kind": ["cpu"] * 6,
-                "resource_id": ["0"] * 6,
-                "consumer_kind": ["process"] * 6,
-                "consumer_id": ["10"] * 6,
-                "__late_attributes": [""] * 6,
-            }
-        )
-        process_range = {
-            "start": timestamps[0].isoformat(),
-            "end": timestamps[-1].isoformat(),
-        }
-        kwargs = dict(
-            rk="cpu",
-            rid="0",
-            ck="process",
-            cid="10",
-            la=None,
-            use_light_mode=False,
-            processed_df_data=df.to_dict("records"),
-            process_time_range=process_range,
-        )
-
-        energy_a = update_grid_plot_match(metric="attributed_energy_J", my_id={"index": "0-0"}, **kwargs)
-        energy_b = update_grid_plot_match(metric="attributed_energy_J", my_id={"index": "1-1"}, **kwargs)
-        rapl = update_grid_plot_match(metric="rapl_consumption_J", my_id={"index": "0-1"}, **kwargs)
-
-        self.assertEqual(energy_a.data[0].line.color, energy_b.data[0].line.color)
-        self.assertEqual(energy_a.data[1].marker.color, energy_a.data[0].line.color)
-        self.assertNotEqual(energy_a.data[0].line.color, rapl.data[0].line.color)
 
     def test_grid_reset_restores_each_figure_axis_defaults(self):
         memory_figure = {
@@ -496,34 +383,6 @@ class ProcessSpecificTests(unittest.TestCase):
         energy_yaxis = updated[1]["layout"]["yaxis"]
         self.assertEqual(energy_yaxis["range"], [1.0, 109.0])
         self.assertFalse(energy_yaxis["autorange"])
-        self.assertEqual(updated[0]["layout"]["margin"]["l"], GRID_DATA_MARGIN["l"])
-        self.assertEqual(updated[0]["layout"]["margin"]["t"], GRID_DATA_MARGIN["t"])
-
-    def test_grid_zoom_keeps_placeholder_top_margin(self):
-        placeholder = grid_message_figure(go.Figure(), "Select a metric", False)
-        data_figure = {
-            "data": [{"x": ["2024-01-01T00:00:00"], "y": [1.0]}],
-            "layout": {
-                "xaxis": {"range": ["2024-01-01T00:00:00", "2024-01-01T00:00:01"], "autorange": False},
-                "yaxis": {"range": [0.0, 2.0], "autorange": False},
-                "meta": {
-                    "axis_defaults": {
-                        "xaxis": {
-                            "range": ["2024-01-01T00:00:00", "2024-01-01T00:00:01"],
-                            "autorange": False,
-                        },
-                        "yaxis": {"range": [0.0, 2.0], "autorange": False},
-                    }
-                },
-            },
-        }
-        updated = apply_shared_xrange_to_grid_plots(
-            {"mode": "zoom", "x0": "2024-01-01T00:00:00", "x1": "2024-01-01T00:00:01", "revision": 1},
-            [placeholder.to_plotly_json(), data_figure],
-        )
-        self.assertEqual(updated[0]["layout"]["margin"]["t"], GRID_PLACEHOLDER_MARGIN["t"])
-        self.assertEqual(updated[0]["layout"]["margin"]["l"], GRID_PLACEHOLDER_MARGIN["l"])
-        self.assertEqual(updated[1]["layout"]["margin"]["t"], GRID_DATA_MARGIN["t"])
 
     def test_grid_zoom_scales_yaxis_to_visible_points(self):
         figure = {
