@@ -855,7 +855,8 @@ div.rc-slider-mark-text-active {
     overflow-y: hidden;
 }
 
-.tab-preparing-overlay {
+.tab-preparing-overlay,
+.plot-preparing-overlay {
     align-items: center;
     background: rgba(30, 36, 51, 0.62);
     bottom: 0;
@@ -868,7 +869,49 @@ div.rc-slider-mark-text-active {
     z-index: 30;
 }
 
-[data-bs-theme="light"] .tab-preparing-overlay {
+.plot-preparing-overlay {
+    opacity: 0;
+    pointer-events: none;
+    z-index: 8;
+}
+
+/* Stay invisible for a quick update. A multi-second zoom or shared-Y
+   change fades the veil in and blocks the plot until the reply lands. */
+.plot-preparing-overlay[style*="display: flex"],
+.plot-preparing-overlay[style*="display:flex"] {
+    animation: plot-preparing-reveal 0.18s ease 0.4s forwards;
+    pointer-events: auto;
+}
+
+@keyframes plot-preparing-reveal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.plot-area-with-preparing {
+    min-height: 0;
+    position: relative;
+}
+
+.comparative-plot-shell {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+    width: 100%;
+}
+
+.timeseries-plot-area {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    width: 100%;
+}
+
+[data-bs-theme="light"] .tab-preparing-overlay,
+[data-bs-theme="light"] .plot-preparing-overlay {
     background: rgba(247, 248, 250, 0.72);
 }
 
@@ -980,30 +1023,6 @@ div.rc-slider-mark-text-active {
 }
 
 #ps-xy-title,
-.comparative-series-legend {
-    align-items: center;
-    display: flex;
-    flex: 0 0 auto;
-    flex-wrap: wrap;
-    gap: 8px 20px;
-    justify-content: center;
-    min-height: 1.4rem;
-    padding: 2px 0 6px;
-}
-
-.comparative-legend-item {
-    align-items: center;
-    display: inline-flex;
-    font-size: 0.85rem;
-    gap: 0.4rem;
-}
-
-.comparative-legend-swatch {
-    border-radius: 1px;
-    height: 3px;
-    width: 1.4rem;
-}
-
 .comparative-plot-title {
     align-self: stretch;
     color: var(--app-text);
@@ -1028,6 +1047,30 @@ div.rc-slider-mark-text-active {
 
 .comparative-plot-title-text {
     white-space: pre-wrap;
+}
+
+.comparative-series-legend {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    justify-content: center;
+    min-height: 1.4rem;
+    padding: 2px 0 6px;
+}
+
+.comparative-legend-item {
+    align-items: center;
+    display: inline-flex;
+    font-size: 0.85rem;
+    gap: 0.4rem;
+}
+
+.comparative-legend-swatch {
+    border-radius: 1px;
+    height: 3px;
+    width: 1.4rem;
 }
 
 .timeseries-process-legend .device-class-key {
@@ -1101,6 +1144,7 @@ div.rc-slider-mark-text-active {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    position: relative;
     width: 100%;
 }
 
@@ -1318,6 +1362,7 @@ div.rc-slider-mark-text-active {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    position: relative;
     width: 100%;
 }
 

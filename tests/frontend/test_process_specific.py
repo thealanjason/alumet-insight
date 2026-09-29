@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 from backend.counterdiff import expand_counterdiff_rows
 from backend.data import finalize_processed_dataframe
 from frontend.panes.process_specific import (
+    _GRID_SERIES,
+    _patch_remembered_grid_cell,
     apply_shared_xrange_to_grid_plots,
     cascade_filter_options,
     filter_single_series,
@@ -560,12 +562,62 @@ class ProcessSpecificTests(unittest.TestCase):
         self.assertAlmostEqual(y_min, 9.0)
         self.assertAlmostEqual(y_max, 21.0)
         self.assertFalse(zoomed["layout"]["yaxis"]["autorange"])
+        self.assertTrue(zoomed["layout"]["yaxis"]["fixedrange"])
 
         reset = apply_shared_xrange_to_grid_plots(
             {"mode": "reset", "revision": 2},
             [zoomed],
         )[0]
         self.assertEqual(reset["layout"]["yaxis"]["range"], [1.0, 109.0])
+
+    def test_grid_zoom_patch_updates_axes_without_resending_traces(self):
+        timestamps = pd.date_range("2024-01-01", periods=3, freq="s")
+        df = pd.DataFrame(
+            {
+                "timestamp": timestamps,
+                "metric": ["pkg_J"] * 3,
+                "value": [10.0, 20.0, 100.0],
+                "resource_kind": ["local_machine"] * 3,
+                "resource_id": ["0"] * 3,
+                "consumer_kind": [""] * 3,
+                "consumer_id": [""] * 3,
+                "__late_attributes": [""] * 3,
+            }
+        )
+        update_grid_plot_match(
+            "pkg_J",
+            "local_machine",
+            "0",
+            None,
+            None,
+            None,
+            False,
+            df.to_dict("records"),
+            {"start": timestamps[0].isoformat(), "end": timestamps[-1].isoformat()},
+            {"index": "0-0"},
+        )
+        self.assertIn("0-0", _GRID_SERIES)
+        patch = _patch_remembered_grid_cell(
+            "0-0",
+            {
+                "mode": "zoom",
+                "x0": timestamps[0].isoformat(),
+                "x1": timestamps[1].isoformat(),
+            },
+        )
+        operations = patch.to_plotly_json()["operations"]
+        self.assertTrue(all(op["location"][0] == "layout" for op in operations))
+        y_range = next(op["params"]["value"] for op in operations if op["location"] == ["layout", "yaxis", "range"])
+        self.assertAlmostEqual(y_range[0], 9.0)
+        self.assertAlmostEqual(y_range[1], 21.0)
+
+        reset = _patch_remembered_grid_cell("0-0", {"mode": "reset", "revision": 2})
+        reset_range = next(
+            op["params"]["value"]
+            for op in reset.to_plotly_json()["operations"]
+            if op["location"] == ["layout", "yaxis", "range"]
+        )
+        self.assertEqual(reset_range, _GRID_SERIES["0-0"]["axis_defaults"]["yaxis"]["range"])
 
     def test_grid_zoom_decodes_plotly_bdata_arrays(self):
         y = np.array([10.0, 20.0, 100.0], dtype="f8")

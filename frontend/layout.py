@@ -12,6 +12,28 @@ LOAD_SOURCE_PATH = "path"
 SOURCE_FILE_HINT = ".csv, .log, and .toml"
 TAB_PANEL_ACTIVE = "tab-panel-scroll tab-panel-active"
 TAB_PANEL_IDLE = "tab-panel-scroll tab-panel-idle"
+PLOT_PREPARING_HIDDEN = {"display": "none"}
+PLOT_PREPARING_VISIBLE = {"display": "flex"}
+
+
+def plot_preparing_overlay(overlay_id, message: str = "Updating this plot…"):
+    """Cover a plot area while its rebuild callback is in flight.
+
+    The live figure stays mounted underneath so zoom/sync state is not replaced
+    by a dummy chart.
+    """
+    return html.Div(
+        id=overlay_id,
+        className="plot-preparing-overlay",
+        style=PLOT_PREPARING_HIDDEN,
+        children=html.Div(
+            [
+                html.Div(className="tab-preparing-spinner"),
+                html.Span(message, className="tab-preparing-label"),
+            ],
+            className="tab-preparing-inner",
+        ),
+    )
 
 
 def upload_prompt_children():
@@ -60,7 +82,13 @@ def empty_time_series_content():
                         ),
                         id="yaxis-options-container",
                     ),
-                    html.Div(id="timeseries-plot-container"),
+                    html.Div(
+                        [
+                            html.Div(id="timeseries-plot-container"),
+                            plot_preparing_overlay("timeseries-plot-preparing"),
+                        ],
+                        className="plot-area-with-preparing",
+                    ),
                     html.Div(id="timeseries-process-legend", style={"display": "none"}),
                 ],
                 style={"display": "none"},
@@ -93,24 +121,36 @@ def empty_comparative_content(message: str = "No data available. Please load dat
         [
             html.Div(
                 [
-                    html.Div(dcc.Dropdown(id="ps-xmetric-dropdown", options=[], value=None), id="ps-xmetric-dropdown-wrap"),
+                    html.Div(
+                        dcc.Dropdown(id="ps-xmetric-dropdown", options=[], value=None),
+                        id="ps-xmetric-dropdown-wrap",
+                    ),
                     html.Span(id="ps-xmetric-device-chip", className="device-class-chip"),
-                    html.Div(dcc.Dropdown(id="ps-ymetric-dropdown", options=[], value=None), id="ps-ymetric-dropdown-wrap"),
+                    html.Div(
+                        dcc.Dropdown(id="ps-ymetric-dropdown", options=[], value=None),
+                        id="ps-ymetric-dropdown-wrap",
+                    ),
                     html.Span(id="ps-ymetric-device-chip", className="device-class-chip"),
                     dbc.Checklist(id="comparative-process-only-toggle", options=[], value=[]),
                     html.Div(id="comparative-mode-info"),
                     dbc.Checklist(id="scatter-toggle", options=[], value=[]),
                     html.Div(id="ps-xy-title", className="comparative-plot-title"),
-                    html.Div(
-                        dcc.Graph(
-                            id="ps-xy-graph",
-                            figure=empty_theme_figure(),
-                            config={"responsive": False},
-                        ),
-                        id="comparative-plot-area",
-                        className="comparative-plot-area",
-                    ),
                     html.Div(id="comparative-series-legend"),
+                    html.Div(
+                        [
+                            html.Div(
+                                dcc.Graph(
+                                    id="ps-xy-graph",
+                                    figure=empty_theme_figure(),
+                                    config={"responsive": False},
+                                ),
+                                id="comparative-plot-area",
+                                className="comparative-plot-area",
+                            ),
+                            plot_preparing_overlay("comparative-plot-preparing"),
+                        ],
+                        className="plot-area-with-preparing comparative-plot-shell",
+                    ),
                 ],
                 style={"display": "none"},
             ),
@@ -443,6 +483,7 @@ def create_layout(app):
             dcc.Store(id="processed-df-store", data=None),
             dcc.Store(id="process-time-range-store", data=None),
             dcc.Store(id="timeseries-filtered-df-store", data=None),
+            dcc.Store(id="timeseries-zoom-store", data=None),
             dcc.Store(id="grid-shared-xrange-store", data=None),
             # Written when Time Series is idle or another tab is hovered; hidden tabs build from this.
             dcc.Store(id="tab-prefetch-store", data=None),

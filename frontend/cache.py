@@ -26,6 +26,8 @@ _DEFAULT_MAX_ENTRIES = 32
 _MAX_ENTRIES = _DEFAULT_MAX_ENTRIES
 # OrderedDict (LRU order: oldest at the front)
 _MEMORY_CACHE: OrderedDict[str, pd.DataFrame] = OrderedDict()
+# Sorted per-metric timestamp/value arrays for time-series zoom. Dropped with the frame.
+_WINDOW_INDEX: dict[str, dict] = {}
 
 
 def _cache_path(cache_id: str) -> Path:
@@ -35,6 +37,7 @@ def _cache_path(cache_id: str) -> Path:
 def _evict_overflow() -> None:
     while len(_MEMORY_CACHE) > _MAX_ENTRIES:
         old_id, _ = _MEMORY_CACHE.popitem(last=False)
+        _WINDOW_INDEX.pop(old_id, None)
         path = _cache_path(old_id)
         if path.exists():
             path.unlink(missing_ok=True)
@@ -42,6 +45,7 @@ def _evict_overflow() -> None:
 
 def _cleanup_cache() -> None:
     _MEMORY_CACHE.clear()
+    _WINDOW_INDEX.clear()
     if CACHE_DIR.exists():
         shutil.rmtree(CACHE_DIR, ignore_errors=True)
 
@@ -65,6 +69,7 @@ def delete_cached_dataframe(cache_id: Optional[str]) -> None:
     if not cache_id:
         return
     _MEMORY_CACHE.pop(cache_id, None)
+    _WINDOW_INDEX.pop(cache_id, None)
     path = _cache_path(cache_id)
     if path.exists():
         path.unlink(missing_ok=True)
@@ -73,6 +78,7 @@ def delete_cached_dataframe(cache_id: Optional[str]) -> None:
 def clear_dataframe_cache() -> None:
     """Drop all cached frames and remove Parquet files under CACHE_DIR."""
     _MEMORY_CACHE.clear()
+    _WINDOW_INDEX.clear()
     if CACHE_DIR.exists():
         for path in CACHE_DIR.glob("*.parquet"):
             path.unlink(missing_ok=True)
@@ -103,6 +109,20 @@ def cache_dataframe(
     _MEMORY_CACHE.move_to_end(cache_id)
     _evict_overflow()
     return cache_id
+
+
+def remember_metric_window_index(cache_id: Optional[str], index: Optional[dict]) -> None:
+    """Attach sorted per-metric arrays so a zoom can skip copying the whole frame."""
+    if not cache_id or not index:
+        return
+    _WINDOW_INDEX[cache_id] = index
+
+
+def metric_window_index(cache_id: Optional[str]) -> Optional[dict]:
+    """Return the sorted zoom index for a cache id, if one was stored."""
+    if not cache_id:
+        return None
+    return _WINDOW_INDEX.get(cache_id)
 
 
 def load_cached_dataframe(cache_id: Optional[str]) -> pd.DataFrame:

@@ -123,6 +123,11 @@ class TimeseriesFigureTests(unittest.TestCase):
         )
         figure = create_all_timeseries_plots(df, category="energy")
         self.assertEqual(figure.layout.height, 145 * 3 + 66 * 2 + 36 + 36)
+        defaults = figure.layout.meta["axis_defaults"]
+        self.assertIn("yaxis", defaults)
+        self.assertIn("yaxis3", defaults)
+        self.assertFalse(defaults["yaxis"]["autorange"])
+        self.assertEqual(len(defaults["yaxis"]["range"]), 2)
 
     def test_process_grid_caption_is_only_the_class_badge(self):
         caption = device_class_selection_caption(CPU_ENERGY_ID)

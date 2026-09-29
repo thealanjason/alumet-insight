@@ -33,7 +33,13 @@ from frontend.app import app
 from frontend.cache import df_from_store
 from frontend.figures import build_metric_trace_configs
 from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
-from frontend.layout import empty_comparative_content, tab_body_action
+from frontend.layout import (
+    PLOT_PREPARING_HIDDEN,
+    PLOT_PREPARING_VISIBLE,
+    empty_comparative_content,
+    plot_preparing_overlay,
+    tab_body_action,
+)
 from frontend.style import (
     CARD_STYLE,
     DROPDOWN_STYLE,
@@ -42,6 +48,7 @@ from frontend.style import (
     device_class_color,
     device_class_inline_name,
     device_class_key,
+    empty_theme_figure,
     plot_pair_colors,
 )
 
@@ -333,13 +340,20 @@ def build_comparative_tab(
                     ),
                     html.Div(id="ps-xy-title", className="comparative-plot-title"),
                     html.Div(
-                        dcc.Graph(
-                            id="ps-xy-graph",
-                            style={"height": "100%", "width": "100%"},
-                            config={"responsive": True, "displaylogo": False},
-                        ),
-                        id="comparative-plot-area",
-                        className=COMPARATIVE_PLOT_AREA_CLASS,
+                        [
+                            html.Div(
+                                dcc.Graph(
+                                    id="ps-xy-graph",
+                                    figure=empty_theme_figure(bool(use_light_mode)),
+                                    style={"height": "100%", "width": "100%"},
+                                    config={"responsive": True, "displaylogo": False},
+                                ),
+                                id="comparative-plot-area",
+                                className=COMPARATIVE_PLOT_AREA_CLASS,
+                            ),
+                            plot_preparing_overlay("comparative-plot-preparing"),
+                        ],
+                        className="plot-area-with-preparing comparative-plot-shell",
                     ),
                     html.Div(id="comparative-series-legend"),
                     html.Div(
@@ -472,6 +486,13 @@ def update_comparative_metric_dropdowns(
     State("theme-switch", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
+    running=[
+        (
+            Output("comparative-plot-preparing", "style"),
+            PLOT_PREPARING_VISIBLE,
+            PLOT_PREPARING_HIDDEN,
+        ),
+    ],
     prevent_initial_call=True,
 )
 def render_comparative_xy_plot(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import pandas as pd
@@ -209,6 +210,66 @@ def _padded_range(y_min: float, y_max: float, *, clamp_zero: bool = False) -> tu
     return calc_min, calc_max
 
 
+def _shared_extrema(per_metric: list[tuple[float, float] | None]) -> tuple[float, float] | None:
+    """Min and max across metrics, skipping empty series and NaN the way pandas does."""
+    usable: list[tuple[float, float]] = []
+    saw_row = False
+    for pair in per_metric:
+        if pair is None:
+            continue
+        saw_row = True
+        if math.isnan(pair[0]) or math.isnan(pair[1]):
+            continue
+        usable.append(pair)
+    if usable:
+        return min(pair[0] for pair in usable), max(pair[1] for pair in usable)
+    if saw_row:
+        return float("nan"), float("nan")
+    return None
+
+
+def yaxis_ranges_from_extrema(
+    per_metric: list[tuple[float, float] | None],
+    share_yaxis: bool,
+    is_memory: bool,
+    shared: tuple[float, float] | None = None,
+) -> dict:
+    """Pad per-subplot or shared extrema into the same range dict as ``compute_yaxis_ranges``."""
+    result: dict[str, dict] = {}
+
+    if share_yaxis:
+        if shared is None:
+            shared = _shared_extrema(per_metric)
+            if shared is None:
+                return result
+        calc_min, calc_max = _padded_range(shared[0], shared[1], clamp_zero=is_memory)
+        shared_tickvals = None
+        shared_ticktext = None
+        if is_memory:
+            shared_tickvals, shared_ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+        for subplot_idx in range(len(per_metric)):
+            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+            entry: dict = {"range": [calc_min, calc_max], "autorange": False}
+            if is_memory and shared_tickvals is not None:
+                entry["tickvals"] = shared_tickvals
+                entry["ticktext"] = shared_ticktext
+            result[yaxis_key] = entry
+        return result
+
+    for subplot_idx, pair in enumerate(per_metric):
+        if pair is None:
+            continue
+        calc_min, calc_max = _padded_range(pair[0], pair[1], clamp_zero=is_memory)
+        yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
+        entry = {"range": [calc_min, calc_max], "autorange": False}
+        if is_memory:
+            tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
+            entry["tickvals"] = tickvals
+            entry["ticktext"] = ticktext
+        result[yaxis_key] = entry
+    return result
+
+
 def compute_yaxis_ranges(
     visible_data: pd.DataFrame,
     metric_order: list[str],
@@ -220,43 +281,17 @@ def compute_yaxis_ranges(
     Returns a dict keyed by yaxis_key ("yaxis", "yaxis2", …)
     with range, autorange, and optional tickvals/ticktext.
     """
-    result: dict[str, dict] = {}
-
-    if share_yaxis:
-        global_y_min = visible_data["value"].min()
-        global_y_max = visible_data["value"].max()
-        calc_min, calc_max = _padded_range(global_y_min, global_y_max, clamp_zero=is_memory)
-
-        shared_tickvals = None
-        shared_ticktext = None
-        if is_memory:
-            shared_tickvals, shared_ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-
-        for subplot_idx in range(len(metric_order)):
-            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-            entry: dict = {"range": [calc_min, calc_max], "autorange": False}
-            if is_memory and shared_tickvals is not None:
-                entry["tickvals"] = shared_tickvals
-                entry["ticktext"] = shared_ticktext
-            result[yaxis_key] = entry
-    else:
-        for subplot_idx, metric_id in enumerate(metric_order):
-            metric_visible = visible_data[visible_data["metric_id"] == metric_id]
-            if metric_visible.empty:
-                continue
-            y_min_val = metric_visible["value"].min()
-            y_max_val = metric_visible["value"].max()
-            calc_min, calc_max = _padded_range(y_min_val, y_max_val, clamp_zero=is_memory)
-
-            yaxis_key = "yaxis" if subplot_idx == 0 else f"yaxis{subplot_idx + 1}"
-            entry = {"range": [calc_min, calc_max], "autorange": False}
-            if is_memory:
-                tickvals, ticktext = get_bytes_tickvals_ticktext(calc_min, calc_max, num_ticks=5)
-                entry["tickvals"] = tickvals
-                entry["ticktext"] = ticktext
-            result[yaxis_key] = entry
-
-    return result
+    per_metric: list[tuple[float, float] | None] = []
+    for metric_id in metric_order:
+        metric_visible = visible_data[visible_data["metric_id"] == metric_id]
+        if metric_visible.empty:
+            per_metric.append(None)
+        else:
+            per_metric.append((metric_visible["value"].min(), metric_visible["value"].max()))
+    shared = None
+    if share_yaxis and not visible_data.empty:
+        shared = (visible_data["value"].min(), visible_data["value"].max())
+    return yaxis_ranges_from_extrema(per_metric, share_yaxis, is_memory, shared)
 
 
 def comparative_metric_ids(
