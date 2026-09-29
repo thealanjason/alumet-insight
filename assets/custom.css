@@ -980,6 +980,30 @@ div.rc-slider-mark-text-active {
 }
 
 #ps-xy-title,
+.comparative-series-legend {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    justify-content: center;
+    min-height: 1.4rem;
+    padding: 2px 0 6px;
+}
+
+.comparative-legend-item {
+    align-items: center;
+    display: inline-flex;
+    font-size: 0.85rem;
+    gap: 0.4rem;
+}
+
+.comparative-legend-swatch {
+    border-radius: 1px;
+    height: 3px;
+    width: 1.4rem;
+}
+
 .comparative-plot-title {
     align-self: stretch;
     color: var(--app-text);

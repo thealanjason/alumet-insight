@@ -110,6 +110,7 @@ def empty_comparative_content(message: str = "No data available. Please load dat
                         id="comparative-plot-area",
                         className="comparative-plot-area",
                     ),
+                    html.Div(id="comparative-series-legend"),
                 ],
                 style={"display": "none"},
             ),

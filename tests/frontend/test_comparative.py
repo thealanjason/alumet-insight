@@ -7,6 +7,7 @@ from frontend.panes.comparative import (
     COMPARATIVE_PLOT_AREA_CLASS,
     EQUAL_XY_PLOT_AREA_CLASS,
     comparative_plot_area_class,
+    comparative_series_legend,
     pick_xy_values,
     update_comparative_mode_info,
     update_process_xy_plot,
@@ -103,11 +104,19 @@ class ComparativeTests(unittest.TestCase):
         self.assertEqual(figure.layout.yaxis2.tickfont.color, accents["y"])
         self.assertEqual(figure.layout.yaxis.title.font.color, cpu_color)
         self.assertEqual(figure.layout.yaxis2.title.font.color, other_color)
-        self.assertEqual(figure.layout.legend.orientation, "h")
-        self.assertEqual(figure.layout.legend.yref, "container")
-        self.assertEqual(figure.layout.legend.yanchor, "bottom")
-        self.assertEqual(figure.layout.legend.y, 0)
-        self.assertGreaterEqual(figure.layout.margin.b, 120)
+        self.assertTrue(figure.layout.meta["dual_y_line_ticks"])
+        self.assertEqual(figure.layout.meta["axis_title_colors"]["yaxis"], cpu_color)
+        self.assertEqual(figure.layout.meta["axis_title_colors"]["yaxis2"], other_color)
+        self.assertFalse(figure.layout.showlegend)
+        legend_items = figure.layout.meta["series_legend"]
+        self.assertEqual(legend_items[0]["line"], accents["x"])
+        self.assertEqual(legend_items[0]["label"], cpu_color)
+        self.assertEqual(legend_items[1]["line"], accents["y"])
+        self.assertEqual(legend_items[1]["label"], other_color)
+        legend = comparative_series_legend(legend_items)
+        self.assertEqual(legend.children[0].children[0].style["background"], accents["x"])
+        self.assertEqual(legend.children[0].children[1].style["color"], cpu_color)
+        self.assertEqual(legend.children[1].children[1].style["color"], other_color)
         self.assertEqual(figure.layout.xaxis.title.standoff, 10)
         self.assertFalse(figure.layout.title.text)
         self.assertFalse(figure.layout.meta["equal_xy"])

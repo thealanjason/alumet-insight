@@ -102,6 +102,31 @@ def comparative_plot_area_class(equal_xy: bool) -> str:
     return EQUAL_XY_PLOT_AREA_CLASS if equal_xy else COMPARATIVE_PLOT_AREA_CLASS
 
 
+def comparative_series_legend(items: list[dict] | None):
+    """Line swatch in the curve color, name in the device-class color."""
+    if not items:
+        return None
+    rows = []
+    for item in items:
+        rows.append(
+            html.Span(
+                [
+                    html.Span(
+                        className="comparative-legend-swatch",
+                        style={"background": item["line"]},
+                    ),
+                    html.Span(
+                        item["name"],
+                        className="comparative-legend-label",
+                        style={"color": item["label"]},
+                    ),
+                ],
+                className="comparative-legend-item",
+            )
+        )
+    return html.Div(rows, className="comparative-series-legend")
+
+
 def comparative_plot_title(prefix: str, left_name, right_name):
     """One centered line for ``#ps-xy-title``. Double spaces stay inside the wrapper."""
     return html.Span(
@@ -316,6 +341,7 @@ def build_comparative_tab(
                         id="comparative-plot-area",
                         className=COMPARATIVE_PLOT_AREA_CLASS,
                     ),
+                    html.Div(id="comparative-series-legend"),
                     html.Div(
                         [
                             dbc.Button(
@@ -439,6 +465,7 @@ def update_comparative_metric_dropdowns(
     Output("ps-xy-graph", "figure"),
     Output("comparative-plot-area", "className"),
     Output("ps-xy-title", "children"),
+    Output("comparative-series-legend", "children"),
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
     Input("scatter-toggle", "value"),
@@ -455,7 +482,8 @@ def render_comparative_xy_plot(
     )
     meta = fig.layout.meta or {}
     equal_xy = bool(meta.get("equal_xy") if isinstance(meta, dict) else getattr(meta, "equal_xy", False))
-    return fig, comparative_plot_area_class(equal_xy), title
+    legend_items = meta.get("series_legend") if isinstance(meta, dict) else getattr(meta, "series_legend", None)
+    return fig, comparative_plot_area_class(equal_xy), title, comparative_series_legend(legend_items)
 
 
 def update_process_xy_plot(
@@ -632,6 +660,7 @@ def update_process_xy_plot(
             line_x,
             "y1",
         ):
+            trace_config["showlegend"] = False
             fig.add_trace(go.Scatter(**trace_config))
 
         for trace_config in comparative_timeseries_trace_configs(
@@ -641,6 +670,7 @@ def update_process_xy_plot(
             line_y,
             "y2",
         ):
+            trace_config["showlegend"] = False
             fig.add_trace(go.Scatter(**trace_config))
 
         yaxis_config = dict(
@@ -683,16 +713,8 @@ def update_process_xy_plot(
             ),
             yaxis=yaxis_config,
             yaxis2=yaxis2_config,
-            legend=dict(
-                orientation="h",
-                yref="container",
-                y=0,
-                yanchor="bottom",
-                x=0.5,
-                xanchor="center",
-                bgcolor="rgba(59, 66, 82, 0.8)",
-            ),
-            margin=dict(t=16, b=120),
+            showlegend=False,
+            margin=dict(t=16, b=48),
             hovermode="x unified",
         )
         heading = comparative_plot_title("Time Series", x_named, y_named)
@@ -707,7 +729,17 @@ def update_process_xy_plot(
             y_metric_id,
             include_zero=both_cumulative and not show_scatter,
         )
-    fig.update_layout(meta={"equal_xy": equal_xy})
+    meta = {"equal_xy": equal_xy}
+    if dfxy is None and not show_scatter and not both_cumulative:
+        # Theme restyle reads these so dual-Y ticks stay on the line colors
+        # and axis titles stay on the device-class colors.
+        meta["dual_y_line_ticks"] = True
+        meta["axis_title_colors"] = {"yaxis": class_x, "yaxis2": class_y}
+        meta["series_legend"] = [
+            {"name": x_abbrev, "line": line_x, "label": class_x},
+            {"name": y_abbrev, "line": line_y, "label": class_y},
+        ]
+    fig.update_layout(meta=meta)
     return fig, heading
 
 
