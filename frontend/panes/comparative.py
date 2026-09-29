@@ -33,7 +33,7 @@ from frontend.app import app
 from frontend.cache import df_from_store
 from frontend.figures import build_metric_trace_configs
 from frontend.helpers import ensure_timestamp_datetime, parse_process_time_range_store
-from frontend.layout import empty_comparative_content, is_empty_tab_placeholder
+from frontend.layout import empty_comparative_content, tab_body_action
 from frontend.style import (
     CARD_STYLE,
     DROPDOWN_STYLE,
@@ -159,23 +159,18 @@ def apply_equal_xy_scale(
     Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    Input("tab-prefetch-store", "data"),
     State("comparative-content", "children"),
     State("theme-switch", "value"),
 )
 def build_comparative_tab(
-    tab_value, processed_df_data, process_time_range, current_children, use_light_mode
+    tab_value, processed_df_data, process_time_range, _prefetch, current_children, use_light_mode
 ):
-    triggered_id = ctx.triggered_id
-    is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
-
-    if is_data_trigger and tab_value != "comparative-tab":
+    action = tab_body_action(ctx.triggered_id, tab_value, "comparative-tab", current_children)
+    if action == "keep":
+        return dash.no_update
+    if action == "empty":
         return empty_comparative_content()
-
-    if triggered_id == "results-tabs":
-        if tab_value != "comparative-tab":
-            return dash.no_update
-        if current_children and not is_empty_tab_placeholder(current_children):
-            return dash.no_update
 
     if not processed_df_data or not process_time_range:
         return empty_comparative_content()
@@ -447,7 +442,7 @@ def update_comparative_metric_dropdowns(
     Input("ps-xmetric-dropdown", "value"),
     Input("ps-ymetric-dropdown", "value"),
     Input("scatter-toggle", "value"),
-    Input("theme-switch", "value"),
+    State("theme-switch", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     prevent_initial_call=True,

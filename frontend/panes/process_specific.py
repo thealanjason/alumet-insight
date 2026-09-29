@@ -35,7 +35,7 @@ from frontend.helpers import (
     parse_process_time_range_store,
     triggered_component_type,
 )
-from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
+from frontend.layout import empty_process_specific_content, tab_body_action
 from frontend.style import (
     CARD_STYLE,
     COMPACT_DROPDOWN_STYLE,
@@ -445,7 +445,13 @@ def _filter_slot(cell_index: str, label: str, dropdown_type: str, container_type
     )
 
 
-def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> html.Div:
+def _build_grid_cell(
+    i: int,
+    j: int,
+    unique_metrics: list[str],
+    derived_metrics: Optional[set[str]] = None,
+    use_light_mode: bool = False,
+) -> html.Div:
     """Build one viewport-fitted cell for the 2x2 process-specific grid."""
     cell_index = f"{i}-{j}"
     derived_metrics = derived_metrics or set()
@@ -453,6 +459,7 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
         metric_choice_option(metric, derived=metric in derived_metrics)
         for metric in unique_metrics
     ]
+    empty_figure = grid_message_figure(go.Figure(), "Select a metric", use_light_mode)
 
     return html.Div(
         dbc.Card(
@@ -504,6 +511,7 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
                         html.Div(
                             dcc.Graph(
                                 id={"type": "grid-plot", "index": cell_index},
+                                figure=empty_figure,
                                 style={"height": "100%", "width": "100%"},
                                 className="grid-plot-graph",
                                 config=GRID_GRAPH_CONFIG,
@@ -539,10 +547,11 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
 def build_process_grid_card(
     unique_metrics: list[str],
     derived_metrics: Optional[set[str]] = None,
+    use_light_mode: bool = False,
 ) -> dbc.Card:
     """Build the viewport-fitted 2x2 process-specific comparison card."""
     grid_cells = [
-        _build_grid_cell(i, j, unique_metrics, derived_metrics)
+        _build_grid_cell(i, j, unique_metrics, derived_metrics, use_light_mode=use_light_mode)
         for i in range(GRID_SIZE)
         for j in range(GRID_SIZE)
     ]
@@ -611,22 +620,20 @@ def update_process_device_class_chip(metric, rk, rid, ck, cid, la, use_light_mod
     Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    Input("tab-prefetch-store", "data"),
     State("process-specific-content", "children"),
+    State("theme-switch", "value"),
 )
 def build_process_specific_tab(
-    tab_value, processed_df_data, process_time_range, current_children
+    tab_value, processed_df_data, process_time_range, _prefetch, current_children, use_light_mode
 ):
-    triggered_id = ctx.triggered_id
-    is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
-
-    if is_data_trigger and tab_value != "process-specific-tab":
+    action = tab_body_action(
+        ctx.triggered_id, tab_value, "process-specific-tab", current_children
+    )
+    if action == "keep":
+        return dash.no_update
+    if action == "empty":
         return empty_process_specific_content()
-
-    if triggered_id == "results-tabs":
-        if tab_value != "process-specific-tab":
-            return dash.no_update
-        if current_children and not is_empty_tab_placeholder(current_children):
-            return dash.no_update
 
     if not processed_df_data or not process_time_range:
         return empty_process_specific_content()
@@ -654,6 +661,7 @@ def build_process_specific_tab(
     return build_process_grid_card(
         unique_metrics,
         derived_base_metrics(df_processed),
+        use_light_mode=bool(use_light_mode),
     )
 
 
@@ -716,7 +724,7 @@ def update_filters_match(metric, rk, rid, ck, cid, la, processed_df_data):
     Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
     Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
     Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
-    Input("theme-switch", "value"),
+    State("theme-switch", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     State({"type": "metric-dropdown", "index": MATCH}, "id"),

@@ -227,7 +227,7 @@ def update_yaxis_options_visibility(selected_category, current_toggle_value):
     Output("timeseries-process-legend", "style"),
     Input("metric-category-dropdown", "value"),
     Input("cpu-core-dropdown", "value"),
-    Input("theme-switch", "value"),
+    State("theme-switch", "value"),
     State("shared-yaxis-toggle", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),

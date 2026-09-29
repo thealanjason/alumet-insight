@@ -33,6 +33,9 @@ app.clientside_callback(
         var theme = useLightMode ? "light" : "dark";
         document.documentElement.setAttribute("data-bs-theme", theme);
         document.body.setAttribute("data-bs-theme", theme);
+        if (window.restylePlotlyTheme) {
+            window.restylePlotlyTheme(!!useLightMode);
+        }
         return "app-shell theme-" + theme + " dbc";
     }
     """,
@@ -120,7 +123,6 @@ def update_ready_hint_on_mode_switch(load_mode, processed_df):
     Output("directory-upload", "filename"),
     Output("upload-relative-paths", "data"),
     Output("processed-df-store", "data", allow_duplicate=True),
-    Output("original-df-store", "data", allow_duplicate=True),
     Output("process-time-range-store", "data", allow_duplicate=True),
     Output("timeseries-filtered-df-store", "data", allow_duplicate=True),
     Output("experiment-name-display", "children", allow_duplicate=True),
@@ -130,20 +132,18 @@ def update_ready_hint_on_mode_switch(load_mode, processed_df):
     Input("reset-button", "n_clicks"),
     State("load-source-mode", "value"),
     State("processed-df-store", "data"),
-    State("original-df-store", "data"),
     State("timeseries-filtered-df-store", "data"),
     prevent_initial_call=True,
 )
-def reset_app(n_clicks, load_mode, processed_df_data, original_df_data, filtered_df_data):
+def reset_app(n_clicks, load_mode, processed_df_data, filtered_df_data):
     """Reset the application to its initial state."""
     if n_clicks == 0:
         raise dash.exceptions.PreventUpdate
 
-    _delete_store_caches(processed_df_data, original_df_data, filtered_df_data)
+    _delete_store_caches(processed_df_data, filtered_df_data)
 
     return (
         "",
-        None,
         None,
         None,
         None,
@@ -163,7 +163,6 @@ def reset_app(n_clicks, load_mode, processed_df_data, original_df_data, filtered
 @app.callback(
     Output("status-message", "children"),
     Output("processed-df-store", "data"),
-    Output("original-df-store", "data"),
     Output("process-time-range-store", "data"),
     Output("experiment-name-display", "children"),
     Output("pid-display", "children"),
@@ -176,7 +175,6 @@ def reset_app(n_clicks, load_mode, processed_df_data, original_df_data, filtered
     State("directory-upload", "filename"),
     State("upload-relative-paths", "data"),
     State("processed-df-store", "data"),
-    State("original-df-store", "data"),
     State("timeseries-filtered-df-store", "data"),
 )
 def load_and_visualize(
@@ -188,19 +186,18 @@ def load_and_visualize(
     upload_filenames,
     upload_relative_paths,
     previous_processed,
-    previous_original,
     previous_filtered,
 ):
     _no_info = ("Name: N/A", "Process ID: N/A", "Device: N/A")
-    previous_stores = (previous_processed, previous_original, previous_filtered)
+    previous_stores = (previous_processed, previous_filtered)
     triggered = dash.callback_context.triggered_id
 
     def _cleared(status_msg):
         _delete_store_caches(*previous_stores)
-        return status_msg, None, None, None, *_no_info
+        return status_msg, None, None, *_no_info
 
     if triggered is None or not any([n_clicks, n_submit]):
-        return (_ready_status(load_mode), None, None, None, *_no_info)
+        return (_ready_status(load_mode), None, None, *_no_info)
 
     # Enter in the path field should only load while Server path is active.
     if triggered == "directory-path-input" and load_mode != LOAD_SOURCE_PATH:
@@ -242,7 +239,6 @@ def load_and_visualize(
         _delete_store_caches(*previous_stores)
 
         processed_cache_id = cache_dataframe(data.processed_df, prefix="processed")
-        original_cache_id = cache_dataframe(data.source_df, prefix="original")
 
         proc_start, proc_end = data.process_time_range
 
@@ -259,7 +255,6 @@ def load_and_visualize(
         return (
             status_msg,
             processed_cache_id,
-            original_cache_id,
             process_time_range,
             f"Name: {experiment_name}",
             f"Process ID: {pid or 'N/A'}",
@@ -284,16 +279,50 @@ def clear_filtered_on_dataset_change(_processed_df_data, previous_filtered):
 # Tab visibility and viewport sizing (see assets/tab_panel_layout.js)
 app.clientside_callback(
     ClientsideFunction(namespace="tab_panel", function_name="toggleTabPanels"),
-    Output("time-series-content", "style"),
-    Output("process-specific-content", "style"),
-    Output("comparative-content", "style"),
+    Output("time-series-content", "className"),
+    Output("process-specific-content", "className"),
+    Output("comparative-content", "className"),
+    Output("tab-preparing-overlay", "style"),
     Input("results-tabs", "value"),
 )
 
 app.clientside_callback(
     ClientsideFunction(namespace="tab_panel", function_name="afterTabBuild"),
     Output("tab-panel-layout-ts", "data"),
+    Output("tab-preparing-overlay", "style", allow_duplicate=True),
     Input("time-series-content", "children"),
     Input("process-specific-content", "children"),
     Input("comparative-content", "children"),
+    State("results-tabs", "value"),
+    prevent_initial_call=True,
+)
+
+app.clientside_callback(
+    """
+    function(_tsChildren, processed) {
+        if (window.bindTabHoverPrefetch) {
+            window.bindTabHoverPrefetch();
+        }
+        if (window._tabPrefetchTimer) {
+            clearTimeout(window._tabPrefetchTimer);
+            window._tabPrefetchTimer = null;
+        }
+        if (!processed) {
+            return window.dash_clientside.no_update;
+        }
+        window._tabPrefetchTimer = setTimeout(function () {
+            if (window.plotUpdateInProgress && window.plotUpdateInProgress()) {
+                return;
+            }
+            if (window.dash_clientside && window.dash_clientside.set_props) {
+                window.dash_clientside.set_props("tab-prefetch-store", {data: Date.now()});
+            }
+        }, 1000);
+        return window.dash_clientside.no_update;
+    }
+    """,
+    Output("tab-prefetch-timer-output", "data"),
+    Input("time-series-content", "children"),
+    State("processed-df-store", "data"),
+    prevent_initial_call=True,
 )
