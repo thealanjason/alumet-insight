@@ -847,40 +847,125 @@ div.rc-slider-mark-text-active {
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
+    position: relative;
+    z-index: 1;
 }
 
 #tab-content-area.tab-area-locked {
     overflow-y: hidden;
 }
 
-#loading-tab-content {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 0;
-    min-height: 0;
-    overflow: visible;
-    position: relative;
-    z-index: 1;
+.tab-preparing-overlay,
+.plot-preparing-overlay {
+    align-items: center;
+    background: rgba(30, 36, 51, 0.62);
+    bottom: 0;
+    display: none;
+    justify-content: center;
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+    z-index: 30;
 }
 
-#loading-tab-content > div {
+.plot-preparing-overlay {
+    opacity: 0;
+    pointer-events: none;
+    z-index: 8;
+}
+
+/* Stay invisible for a quick update. A multi-second zoom or shared-Y
+   change fades the veil in and blocks the plot until the reply lands. */
+.plot-preparing-overlay[style*="display: flex"],
+.plot-preparing-overlay[style*="display:flex"] {
+    animation: plot-preparing-reveal 0.18s ease 0.4s forwards;
+    pointer-events: auto;
+}
+
+@keyframes plot-preparing-reveal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.plot-area-with-preparing {
+    min-height: 0;
+    position: relative;
+}
+
+.comparative-plot-shell {
     display: flex;
     flex: 1 1 0;
     flex-direction: column;
     min-height: 0;
-    overflow: visible;
     width: 100%;
 }
 
-#time-series-content,
-#comparative-content,
-#process-specific-content {
+.timeseries-plot-area {
     display: flex;
     flex: 1 1 0;
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
     width: 100%;
+}
+
+[data-bs-theme="light"] .tab-preparing-overlay,
+[data-bs-theme="light"] .plot-preparing-overlay {
+    background: rgba(247, 248, 250, 0.72);
+}
+
+.tab-preparing-inner {
+    align-items: center;
+    color: var(--app-text);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tab-preparing-spinner {
+    animation: tab-preparing-spin 0.7s linear infinite;
+    border: 3px solid var(--app-border);
+    border-radius: 50%;
+    border-top-color: #88C0D0;
+    height: 28px;
+    width: 28px;
+}
+
+.tab-preparing-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+@keyframes tab-preparing-spin {
+    to { transform: rotate(360deg); }
+}
+
+#time-series-content,
+#comparative-content,
+#process-specific-content {
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    left: 0;
+    min-height: 0;
+    overflow: hidden;
+    position: absolute;
+    right: 0;
+    top: 4px;
+    width: 100%;
+}
+
+.tab-panel-idle {
+    pointer-events: none;
+    visibility: hidden;
+    z-index: 0;
+}
+
+.tab-panel-active {
+    pointer-events: auto;
+    visibility: visible;
+    z-index: 1;
 }
 
 .viewport-card,
@@ -964,6 +1049,30 @@ div.rc-slider-mark-text-active {
     white-space: pre-wrap;
 }
 
+.comparative-series-legend {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    justify-content: center;
+    min-height: 1.4rem;
+    padding: 2px 0 6px;
+}
+
+.comparative-legend-item {
+    align-items: center;
+    display: inline-flex;
+    font-size: 0.85rem;
+    gap: 0.4rem;
+}
+
+.comparative-legend-swatch {
+    border-radius: 1px;
+    height: 3px;
+    width: 1.4rem;
+}
+
 .timeseries-process-legend .device-class-key {
     font-size: inherit;
     gap: 6px 10px;
@@ -1035,6 +1144,7 @@ div.rc-slider-mark-text-active {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    position: relative;
     width: 100%;
 }
 
@@ -1252,6 +1362,7 @@ div.rc-slider-mark-text-active {
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
+    position: relative;
     width: 100%;
 }
 

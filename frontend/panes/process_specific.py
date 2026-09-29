@@ -25,8 +25,10 @@ from frontend.app import app
 from frontend.cache import df_from_store, is_cache_miss
 from frontend.figures import (
     build_metric_trace_configs,
+    cartesian_axis_patch,
     color_for_metric,
     relayout_requests_reset,
+    relayout_x_windows,
     restore_axis_defaults,
 )
 from frontend.helpers import (
@@ -35,7 +37,7 @@ from frontend.helpers import (
     parse_process_time_range_store,
     triggered_component_type,
 )
-from frontend.layout import empty_process_specific_content, is_empty_tab_placeholder
+from frontend.layout import empty_process_specific_content, plot_preparing_overlay, tab_body_action
 from frontend.style import (
     CARD_STYLE,
     COMPACT_DROPDOWN_STYLE,
@@ -319,6 +321,69 @@ def lock_grid_left_margin(fig: go.Figure | dict, *, placeholder: bool = False) -
     layout.setdefault("yaxis", {})["automargin"] = False
 
 
+# Plotted points kept on the server so a zoom callback can fit Y without
+# uploading the figure to Dash and back.
+_GRID_SERIES: dict[str, dict] = {}
+
+
+def _remember_grid_series(cell_index, fig: go.Figure) -> None:
+    """Cache one cell's plotted points for a later axis-only zoom patch."""
+    index = cell_index.get("index") if isinstance(cell_index, dict) else None
+    if not index:
+        return
+    meta = fig.layout.meta
+    defaults = None
+    is_memory = False
+    if isinstance(meta, dict):
+        defaults = meta.get("axis_defaults")
+        is_memory = bool(meta.get("is_memory"))
+    elif meta is not None:
+        defaults = getattr(meta, "axis_defaults", None)
+        is_memory = bool(getattr(meta, "is_memory", False))
+    traces = []
+    for trace in fig.data or []:
+        xs = [] if trace.x is None else list(trace.x)
+        ys = [] if trace.y is None else list(trace.y)
+        if xs and ys:
+            traces.append({"x": xs, "y": ys})
+    if not traces or not isinstance(defaults, dict):
+        _GRID_SERIES.pop(str(index), None)
+        return
+    _GRID_SERIES[str(index)] = {
+        "traces": traces,
+        "is_memory": is_memory,
+        "axis_defaults": copy.deepcopy(defaults),
+    }
+
+
+def _patch_remembered_grid_cell(index: str, shared_range: dict):
+    """Fit one remembered cell to the shared time window, as an axis patch."""
+    series = _GRID_SERIES.get(index)
+    if not series:
+        return dash.no_update
+    layout = {
+        "meta": {
+            "is_memory": series["is_memory"],
+            "axis_defaults": series["axis_defaults"],
+        },
+        "xaxis": {},
+        "yaxis": {},
+    }
+    fig = {"data": series["traces"], "layout": layout}
+    if shared_range.get("mode") == "reset":
+        defaults = series["axis_defaults"] or {}
+        if defaults.get("xaxis"):
+            restore_axis_defaults(layout["xaxis"], defaults["xaxis"])
+        if defaults.get("yaxis"):
+            restore_axis_defaults(layout["yaxis"], defaults["yaxis"])
+    else:
+        layout["xaxis"]["range"] = [shared_range["x0"], shared_range["x1"]]
+        layout["xaxis"]["autorange"] = False
+        apply_visible_yaxis_range(fig, shared_range["x0"], shared_range["x1"])
+    layout["yaxis"]["fixedrange"] = True
+    return cartesian_axis_patch(layout)
+
+
 def grid_message_figure(fig: go.Figure, title: str, use_light_mode: bool) -> go.Figure:
     """Compact placeholder figure for empty, incomplete, or invalid grid states."""
     fig.update_layout(
@@ -445,7 +510,13 @@ def _filter_slot(cell_index: str, label: str, dropdown_type: str, container_type
     )
 
 
-def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics: Optional[set[str]] = None) -> html.Div:
+def _build_grid_cell(
+    i: int,
+    j: int,
+    unique_metrics: list[str],
+    derived_metrics: Optional[set[str]] = None,
+    use_light_mode: bool = False,
+) -> html.Div:
     """Build one viewport-fitted cell for the 2x2 process-specific grid."""
     cell_index = f"{i}-{j}"
     derived_metrics = derived_metrics or set()
@@ -453,6 +524,7 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
         metric_choice_option(metric, derived=metric in derived_metrics)
         for metric in unique_metrics
     ]
+    empty_figure = grid_message_figure(go.Figure(), "Select a metric", use_light_mode)
 
     return html.Div(
         dbc.Card(
@@ -502,13 +574,17 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
                             className="process-grid-toolbar",
                         ),
                         html.Div(
-                            dcc.Graph(
-                                id={"type": "grid-plot", "index": cell_index},
-                                style={"height": "100%", "width": "100%"},
-                                className="grid-plot-graph",
-                                config=GRID_GRAPH_CONFIG,
-                            ),
-                            className="process-grid-plot-area",
+                            [
+                                dcc.Graph(
+                                    id={"type": "grid-plot", "index": cell_index},
+                                    figure=empty_figure,
+                                    style={"height": "100%", "width": "100%"},
+                                    className="grid-plot-graph",
+                                    config=GRID_GRAPH_CONFIG,
+                                ),
+                                plot_preparing_overlay({"type": "plot-preparing", "index": cell_index}),
+                            ],
+                            className="process-grid-plot-area plot-area-with-preparing",
                         ),
                         html.Div(
                             [
@@ -539,10 +615,11 @@ def _build_grid_cell(i: int, j: int, unique_metrics: list[str], derived_metrics:
 def build_process_grid_card(
     unique_metrics: list[str],
     derived_metrics: Optional[set[str]] = None,
+    use_light_mode: bool = False,
 ) -> dbc.Card:
     """Build the viewport-fitted 2x2 process-specific comparison card."""
     grid_cells = [
-        _build_grid_cell(i, j, unique_metrics, derived_metrics)
+        _build_grid_cell(i, j, unique_metrics, derived_metrics, use_light_mode)
         for i in range(GRID_SIZE)
         for j in range(GRID_SIZE)
     ]
@@ -611,22 +688,20 @@ def update_process_device_class_chip(metric, rk, rid, ck, cid, la, use_light_mod
     Input("results-tabs", "value"),
     Input("processed-df-store", "data"),
     Input("process-time-range-store", "data"),
+    Input("tab-prefetch-store", "data"),
     State("process-specific-content", "children"),
+    State("theme-switch", "value"),
 )
 def build_process_specific_tab(
-    tab_value, processed_df_data, process_time_range, current_children
+    tab_value, processed_df_data, process_time_range, _prefetch, current_children, use_light_mode
 ):
-    triggered_id = ctx.triggered_id
-    is_data_trigger = triggered_id in ("processed-df-store", "process-time-range-store")
-
-    if is_data_trigger and tab_value != "process-specific-tab":
+    action = tab_body_action(
+        ctx.triggered_id, tab_value, "process-specific-tab", current_children
+    )
+    if action == "keep":
+        return dash.no_update
+    if action == "empty":
         return empty_process_specific_content()
-
-    if triggered_id == "results-tabs":
-        if tab_value != "process-specific-tab":
-            return dash.no_update
-        if current_children and not is_empty_tab_placeholder(current_children):
-            return dash.no_update
 
     if not processed_df_data or not process_time_range:
         return empty_process_specific_content()
@@ -654,6 +729,7 @@ def build_process_specific_tab(
     return build_process_grid_card(
         unique_metrics,
         derived_base_metrics(df_processed),
+        use_light_mode=bool(use_light_mode),
     )
 
 
@@ -716,7 +792,7 @@ def update_filters_match(metric, rk, rid, ck, cid, la, processed_df_data):
     Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
     Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
     Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
-    Input("theme-switch", "value"),
+    State("theme-switch", "value"),
     State("processed-df-store", "data"),
     State("process-time-range-store", "data"),
     State({"type": "metric-dropdown", "index": MATCH}, "id"),
@@ -726,8 +802,12 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     fig = go.Figure()
     apply_figure_theme(fig, use_light_mode)
 
+    def finish(figure: go.Figure) -> go.Figure:
+        _remember_grid_series(my_id, figure)
+        return figure
+
     if not processed_df_data or not metric:
-        return grid_message_figure(fig, "Select a metric", use_light_mode)
+        return finish(grid_message_figure(fig, "Select a metric", use_light_mode))
 
     df = df_from_store(processed_df_data)
     ensure_timestamp_datetime(df)
@@ -743,7 +823,7 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     dff, cascade = filter_single_series(dfm, rk, rid, ck, cid, la)
 
     if dff.empty:
-        return grid_message_figure(fig, "No data available", use_light_mode)
+        return finish(grid_message_figure(fig, "No data available", use_light_mode))
 
     combos = dff.groupby(["rk", "rid", "ck", "cid", "la"]).size()
     if len(combos) > 1:
@@ -755,14 +835,14 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
         ]
 
         message = "Please complete selections: " + (", ".join(missing) if missing else "more filters")
-        return grid_message_figure(fig, message, use_light_mode)
+        return finish(grid_message_figure(fig, message, use_light_mode))
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
 
     dff = filter_to_time_range(dff, proc_start, proc_end, require_bounds=False).sort_values("timestamp")
 
     if dff.empty:
-        return grid_message_figure(fig, "No data during process active period", use_light_mode)
+        return finish(grid_message_figure(fig, "No data during process active period", use_light_mode))
 
     series_metric_id = _series_metric_id(dff, metric)
     y_min, y_max = float(dff["value"].min()), float(dff["value"].max())
@@ -789,6 +869,8 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
         range=[y_bottom, y_top],
         autorange=False,
         automargin=False,
+        # Drag and scroll change the shared time window only.
+        fixedrange=True,
         **grid_yaxis_tick_style(is_memory),
     )
     yaxis_defaults = {
@@ -829,11 +911,66 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     )
     lock_grid_left_margin(fig)
     apply_figure_theme(fig, use_light_mode)
-    return fig
+    return finish(fig)
 
 
-# Zoom sync: capture relayoutData
+# Overlay while a cell rebuilds. Do not use callback `running` with MATCH.
+# Dash replacePMC crashes (`undefined.index`) and leaves the default white Plotly figure.
+app.clientside_callback(
+    """
+    function(metric, rk, rid, ck, cid, la) {
+        return {display: "flex"};
+    }
+    """,
+    Output({"type": "plot-preparing", "index": MATCH}, "style"),
+    Input({"type": "metric-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "resource-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-kind-dropdown", "index": MATCH}, "value"),
+    Input({"type": "consumer-id-dropdown", "index": MATCH}, "value"),
+    Input({"type": "late-attr-dropdown", "index": MATCH}, "value"),
+    prevent_initial_call=True,
+)
+app.clientside_callback(
+    """
+    function(figure) {
+        return {display: "none"};
+    }
+    """,
+    Output({"type": "plot-preparing", "index": MATCH}, "style", allow_duplicate=True),
+    Input({"type": "grid-plot", "index": MATCH}, "figure"),
+    prevent_initial_call=True,
+)
+
+
+def _grid_zoom_request(relayout_data, current_shared_range):
+    """Turn one cell's relayout into the shared window, or None when it is a repeat."""
+    if not relayout_data:
+        return None
+    if relayout_requests_reset(relayout_data):
+        if (current_shared_range or {}).get("mode") == "reset":
+            return None
+        revision = int((current_shared_range or {}).get("revision", 0)) + 1
+        return {"mode": "reset", "revision": revision}
+
+    window = relayout_x_windows(relayout_data).get("xaxis")
+    if not window:
+        return None
+    if (
+        current_shared_range
+        and current_shared_range.get("mode") == "zoom"
+        and current_shared_range.get("x0") == window[0]
+        and current_shared_range.get("x1") == window[1]
+    ):
+        return None
+    revision = int((current_shared_range or {}).get("revision", 0)) + 1
+    return {"mode": "zoom", "x0": window[0], "x1": window[1], "revision": revision}
+
+
+# One response patches every cell's axes. The plotted points stay on the server,
+# so the browser is not asked to upload or redraw the traces.
 @app.callback(
+    Output({"type": "grid-plot", "index": ALL}, "figure", allow_duplicate=True),
     Output("grid-shared-xrange-store", "data"),
     Input({"type": "grid-plot", "index": "0-0"}, "relayoutData"),
     Input({"type": "grid-plot", "index": "0-1"}, "relayoutData"),
@@ -843,54 +980,24 @@ def update_grid_plot_match(metric, rk, rid, ck, cid, la, use_light_mode, process
     prevent_initial_call=True,
 )
 def sync_grid_plot_zoom(rd_00, rd_01, rd_10, rd_11, current_shared_range):
-    """Sync zoom across all grid plots."""
+    """Apply one cell's time zoom to every grid plot in the same response."""
     triggered = ctx.triggered_id
-    if not triggered:
-        return dash.no_update
+    unchanged = [dash.no_update] * (GRID_SIZE * GRID_SIZE)
+    if not isinstance(triggered, dict):
+        return unchanged, dash.no_update
 
-    relayout_map = {"0-0": rd_00, "0-1": rd_01, "1-0": rd_10, "1-1": rd_11}
-
-    if isinstance(triggered, dict):
-        triggered_index = triggered.get("index")
-    else:
-        return dash.no_update
-
-    relayout_data = relayout_map.get(triggered_index)
-    if not relayout_data:
-        return dash.no_update
-
-    revision = int((current_shared_range or {}).get("revision", 0)) + 1
-
-    if relayout_requests_reset(relayout_data):
-        return {"mode": "reset", "revision": revision}
-
-    if "xaxis.range[0]" in relayout_data and "xaxis.range[1]" in relayout_data:
-        new_range = {
-            "mode": "zoom",
-            "x0": relayout_data["xaxis.range[0]"],
-            "x1": relayout_data["xaxis.range[1]"],
-            "revision": revision,
-        }
-        if (
-            current_shared_range
-            and current_shared_range.get("mode") == "zoom"
-            and current_shared_range.get("x0") == new_range["x0"]
-            and current_shared_range.get("x1") == new_range["x1"]
-        ):
-            return dash.no_update
-        return new_range
-
-    return dash.no_update
+    relayout_data = {"0-0": rd_00, "0-1": rd_01, "1-0": rd_10, "1-1": rd_11}.get(triggered.get("index"))
+    shared_range = _grid_zoom_request(relayout_data, current_shared_range)
+    if not shared_range:
+        return unchanged, dash.no_update
+    patches = [
+        _patch_remembered_grid_cell(f"{i}-{j}", shared_range)
+        for i in range(GRID_SIZE)
+        for j in range(GRID_SIZE)
+    ]
+    return patches, shared_range
 
 
-# -- Zoom sync: apply shared x-range --
-
-@app.callback(
-    Output({"type": "grid-plot", "index": ALL}, "figure", allow_duplicate=True),
-    Input("grid-shared-xrange-store", "data"),
-    State({"type": "grid-plot", "index": ALL}, "figure"),
-    prevent_initial_call=True,
-)
 def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
     """Apply shared x-range to all grid plots when zoom/reset occurs."""
     if not shared_range or not current_figures:
@@ -904,7 +1011,7 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
             updated_figures.append(dash.no_update)
             continue
 
-        new_fig = copy.deepcopy(fig)
+        new_fig = {"data": fig.get("data"), "layout": copy.deepcopy(fig["layout"])}
         if "xaxis" not in new_fig["layout"]:
             new_fig["layout"]["xaxis"] = {}
 
@@ -925,6 +1032,9 @@ def apply_shared_xrange_to_grid_plots(shared_range, current_figures):
             new_fig["layout"]["xaxis"]["autorange"] = False
             apply_visible_yaxis_range(new_fig, shared_range["x0"], shared_range["x1"])
 
+        yaxis = new_fig["layout"].get("yaxis")
+        if isinstance(yaxis, dict):
+            yaxis["fixedrange"] = True
         meta = new_fig["layout"].get("meta") or {}
         lock_grid_left_margin(new_fig, placeholder="axis_defaults" not in meta)
         updated_figures.append(new_fig)

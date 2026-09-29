@@ -5,6 +5,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pandas as pd
+
 from tests.fixtures import (
     CPU_PERCENT_ID,
     NVML_POWER_ID,
@@ -238,8 +240,8 @@ class CLIValidationTests(unittest.TestCase):
                 ])
             printed = " ".join(str(call[0][0]) for call in mock_print.call_args_list if call[0])
             self.assertIn("Comparative mode: dual_axis", printed)
-            self.assertTrue(any(p.parent.parent.name == "comparative" for p in out.rglob("*.csv")))
-            self.assertTrue(any(p.parent.parent.name == "comparative" for p in out.rglob("*.png")))
+            tables = [pd.read_csv(path) for path in out.rglob("*.csv")]
+            self.assertTrue(any(x_id in table.columns and y_id in table.columns for table in tables))
 
     def test_entry_point_forwards_cli_help(self):
         import alumet_insight

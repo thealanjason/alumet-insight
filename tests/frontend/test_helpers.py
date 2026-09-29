@@ -7,6 +7,11 @@ from frontend.helpers import (
     ensure_timestamp_datetime,
     normalize_dropdown_value,
 )
+from frontend.layout import (
+    empty_process_specific_content,
+    is_empty_tab_placeholder,
+    tab_body_action,
+)
 from tests.fixtures import processed_rows
 
 
@@ -47,6 +52,45 @@ class HelpersTests(unittest.TestCase):
         df = pd.DataFrame({"value": [1, 2]})
         unchanged = ensure_timestamp_datetime(df.copy())
         pd.testing.assert_frame_equal(unchanged, df)
+
+    def test_tab_body_stays_lazy_then_keeps_built_children(self):
+        placeholder = empty_process_specific_content()
+        built = {"props": {"className": "process-grid-card"}}
+
+        self.assertTrue(is_empty_tab_placeholder(placeholder))
+        self.assertFalse(is_empty_tab_placeholder(built))
+        self.assertEqual(
+            tab_body_action("processed-df-store", "time-series-tab", "process-specific-tab", placeholder),
+            "keep",
+        )
+        self.assertEqual(
+            tab_body_action("processed-df-store", "time-series-tab", "process-specific-tab", built),
+            "empty",
+        )
+        self.assertEqual(
+            tab_body_action("results-tabs", "process-specific-tab", "process-specific-tab", placeholder),
+            "build",
+        )
+        self.assertEqual(
+            tab_body_action("results-tabs", "process-specific-tab", "process-specific-tab", built),
+            "keep",
+        )
+        self.assertEqual(
+            tab_body_action("results-tabs", "time-series-tab", "process-specific-tab", built),
+            "keep",
+        )
+        self.assertEqual(
+            tab_body_action("processed-df-store", "process-specific-tab", "process-specific-tab", built),
+            "build",
+        )
+        self.assertEqual(
+            tab_body_action("tab-prefetch-store", "time-series-tab", "process-specific-tab", placeholder),
+            "build",
+        )
+        self.assertEqual(
+            tab_body_action("tab-prefetch-store", "time-series-tab", "process-specific-tab", built),
+            "keep",
+        )
 
 
 if __name__ == "__main__":
