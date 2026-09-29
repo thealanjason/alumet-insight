@@ -480,6 +480,7 @@ def create_layout(app):
             ),
             # Hidden stores for data
             dcc.Store(id="upload-relative-paths", data=None),
+            dcc.Store(id="upload-temp-dir-store", data=None),
             dcc.Store(id="processed-df-store", data=None),
             dcc.Store(id="process-time-range-store", data=None),
             dcc.Store(id="timeseries-filtered-df-store", data=None),

@@ -15,7 +15,12 @@ from backend.data import (
     preprocess_dataframe_for_visualization,
 )
 from backend.metrics import filter_by_base_metric, metric_id_is_process_consumer
-from backend.transforms import normalize_to_si, parse_timestamp, validate_time_range
+from backend.transforms import (
+    get_process_time_range_from_df,
+    normalize_to_si,
+    parse_timestamp,
+    validate_time_range,
+)
 from tests.fixtures import (
     TempMeasurementDirectory,
     make_alumetdata_stub,
@@ -239,11 +244,13 @@ class DataTests(unittest.TestCase):
             csv_path = root / "measurement.csv"
             csv_path.write_text(sample_csv_body(), encoding="utf-8")
             data = AlumetData(root)
+            proc_range = data.process_time_range
             expected_source = normalize_to_si(load_csv_from_path(csv_path))
             expected_processed = finalize_processed_dataframe(
                 preprocess_dataframe_for_visualization(expected_source)
             )
 
+        self.assertEqual(proc_range, get_process_time_range_from_df(data.source_df))
         pd.testing.assert_frame_equal(
             data.source_df.reset_index(drop=True),
             expected_source.reset_index(drop=True),

@@ -89,6 +89,7 @@ def cache_dataframe(
     prefix: str = "df",
     *,
     persist_to_disk: bool = False,
+    copy: bool = True,
 ) -> Optional[str]:
     """
     Cache a DataFrame and return a reference ID for dcc.Store.
@@ -96,12 +97,13 @@ def cache_dataframe(
     By default stores an owned copy in the in-memory LRU only. When
     ``persist_to_disk`` is True, also writes ``{cache_id}.parquet`` under
     ``CACHE_DIR`` so the entry can be reloaded after memory eviction.
+    Pass ``copy=False`` only when the caller will not use ``df`` again.
     """
     if df is None or df.empty:
         return None
 
     cache_id = f"{prefix}_{uuid.uuid4().hex[:12]}"
-    owned = df.copy()
+    owned = df.copy() if copy else df
     if persist_to_disk:
         owned.to_parquet(_cache_path(cache_id), engine="pyarrow", index=False)
 

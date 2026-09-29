@@ -181,8 +181,11 @@ class AlumetData:
 
     def __init__(self, directory: str | Path):
         self.directory = Path(directory)
-        self._df_source: pd.DataFrame = pd.DataFrame()
+        self._df_source: Optional[pd.DataFrame] = None
+        self._df_source_pl: Optional[pl.DataFrame] = None
         self._df_processed: pd.DataFrame = pd.DataFrame()
+        self._process_time_range: tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]] = (None, None)
+        self._process_time_range_ready = False
         self._log_content: str = ""
         self._csv_path: Optional[Path] = None
         self._log_path: Optional[Path] = None
@@ -197,9 +200,12 @@ class AlumetData:
             self._log_path = None
             self._log_content = ""
 
-        # Stay in Polars through SI + metric_id, then convert to pandas once per table.
+        # Stay in Polars through SI + metric_id. The source table becomes pandas
+        # only if something reads source_df; Visualize only needs the time range.
         df_pl = normalize_to_si_polars(_load_source_polars(self._csv_path), col="metric")
-        self._df_source = _polars_to_pandas(df_pl)
+        self._df_source_pl = df_pl
+        self._process_time_range = _process_time_range_from_polars(df_pl)
+        self._process_time_range_ready = True
         self._df_processed = finalize_processed_dataframe(
             _mark_measured(_polars_to_pandas(_processed_polars(df_pl)))
         )
@@ -231,7 +237,9 @@ class AlumetData:
     @property
     def process_time_range(self) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
         """First and last timestamps where the measured process was active."""
-        return get_process_time_range_from_df(self._df_source)
+        if getattr(self, "_process_time_range_ready", False):
+            return self._process_time_range
+        return get_process_time_range_from_df(self._ensure_source_df())
 
     @property
     def data_time_range(self) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
@@ -252,12 +260,40 @@ class AlumetData:
             return sorted(self._df_processed["metric_id"].dropna().unique().tolist())
         return []
 
+    def _ensure_source_df(self) -> pd.DataFrame:
+        current = getattr(self, "_df_source", None)
+        if current is not None:
+            return current
+        pl_frame = getattr(self, "_df_source_pl", None)
+        if pl_frame is None:
+            self._df_source = pd.DataFrame()
+        else:
+            self._df_source = _polars_to_pandas(pl_frame)
+            self._df_source_pl = None
+        return self._df_source
+
+    def handoff_processed_df(self) -> pd.DataFrame:
+        """Give the processed frame to the dashboard cache without copying it first."""
+        frame = self._df_processed
+        self._df_processed = pd.DataFrame()
+        return frame
+
     @property
     def source_df(self) -> pd.DataFrame:
         """The source DataFrame after unit conversion (mW→W, mJ→J, legacy memory _kB→_B)."""
-        return self._df_source.copy()
+        return self._ensure_source_df().copy()
 
     @property
     def processed_df(self) -> pd.DataFrame:
         """Processed measurements, point metadata, and synthesized metric rows."""
         return self._df_processed.copy()
+
+
+def _process_time_range_from_polars(
+    df_pl: pl.DataFrame,
+) -> tuple[Optional[pd.Timestamp], Optional[pd.Timestamp]]:
+    """Same window as ``get_process_time_range_from_df``, without the other columns."""
+    columns = [name for name in ("timestamp", "consumer_kind", "value") if name in df_pl.columns]
+    if "timestamp" not in columns:
+        return None, None
+    return get_process_time_range_from_df(_polars_to_pandas(df_pl.select(columns)))
