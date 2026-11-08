@@ -33,12 +33,17 @@ app.clientside_callback(
     """
     function(useLightMode) {
         var theme = useLightMode ? "light" : "dark";
+        var className = "app-shell theme-" + theme + " dbc";
         document.documentElement.setAttribute("data-bs-theme", theme);
         document.body.setAttribute("data-bs-theme", theme);
+        var root = document.getElementById("main-container");
+        if (root) {
+            root.className = className;
+        }
         if (window.restylePlotlyTheme) {
             window.restylePlotlyTheme(!!useLightMode);
         }
-        return "app-shell theme-" + theme + " dbc";
+        return className;
     }
     """,
     Output("main-container", "className"),

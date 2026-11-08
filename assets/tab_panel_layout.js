@@ -160,6 +160,9 @@ window.dash_clientside.tab_panel = Object.assign({}, window.dash_clientside.tab_
         if (window.scheduleTabPanelSync) {
             window.scheduleTabPanelSync(tab);
         }
+        if (window.flushPlotlyThemeGl) {
+            window.flushPlotlyThemeGl();
+        }
         return [
             panelClass(tab === "time-series-tab"),
             panelClass(tab === "process-specific-tab"),
@@ -170,6 +173,9 @@ window.dash_clientside.tab_panel = Object.assign({}, window.dash_clientside.tab_
     afterTabBuild: function (_ts, _ps, _comp, tab) {
         if (window.scheduleTabPanelSync) {
             window.scheduleTabPanelSync(tab);
+        }
+        if (window.flushPlotlyThemeGl) {
+            window.flushPlotlyThemeGl();
         }
         return [Date.now(), overlayStyleForTab(tab)];
     },
