@@ -201,15 +201,17 @@ def build_comparative_tab(
     action = tab_body_action(ctx.triggered_id, tab_value, "comparative-tab", current_children)
     if action == "keep":
         return dash.no_update
-    if action == "empty":
-        return empty_comparative_content()
-
     if not processed_df_data or not process_time_range:
+        return empty_comparative_content(settled=True)
+    if action == "empty":
         return empty_comparative_content()
 
     metric_ids = _resolve_metric_ids(processed_df_data, process_time_range)
     if len(metric_ids) < 2:
-        return empty_comparative_content("Need at least 2 metrics inside process window.")
+        return empty_comparative_content(
+            "Need at least 2 metrics inside process window.",
+            settled=True,
+        )
 
     derived_ids = derived_metric_ids(df_from_store(processed_df_data))
     metric_options = [metric_choice_option(m, derived=m in derived_ids) for m in metric_ids]

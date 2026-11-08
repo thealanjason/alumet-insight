@@ -36,12 +36,21 @@ function panelIsPlaceholder(el) {
     return false;
 }
 
+function datasetLoaded() {
+    return !panelIsPlaceholder(document.getElementById("time-series-content"));
+}
+
 function overlayStyleForTab(tab) {
     if (tab === "time-series-tab") {
         return OVERLAY_HIDDEN;
     }
     var panel = document.getElementById(TAB_PANEL_IDS[tab]);
-    return panelIsPlaceholder(panel) ? OVERLAY_VISIBLE : OVERLAY_HIDDEN;
+    // The no-data alert is the finished view. Cover the panel only while a
+    // loaded dataset still has to build this tab.
+    if (!panelIsPlaceholder(panel) || !datasetLoaded()) {
+        return OVERLAY_HIDDEN;
+    }
+    return OVERLAY_VISIBLE;
 }
 
 function resizePanelGraphs(panel) {

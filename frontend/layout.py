@@ -103,20 +103,39 @@ def empty_time_series_content():
     )
 
 
-def empty_process_specific_content(message: str = "No data available. Please load data first."):
-    """Keep process-specific callback targets mounted before data is loaded."""
+def empty_process_specific_content(
+    message: str = "No data available. Please load data first.",
+    *,
+    settled: bool = False,
+):
+    """
+    Placeholder shell, or the finished no-data message once loading is done.
+
+    The placeholder class tells the preparing overlay that a real view is still
+    coming. ``settled`` is the message Reset and an empty load should leave on
+    screen, so that overlay hides.
+    """
     return html.Div(
         dbc.Alert(
             message,
             color="warning",
             className=status_alert_class("warning"),
         ),
-        className="empty-process-specific-content",
+        className="tab-settled-empty" if settled else "empty-process-specific-content",
     )
 
 
-def empty_comparative_content(message: str = "No data available. Please load data first."):
-    """Keep comparative callback targets mounted before data is loaded."""
+def empty_comparative_content(
+    message: str = "No data available. Please load data first.",
+    *,
+    settled: bool = False,
+):
+    """
+    Keep comparative callback targets mounted before data is loaded.
+
+    ``settled`` is the finished empty view. The placeholder class is only for
+    a hidden tab that still needs to be built.
+    """
     return html.Div(
         [
             html.Div(
@@ -160,7 +179,7 @@ def empty_comparative_content(message: str = "No data available. Please load dat
                 className=status_alert_class("warning"),
             ),
         ],
-        className="empty-comparative-content",
+        className="tab-settled-empty" if settled else "empty-comparative-content",
     )
 
 

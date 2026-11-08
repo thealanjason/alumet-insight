@@ -92,6 +92,15 @@ class HelpersTests(unittest.TestCase):
             "keep",
         )
 
+    def test_settled_empty_tab_is_not_a_placeholder(self):
+        settled = empty_process_specific_content(settled=True)
+        self.assertFalse(is_empty_tab_placeholder(settled))
+        self.assertEqual(settled.className, "tab-settled-empty")
+        self.assertEqual(
+            tab_body_action("processed-df-store", "time-series-tab", "process-specific-tab", settled),
+            "empty",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

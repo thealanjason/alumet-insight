@@ -700,10 +700,9 @@ def build_process_specific_tab(
     )
     if action == "keep":
         return dash.no_update
-    if action == "empty":
-        return empty_process_specific_content()
-
     if not processed_df_data or not process_time_range:
+        return empty_process_specific_content(settled=True)
+    if action == "empty":
         return empty_process_specific_content()
 
     proc_start, proc_end = parse_process_time_range_store(process_time_range)
