@@ -46,6 +46,9 @@ class ComparativeTests(unittest.TestCase):
             for y in trace.y
         ]
         self.assertEqual(hoverable_energy, [7.0, 0.0])
+        self.assertTrue(figure.layout.yaxis.fixedrange)
+        self.assertTrue(figure.layout.yaxis2.fixedrange)
+        self.assertFalse(figure.layout.xaxis.fixedrange)
 
     def test_cumulative_xy_uses_running_totals_and_shared_scale(self):
         df = offset_cpu_gpu_energy_rows()
@@ -72,6 +75,8 @@ class ComparativeTests(unittest.TestCase):
         self.assertIsNone(figure.layout.yaxis.scaleanchor)
         self.assertTrue(figure.layout.meta["equal_xy"])
         self.assertTrue(same_physical_xy_unit(CPU_ENERGY_ID, GPU_ENERGY_ID))
+        self.assertFalse(figure.layout.xaxis.fixedrange)
+        self.assertFalse(figure.layout.yaxis.fixedrange)
 
     def test_scatter_xy_locks_equal_scale_only_when_units_match(self):
         df = offset_cpu_gpu_energy_rows()

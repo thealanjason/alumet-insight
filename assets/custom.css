@@ -77,10 +77,10 @@
     --Dash-Shading-Weak: rgba(31, 41, 55, 0.08);
     --Dash-Tooltip-Background-Color: #ffffff;
     --Dash-Tooltip-Border-Color: #d9dee8;
-    --device-class-cpu: #3E6B8F;
-    --device-class-gpu: #B45309;
-    --device-class-total: #4F7D3B;
-    --device-class-other: #6B7280;
+    --device-class-cpu: #0173B2;
+    --device-class-gpu: #D55E00;
+    --device-class-total: #029E73;
+    --device-class-other: #949494;
 }
 
 body {
@@ -1122,8 +1122,8 @@ div.rc-slider-mark-text-active {
 }
 
 .theme-light .timeseries-process-legend-swatch {
-    background: rgba(62, 107, 143, 0.4);
-    border-color: rgba(62, 107, 143, 0.75);
+    background: rgba(1, 115, 178, 0.4);
+    border-color: rgba(1, 115, 178, 0.75);
 }
 
 #timeseries-plot-container {

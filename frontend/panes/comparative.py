@@ -701,6 +701,7 @@ def update_process_xy_plot(
             tickfont=dict(color=line_x),
             gridcolor="rgba(76, 86, 106, 0.2)",
             side="left",
+            fixedrange=True,
         )
         yaxis2_config = dict(
             title=dict(text=y_label, font=dict(size=11, color=class_y)),
@@ -708,6 +709,7 @@ def update_process_xy_plot(
             overlaying="y",
             side="right",
             showgrid=False,
+            fixedrange=True,
         )
 
         if is_memory_metric(x_metric_id):

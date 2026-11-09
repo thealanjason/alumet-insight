@@ -15,7 +15,7 @@ var FIGURE_THEME = {
     grid: "rgba(31, 41, 55, 0.12)",
     legend: "rgba(255, 255, 255, 0.92)",
     legend_font: "#000000",
-    process_fill: "rgba(62, 107, 143, 0.16)",
+    process_fill: "rgba(1, 115, 178, 0.16)",
     derived_title: "#7E5693",
   },
   dark: {
@@ -62,10 +62,10 @@ var PLOT_COLORS_LIGHT = [
   "#B85C38",
   "#7E5693",
 ];
-var PAIR_DARK = ["#F08080", "#E6E6FA", "#D7B3E6", "#FFFFFF", "#FFFFFF"];
-var PAIR_LIGHT = ["#CD5C5C", "#DA70D6", "#7A5294", "#000000", "#000000"];
+var PAIR_DARK = ["#BA96FF", "#DEA7D3", "#D7B3E6", "#FFFFFF", "#FFFFFF"];
+var PAIR_LIGHT = ["#785EF0", "#CC78BC", "#7A5294", "#000000", "#000000"];
 var DEVICE_DARK = ["#88C0D0", "#EBCB8B", "#A3BE8C", "#A4AEBC"];
-var DEVICE_LIGHT = ["#3E6B8F", "#B45309", "#4F7D3B", "#6B7280"];
+var DEVICE_LIGHT = ["#0173B2", "#D55E00", "#029E73", "#949494"];
 
 function _normHex(color) {
   if (typeof color !== "string") {
@@ -155,6 +155,16 @@ function _mapColor(color, map) {
   return color;
 }
 
+function _deviceColorMap(toLight) {
+  var from = toLight ? DEVICE_DARK : DEVICE_LIGHT;
+  var to = toLight ? DEVICE_LIGHT : DEVICE_DARK;
+  var map = {};
+  for (var i = 0; i < from.length; i++) {
+    map[_normHex(from[i])] = to[i];
+  }
+  return map;
+}
+
 function _replaceDeviceColors(text, toLight) {
   if (typeof text !== "string" || !text) {
     return text;
@@ -165,7 +175,8 @@ function _replaceDeviceColors(text, toLight) {
   for (var i = 0; i < from.length; i++) {
     out = out.replace(new RegExp(from[i], "ig"), to[i]);
   }
-  return out;
+  // Browsers report an inline color as rgb(), so a hex-only replace misses it.
+  return _mapColor(out, _deviceColorMap(toLight));
 }
 
 function _plotlyAxisId(axisKey) {
@@ -579,6 +590,7 @@ function _recolorLegendSwatches(map) {
 }
 
 function _recolorLabels(light) {
+  var deviceMap = _deviceColorMap(light);
   var labeled = document.querySelectorAll(
     ".device-class-chip, .process-grid-selection-caption, .comparative-plot-title, .comparative-legend-label, .device-class-key, .comparative-plot-title-text",
   );
@@ -592,7 +604,7 @@ function _recolorLabels(light) {
       if (!node.style || !node.style.color) {
         continue;
       }
-      node.style.color = _replaceDeviceColors(node.style.color, light);
+      node.style.color = _mapColor(node.style.color, deviceMap);
     }
   }
   _recolorLegendSwatches(_colorMap(light));

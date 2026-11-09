@@ -157,15 +157,15 @@ def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
     """Accents for comparative dual-axis, scatter, and cumulative traces."""
     if use_light_mode:
         return {
-            "x": "#CD5C5C",  # indianred
-            "y": "#DA70D6",  # orchid
+            "x": "#785EF0",  # indigo
+            "y": "#CC78BC",  # seaborn colorblind reddish purple
             "scatter": "#7A5294",
             "cumulative": "#000000",
             "marker_line": "#000000",
         }
     return {
-        "x": "#F08080",  # lightcoral
-        "y": "#E6E6FA",  # lavender
+        "x": "#BA96FF",
+        "y": "#DEA7D3",
         "scatter": "#D7B3E6",
         "cumulative": "#FFFFFF",
         "marker_line": "#FFFFFF",
@@ -179,11 +179,12 @@ DEVICE_CLASS_COLORS_DARK: dict[DeviceClass, str] = {
     DeviceClass.OTHER: "#A4AEBC",
 }
 
+# Light mode uses the seaborn "colorblind" qualitative palette. 
 DEVICE_CLASS_COLORS_LIGHT: dict[DeviceClass, str] = {
-    DeviceClass.CPU: "#3E6B8F",
-    DeviceClass.GPU: "#B45309",
-    DeviceClass.TOTAL: "#4F7D3B",
-    DeviceClass.OTHER: "#6B7280",
+    DeviceClass.CPU: "#0173B2",  # blue
+    DeviceClass.GPU: "#D55E00",  # orange
+    DeviceClass.TOTAL: "#029E73",  # green
+    DeviceClass.OTHER: "#949494",  # gray
 }
 
 
@@ -295,7 +296,7 @@ def device_class_key(*, include_process_active: bool = False, use_light_mode: bo
 
 def process_active_fill(use_light_mode: bool = False) -> str:
     """Shaded process-window fill that stays visible on both backgrounds."""
-    return "rgba(62, 107, 143, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"
+    return "rgba(1, 115, 178, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"
 
 
 def figure_color_theme(use_light_mode: bool = False) -> dict[str, str]:
