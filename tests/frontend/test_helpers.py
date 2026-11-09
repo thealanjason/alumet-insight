@@ -7,6 +7,16 @@ from frontend.helpers import (
     ensure_timestamp_datetime,
     normalize_dropdown_value,
 )
+from frontend.layout import (
+    empty_process_specific_content,
+    is_empty_tab_placeholder,
+    tab_body_action,
+)
+from frontend.style import (
+    DEVICE_CLASS_COLORS_DARK,
+    DEVICE_CLASS_COLORS_LIGHT,
+    plot_pair_colors,
+)
 from tests.fixtures import processed_rows
 
 
@@ -47,6 +57,68 @@ class HelpersTests(unittest.TestCase):
         df = pd.DataFrame({"value": [1, 2]})
         unchanged = ensure_timestamp_datetime(df.copy())
         pd.testing.assert_frame_equal(unchanged, df)
+
+    def test_tab_body_stays_lazy_then_keeps_built_children(self):
+        placeholder = empty_process_specific_content()
+        built = {"props": {"className": "process-grid-card"}}
+
+        self.assertTrue(is_empty_tab_placeholder(placeholder))
+        self.assertFalse(is_empty_tab_placeholder(built))
+        self.assertEqual(
+            tab_body_action("processed-df-store", "time-series-tab", "process-specific-tab", placeholder),
+            "keep",
+        )
+        self.assertEqual(
+            tab_body_action("processed-df-store", "time-series-tab", "process-specific-tab", built),
+            "empty",
+        )
+        self.assertEqual(
+            tab_body_action("results-tabs", "process-specific-tab", "process-specific-tab", placeholder),
+            "build",
+        )
+        self.assertEqual(
+            tab_body_action("results-tabs", "process-specific-tab", "process-specific-tab", built),
+            "keep",
+        )
+        self.assertEqual(
+            tab_body_action("results-tabs", "time-series-tab", "process-specific-tab", built),
+            "keep",
+        )
+        self.assertEqual(
+            tab_body_action("processed-df-store", "process-specific-tab", "process-specific-tab", built),
+            "build",
+        )
+        self.assertEqual(
+            tab_body_action("tab-prefetch-store", "time-series-tab", "process-specific-tab", placeholder),
+            "build",
+        )
+        self.assertEqual(
+            tab_body_action("tab-prefetch-store", "time-series-tab", "process-specific-tab", built),
+            "keep",
+        )
+
+    def test_comparative_accents_avoid_device_class_colors(self):
+        forbidden = {
+            color.upper()
+            for color in (*DEVICE_CLASS_COLORS_DARK.values(), *DEVICE_CLASS_COLORS_LIGHT.values())
+        }
+        dark = plot_pair_colors(False)
+        light = plot_pair_colors(True)
+        for key in ("x", "y", "scatter", "cumulative"):
+            self.assertNotIn(dark[key].upper(), forbidden)
+            self.assertNotIn(light[key].upper(), forbidden)
+            self.assertNotEqual(dark[key].upper(), light[key].upper())
+        self.assertNotEqual(dark["x"].upper(), dark["y"].upper())
+        self.assertNotEqual(light["x"].upper(), light["cumulative"].upper())
+
+    def test_settled_empty_tab_is_not_a_placeholder(self):
+        settled = empty_process_specific_content(settled=True)
+        self.assertFalse(is_empty_tab_placeholder(settled))
+        self.assertEqual(settled.className, "tab-settled-empty")
+        self.assertEqual(
+            tab_body_action("processed-df-store", "time-series-tab", "process-specific-tab", settled),
+            "empty",
+        )
 
 
 if __name__ == "__main__":

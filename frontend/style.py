@@ -154,20 +154,20 @@ def plot_color_palette(use_light_mode: bool = False) -> tuple[str, ...]:
 
 
 def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
-    """Accent colors for comparative dual-axis, scatter, and cumulative traces."""
+    """Accents for comparative dual-axis, scatter, and cumulative traces."""
     if use_light_mode:
         return {
-            "x": "#9467bd",
-            "y": "#d62728",
-            "scatter": "#D97706",
-            "cumulative": "#4F7D3B",
-            "marker_line": "#1F2937",
+            "x": "#785EF0",  # indigo
+            "y": "#CC78BC",  # seaborn colorblind reddish purple
+            "scatter": "#7A5294",
+            "cumulative": "#000000",
+            "marker_line": "#000000",
         }
     return {
-        "x": "#9467bd",
-        "y": "#d62728",
-        "scatter": "#FF8C42",
-        "cumulative": "#A3BE8C",
+        "x": "#BA96FF",
+        "y": "#DEA7D3",
+        "scatter": "#D7B3E6",
+        "cumulative": "#FFFFFF",
         "marker_line": "#FFFFFF",
     }
 
@@ -179,11 +179,12 @@ DEVICE_CLASS_COLORS_DARK: dict[DeviceClass, str] = {
     DeviceClass.OTHER: "#A4AEBC",
 }
 
+# Light mode uses the seaborn "colorblind" qualitative palette. 
 DEVICE_CLASS_COLORS_LIGHT: dict[DeviceClass, str] = {
-    DeviceClass.CPU: "#3E6B8F",
-    DeviceClass.GPU: "#B45309",
-    DeviceClass.TOTAL: "#4F7D3B",
-    DeviceClass.OTHER: "#6B7280",
+    DeviceClass.CPU: "#0173B2",  # blue
+    DeviceClass.GPU: "#D55E00",  # orange
+    DeviceClass.TOTAL: "#029E73",  # green
+    DeviceClass.OTHER: "#949494",  # gray
 }
 
 
@@ -295,19 +296,21 @@ def device_class_key(*, include_process_active: bool = False, use_light_mode: bo
 
 def process_active_fill(use_light_mode: bool = False) -> str:
     """Shaded process-window fill that stays visible on both backgrounds."""
-    return "rgba(62, 107, 143, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"
+    return "rgba(1, 115, 178, 0.16)" if use_light_mode else "rgba(136, 192, 208, 0.12)"
 
 
-def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
-    """Apply the dashboard theme colors to Plotly figures."""
-    theme = {
-        "paper": "#ffffff",
-        "plot": "#f7f8fa",
-        "font": "#1f2937",
-        "grid": "rgba(31, 41, 55, 0.12)",
-        "legend": "rgba(255, 255, 255, 0.92)",
-        "legend_font": "#000000",
-    } if use_light_mode else {
+def figure_color_theme(use_light_mode: bool = False) -> dict[str, str]:
+    """Plotly paper, plot, font, grid, and legend colors for the active theme."""
+    if use_light_mode:
+        return {
+            "paper": "#ffffff",
+            "plot": "#f7f8fa",
+            "font": "#1f2937",
+            "grid": "rgba(31, 41, 55, 0.12)",
+            "legend": "rgba(255, 255, 255, 0.92)",
+            "legend_font": "#000000",
+        }
+    return {
         "paper": "#252c3e",
         "plot": "#1e2433",
         "font": "#ECEFF4",
@@ -315,6 +318,11 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
         "legend": "rgba(37, 44, 62, 0.88)",
         "legend_font": "#ffffff",
     }
+
+
+def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figure:
+    """Apply the dashboard theme colors to Plotly figures."""
+    theme = figure_color_theme(use_light_mode)
     fig.update_layout(
         paper_bgcolor=theme["paper"],
         plot_bgcolor=theme["plot"],
@@ -325,6 +333,15 @@ def apply_figure_theme(fig: go.Figure, use_light_mode: bool = False) -> go.Figur
     if fig.layout.legend:
         fig.update_layout(legend=dict(bgcolor=theme["legend"], font=dict(color=theme["legend_font"])))
     return fig
+
+
+def empty_theme_figure(use_light_mode: bool = False, title: str = "") -> go.Figure:
+    """Placeholder figure that matches the dashboard instead of Plotly's white default."""
+    fig = go.Figure()
+    fig.update_layout(margin=dict(l=70, r=70, t=60, b=60), autosize=True)
+    if title:
+        fig.update_layout(title=dict(text=title, x=0.5))
+    return apply_figure_theme(fig, use_light_mode)
 
 def set_plotly_rgba(color: str, alpha: float = 0.15) -> str:
     """Convert a Plotly color string to an rgba fill with the given alpha."""

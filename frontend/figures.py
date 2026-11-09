@@ -363,7 +363,8 @@ def create_all_timeseries_plots(
 
         yaxis_config = dict(
             title_text=category_yaxis_label(category),
-            fixedrange=False,
+            # Zoom changes time only. The browser then refits this range to the samples in view.
+            fixedrange=True,
             gridcolor="rgba(76, 86, 106, 0.2)",
         )
         if "range" in yaxis_cfg:
@@ -392,8 +393,48 @@ def create_all_timeseries_plots(
     )
     fig.update_annotations(font=dict(size=14), yshift=1)
     fig.update_xaxes(type="date", rangeslider=dict(visible=False), row=n_metrics, col=1)
+    fig.update_layout(
+        meta={
+            "axis_defaults": snapshot_cartesian_defaults(fig),
+            "is_memory": bool(is_memory_category),
+        }
+    )
 
     return fig
+
+
+def snapshot_cartesian_defaults(fig: go.Figure) -> dict:
+    """Save the built X/Y ranges so a double-click can restore them."""
+    layout = fig.to_plotly_json()["layout"]
+    defaults = {}
+    for key, axis in layout.items():
+        if not isinstance(axis, dict) or not _is_cartesian_axis(key):
+            continue
+        entry: dict = {"autorange": bool(axis.get("autorange", False))}
+        if axis.get("range") is not None:
+            entry["range"] = [_axis_range_token(value) for value in axis["range"]]
+            entry["autorange"] = False
+        for tick_key in ("tickvals", "ticktext"):
+            if axis.get(tick_key) is not None:
+                entry[tick_key] = list(axis[tick_key])
+        defaults[key] = entry
+    return defaults
+
+
+def _is_cartesian_axis(key: str) -> bool:
+    if key in ("xaxis", "yaxis"):
+        return True
+    for prefix in ("xaxis", "yaxis"):
+        suffix = key.removeprefix(prefix)
+        if key.startswith(prefix) and suffix.isdigit():
+            return True
+    return False
+
+
+def _axis_range_token(value):
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
 
 
 def relayout_requests_reset(relayout_data: dict | None) -> bool:
@@ -404,6 +445,67 @@ def relayout_requests_reset(relayout_data: dict | None) -> bool:
         value is True and (key == "autosize" or key.endswith(".autorange"))
         for key, value in relayout_data.items()
     )
+
+
+def relayout_x_windows(relayout_data: dict | None) -> dict[str, list]:
+    """Map each touched X axis to ``[start, end]``.
+
+    Plotly sends either ``xaxis.range[0]`` / ``xaxis.range[1]`` or one
+    ``xaxis.range`` pair, depending on the zoom gesture.
+    """
+    if not relayout_data:
+        return {}
+    windows: dict[str, list] = {}
+    for key, value in relayout_data.items():
+        if not isinstance(key, str) or not key.startswith("xaxis"):
+            continue
+        if key.endswith(".range[0]"):
+            axis = key[: -len(".range[0]")]
+            end = relayout_data.get(f"{axis}.range[1]")
+            if end is not None:
+                windows[axis] = [value, end]
+        elif key.endswith(".range") and isinstance(value, (list, tuple)) and len(value) == 2:
+            windows[key[: -len(".range")]] = [value[0], value[1]]
+    return windows
+
+
+_AXIS_PATCH_PROPS = ("range", "autorange", "tickvals", "ticktext", "tickformat", "nticks", "fixedrange")
+
+
+def _json_axis_value(value):
+    if isinstance(value, (list, tuple)):
+        return [_json_axis_value(item) for item in value]
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except (TypeError, ValueError):
+            return value
+    return value
+
+
+def cartesian_axis_patch(layout: dict):
+    """Dash patch of X/Y axes only, so Plotly relayouts without rebuilding traces."""
+    import dash
+    from dash import Patch
+
+    patch = Patch()
+    wrote = False
+    for key, axis in layout.items():
+        if not isinstance(axis, dict) or not _is_cartesian_axis(key):
+            continue
+        for prop in _AXIS_PATCH_PROPS:
+            if prop not in axis:
+                continue
+            patch["layout"][key][prop] = _json_axis_value(axis[prop])
+            wrote = True
+        if key.startswith("yaxis") and "tickvals" not in axis:
+            del patch["layout"][key]["tickvals"]
+            del patch["layout"][key]["ticktext"]
+            wrote = True
+    if not wrote:
+        return dash.no_update
+    return patch
 
 
 def update_xaxis_ranges_in_layout(layout: dict, x_range: list) -> None:
