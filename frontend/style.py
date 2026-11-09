@@ -154,20 +154,20 @@ def plot_color_palette(use_light_mode: bool = False) -> tuple[str, ...]:
 
 
 def plot_pair_colors(use_light_mode: bool = False) -> dict[str, str]:
-    """Accent colors for comparative dual-axis, scatter, and cumulative traces."""
+    """Accents for comparative dual-axis, scatter, and cumulative traces."""
     if use_light_mode:
         return {
-            "x": "#9467bd",
-            "y": "#d62728",
-            "scatter": "#D97706",
-            "cumulative": "#4F7D3B",
-            "marker_line": "#1F2937",
+            "x": "#CD5C5C",  # indianred
+            "y": "#DA70D6",  # orchid
+            "scatter": "#7A5294",
+            "cumulative": "#000000",
+            "marker_line": "#000000",
         }
     return {
-        "x": "#9467bd",
-        "y": "#d62728",
-        "scatter": "#FF8C42",
-        "cumulative": "#A3BE8C",
+        "x": "#F08080",  # lightcoral
+        "y": "#E6E6FA",  # lavender
+        "scatter": "#D7B3E6",
+        "cumulative": "#FFFFFF",
         "marker_line": "#FFFFFF",
     }
 

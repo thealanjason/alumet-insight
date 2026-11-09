@@ -12,6 +12,11 @@ from frontend.layout import (
     is_empty_tab_placeholder,
     tab_body_action,
 )
+from frontend.style import (
+    DEVICE_CLASS_COLORS_DARK,
+    DEVICE_CLASS_COLORS_LIGHT,
+    plot_pair_colors,
+)
 from tests.fixtures import processed_rows
 
 
@@ -91,6 +96,20 @@ class HelpersTests(unittest.TestCase):
             tab_body_action("tab-prefetch-store", "time-series-tab", "process-specific-tab", built),
             "keep",
         )
+
+    def test_comparative_accents_avoid_device_class_colors(self):
+        forbidden = {
+            color.upper()
+            for color in (*DEVICE_CLASS_COLORS_DARK.values(), *DEVICE_CLASS_COLORS_LIGHT.values())
+        }
+        dark = plot_pair_colors(False)
+        light = plot_pair_colors(True)
+        for key in ("x", "y", "scatter", "cumulative"):
+            self.assertNotIn(dark[key].upper(), forbidden)
+            self.assertNotIn(light[key].upper(), forbidden)
+            self.assertNotEqual(dark[key].upper(), light[key].upper())
+        self.assertNotEqual(dark["x"].upper(), dark["y"].upper())
+        self.assertNotEqual(light["x"].upper(), light["cumulative"].upper())
 
     def test_settled_empty_tab_is_not_a_placeholder(self):
         settled = empty_process_specific_content(settled=True)
